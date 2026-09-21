@@ -6,6 +6,7 @@
 .admin_token
 .jwt_secret
 .auth_port
+.sns_demo_credentials
 .env
 .env.*
 !.env.example
