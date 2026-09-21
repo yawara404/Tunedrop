@@ -220,6 +220,10 @@ git push                      # origin/main へ反映
 push前に `git diff --cached --stat` でステージング内容を確認し、
 `.env`・DB・鍵ファイルなどが誤って含まれていないか目視チェックしてください。
 
+ワンコマンドで済ませる場合は `./sync.sh` を使えます
+（fetch → リモート変更のrebase → コミット → push を一括実行。
+コミットメッセージは `./sync.sh "変更内容の説明"` のように指定できます）。
+
 ### リポジトリの公開設定を変えたいとき
 
 GitHubのリポジトリページ → **Settings → General → 一番下の Danger Zone →
