@@ -955,17 +955,15 @@ def radar_map():
             "category": it["category"],
             "playlist_name": it["playlist_name"],
             "author": it["author"],
+            # radar_map の応答は描画・検索に使う field のみに絞る。
+            # chorus_start / beats / energy / audio_engine はフロントが参照しないため送らない。
             "features": {
                 "tempo": it["tempo"],
-                "chorus_start": it["chorus_start"],
-                "beats": it["beats"],
-                "energy": it["energy"],
                 "mood": it["mood"],
                 "engine": it["engine"] or "unavailable",
                 "bpm_source": it.get("bpm_source"),
                 "bpm_method": it.get("bpm_method"),
                 "vibe_tags": it.get("vibe_tags") or [],
-                "audio_engine": it.get("audio_engine"),
                 "x": round(coords_for_item[0], 4) if coords_for_item else None,
                 "y": round(coords_for_item[1], 4) if coords_for_item else None,
             },
@@ -1070,13 +1068,23 @@ def radar_analyze_all():
     items = _db_bookmarks()
     if user_id:
         items = [i for i in items if i.get("user_id") == int(user_id)]
+    import analysis_cache
     targets = []
     for it in items:
         vid = it["youtube_id"]
         if not (vid and VIDEO_ID_RE.match(vid)):
             continue
-        if not force and (it["feature_vector"]):
-            continue
+        if not force and it["feature_vector"]:
+            # force=0 (未解析のみ) は「AI推定済みかつ音源実測済み(現行アルゴリズム版)」だけ除外する。
+            # 登録時 (/analysis/async) はAI推定のみで feature_vector が付くため、
+            # 旧条件 (feature_vector の有無だけ) では音源未実測の曲が対象外になり、
+            # 雰囲気検索ボタンで未解析曲が解析されない。
+            # audio=0 (AIのみ) の場合は feature_vector あり=解析済みとして除外する。
+            measured_current = (
+                it.get("bpm_source") in analysis_cache.MEASURED_SOURCES
+                and it.get("bpm_algo") == analysis_cache.TEMPO_ALGO_VERSION)
+            if not use_audio or measured_current:
+                continue
         if not any(t["youtube_id"] == vid for t in targets):
             targets.append(it)
     if limit > 0:

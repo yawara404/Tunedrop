@@ -243,7 +243,7 @@ ngrok 無料プランの初回アクセス警告ページです。**「Visit Sit
 （以降はクッキーでスキップされます）。アプリのAPI通信は `fetch` 経由のため、この警告の影響を受けません。
 
 ### 画面は出るが「APIに接続できません」と表示される
-`frontend/api-client.js` は次の順で API を自動検出します。上から順に確認してください。
+`frontend/app.js` 内のAPI接続処理は次の順で API を自動検出します。上から順に確認してください。
 
 1. 現在のページと同じ場所の `api.php`
 2. `frontend/config.js` の `mampApiUrl`（既定: `http://localhost:8888/api.php`）

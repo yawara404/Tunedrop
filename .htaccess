@@ -20,4 +20,45 @@ Options -Indexes -MultiViews
 DirectoryIndex index.html
 # mod_authz_core is standard in Apache 2.4; mod_rewrite is not required.
 # Support both the project DocumentRoot and MAMP's /Tunedrop/ layout.
-Require expr "%{REQUEST_URI} =~ m#^/(?:Tunedrop/)?(?:index\.html|api\.php|admin\.php|admin\.js|admin\.css|frontend/(?:app|api-client|config|text-marquee|manager-lists)\.js|frontend/style\.css|vendor/vue\.esm-browser\.prod\.js)?$#"
+Require expr "%{REQUEST_URI} =~ m#^/(?:Tunedrop/)?(?:index\.html|api\.php|admin\.php|admin\.js|admin\.css|frontend/(?:app|config)\.js|frontend/style\.css)?$#"
+
+# ==========================================================
+# TuneDrop: 配信の軽量化 (gzip + ブラウザ資産のキャッシュ)
+# ==========================================================
+# MAMP既定の httpd.conf は LoadModule deflate_module がコメントアウトされている。
+# 圧縮を効かせたい場合は httpd.conf の該当行をアンコメントして Apache を再起動する
+# (モジュール本体 /Applications/MAMP/Library/modules/mod_deflate.so は同梱済み)。
+# 無効なままだと IfModule ごと無視されるだけで、動作には影響しない。
+# 公開時 (Cloudflare Tunnel / ngrok) は同じ資産がエッジ側でも圧縮される。
+<IfModule deflate_module>
+    # 実測: HTML+CSS+JS の合計 395KB -> 111KB、api.php の radar_map 8.5KB -> 1.8KB
+    # (AddOutputFilterByType は mod_filter が必要で、無効時に 500 になるため使わない)
+    SetOutputFilter DEFLATE
+</IfModule>
+<IfModule setenvif_module>
+    # 既に圧縮済みの形式は二重圧縮しない (Varyヘッダも付けない)。
+    # mod_deflate は no-gzip 環境変数を見て圧縮を止める。
+    # (SetEnvIfNoCase は setenvif_module の機能なので deflate のガード内には置かない)
+    SetEnvIfNoCase Request_URI \.(?:gif|jpe?g|png|webp|woff2?|ttf|otf|mp4|webm|zip|gz)$ no-gzip dont-vary
+</IfModule>
+
+# ブラウザ資産はクエリ文字列 (?v=...) で版管理している。
+# ?v= 付きは長め (7日)、それ以外は短め (1時間) にして、更新漏れの事故を防ぐ。
+# index.html は毎回検証し、常に最新の資産を参照できるようにする。
+# 注意: SetEnvIf の Request_URI / Query_String ではクエリ (?v=) を判定できない
+# (どちらも一致しないことを実機検証済み)。クエリ判定は mod_rewrite で行う。
+# mod_rewrite が無効な環境では IfModule ごと無視され、全資産が短めキャッシュになるだけ。
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{QUERY_STRING} (^|&)v=
+    RewriteRule ^ - [E=tunedrop_versioned:1]
+</IfModule>
+<IfModule headers_module>
+    <FilesMatch "\.(?:css|js|woff2?|ttf|otf)$">
+        Header set Cache-Control "public, max-age=3600"
+        Header set Cache-Control "public, max-age=604800" env=tunedrop_versioned
+    </FilesMatch>
+    <FilesMatch "\.html$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>

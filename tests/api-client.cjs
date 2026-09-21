@@ -1,7 +1,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(`${__dirname}/../frontend/api-client.js`, 'utf8');
+// api-client は frontend/app.js 先頭に統合済み。統合部分だけ切り出して検証する。
+const bundled = fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8');
+const apiStart = bundled.indexOf('// ===== api-client');
+const appStart = bundled.indexOf('let player;');
+const source = bundled.slice(apiStart, appStart);
 
 async function scenario(page, replies, expected, options = {}) {
     const calls = [];

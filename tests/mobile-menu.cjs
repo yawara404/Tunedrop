@@ -142,7 +142,9 @@ const context = vm.createContext({
     },
     document: documentStub,
     Element: FakeElement,
-    URLSearchParams,
+    URL, URLSearchParams, Headers, AbortController,
+    fetch: async () => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({}) }),
+    requestAnimationFrame: (fn) => 0,
     localStorage: { getItem: () => null, setItem() { }, removeItem() { } },
     alert() { },
     console,
@@ -152,6 +154,9 @@ const context = vm.createContext({
 });
 
 vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8'), context);
+// 統合後の app.js は tunedropFetch を内包するため、メニュー挙動に関係ない
+// 非同期API呼び出しがテスト後に落ちないようスタブで上書きする。
+vm.runInContext('tunedropFetch = async () => ({ ok: true, json: async () => ({ success: true }) }); syncPlayerFavorite = async () => {};', context);
 const run = code => vm.runInContext(code, context);
 
 // ----------------------------------------------------------

@@ -43,6 +43,51 @@ function get_active_auth_port(): int {
 }
 
 /**
+ * Flask (app.py) のエンドポイントを呼び出す共通処理。
+ * ポートは get_active_auth_port() が動的に解決するため、どのポートで起動しても動く。
+ *
+ * 接続できない場合は 503 と JSON エラーを返して null を返すので、
+ * 呼び出し側は `if ($raw === null) break;` だけでよい。
+ *
+ * $options:
+ *   method / timeout / body / headers … HTTP リクエストの組み立て
+ *   ignore_errors                     … 4xx/5xx でも本文を受け取る (認証プロキシ用)
+ *   passthrough_status                … Flask の HTTP ステータスをそのまま返す
+ *   error                             … 接続失敗時に返すメッセージ
+ */
+function flask_proxy_request(string $path, array $options = []): ?string {
+    $request = [
+        'method' => $options['method'] ?? 'GET',
+        'timeout' => $options['timeout'] ?? 15,
+        'ignore_errors' => (bool)($options['ignore_errors'] ?? false),
+    ];
+    if (!empty($options['headers'])) {
+        $request['header'] = implode("\r\n", (array)$options['headers']) . "\r\n";
+    }
+    if (array_key_exists('body', $options)) {
+        $request['content'] = (string)$options['body'];
+    }
+    $port = get_active_auth_port();
+    $raw = @file_get_contents("http://127.0.0.1:{$port}{$path}", false, stream_context_create(['http' => $request]));
+    if ($raw === false) {
+        http_response_code(503);
+        echo json_encode([
+            'success' => false,
+            'error' => $options['error'] ?? 'サーバー(app.py)に接続できません。',
+        ], JSON_UNESCAPED_UNICODE);
+        return null;
+    }
+    if (!empty($options['passthrough_status'])) {
+        foreach ($http_response_header ?? [] as $response_header) {
+            if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $response_header, $matches)) {
+                http_response_code((int)$matches[1]);
+            }
+        }
+    }
+    return $raw;
+}
+
+/**
  * JWT (app.py が発行する HS256 トークン) を検証して user_id を取り出す。
  * app.py と同じ SECRET_KEY (環境変数または共有 .jwt_secret ファイル) を使用する。
  */
@@ -103,17 +148,6 @@ function current_user_id(): ?int {
         return jwt_user_id_from_token($m[1]);
     }
     return null;
-}
-
-/** ユーザーごとのデータを返すアクション用。未ログインは 401 で応答して終了する。 */
-function require_user_id(): int {
-    $uid = current_user_id();
-    if (!$uid) {
-        http_response_code(401);
-        echo json_encode(['error' => 'ログインが必要です。', 'auth_required' => true], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-    return $uid;
 }
 
 /** 全ゲスト共通で使うユーザー名。 */
@@ -392,6 +426,18 @@ function toggle_public_favorite(PDO $db, int $user_id, string $kind, int $id): i
 }
 
 /**
+ * ドラッグ＆ドロップで並び替えた ID の順番を sort_order に書き込む。
+ * SQL は `sort_order = ?` / `id = ?` / `user_id = ?` の順でプレースホルダを持つ前提で、
+ * 他人のリストや固定タブは SQL 側の WHERE 句で除外される。
+ */
+function save_sort_order(PDO $db, string $sql, $ordered_ids, int $user_id): void {
+    $stmt = $db->prepare($sql);
+    foreach (array_values(array_filter(array_map('intval', (array)$ordered_ids))) as $position => $id) {
+        $stmt->execute([$position, $id, $user_id]);
+    }
+}
+
+/**
  * SQLite 接続を開き、MAMP (PHP) と Python (app.py) が同じ DB を同時に使っても
  * リクエストがハングしないように設定する。
  *
@@ -587,7 +633,11 @@ try {
                 } else {
                     $state = toggle_public_favorite($db, $user_id, 'playlist', (int)$list['id']);
                 }
-                echo json_encode(['success'=>true, 'is_favorite'=>$state]);
+                // 更新後のお気に入り総数を返す (Share画面のバッジ・ランキングを即時更新用)
+                $cnt = $db->prepare("SELECT (SELECT COUNT(*) FROM public_favorites WHERE kind='playlist' AND target_id=?)
+                    + COALESCE((SELECT is_favorite FROM playlists WHERE id=?), 0)");
+                $cnt->execute([(int)$list['id'], (int)$list['id']]);
+                echo json_encode(['success'=>true, 'is_favorite'=>$state, 'favorite_count'=>(int)$cnt->fetchColumn()]);
             } else {
                 echo json_encode(['success'=>false]);
             }
@@ -868,9 +918,13 @@ try {
         case 'get_public_playlists':
             // 固定タブ (未整理 / 公開用お気に入り) は各ユーザー専用のタブなので、
             // ユーザーが作成した公開リストだけを共有一覧に出す (同名タブの重複表示を防ぐ)。
+            // favorite_count = みんなのお気に入り数 (public_favorites) + 作成者自身の★。
+            // Share画面の人気ランキング・お気に入りバッジ表示用。
             $stmt = $db->query(
                 "SELECT p.*, COALESCE(u.display_name, u.username) AS author, COALESCE(u.display_name, u.username) AS author_name,
-                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count
+                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
+                        ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
+                         + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
                  FROM playlists p
                  JOIN users u ON u.id = p.user_id
                  WHERE p.is_public = 1 AND p.system_key IS NULL
@@ -884,7 +938,9 @@ try {
             // 共有一覧と同じく固定タブ (未整理 / 公開用お気に入り) は除外する
             $stmt = $db->query(
                 "SELECT p.*, COALESCE(u.display_name, u.username) AS author,
-                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count
+                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
+                        ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
+                         + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
                  FROM playlists p
                  JOIN users u ON u.id = p.user_id
                  WHERE p.is_public = 1 AND p.system_key IS NULL
@@ -892,6 +948,90 @@ try {
             );
             $playlists = with_default_playlist_covers($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
             echo json_encode($playlists, JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'get_recommended_playlists':
+            // Share画面のおすすめ欄用。視聴者の保存曲・好みカテゴリからスコア化する。
+            // - 共通曲 (視聴者の保存曲と公開リスト内の曲の重なり) を最重視
+            // - 視聴者の利用が多いカテゴリ一致で加点
+            // - お気に入り数は人気ブーストとして少量加点
+            // - 自分の公開リスト・すでにお気に入り済みは後回し (除外はしない)
+            $viewer = require_user_or_guest($db);
+            $limit = max(1, min(12, (int)($_GET['limit'] ?? 6)));
+            $my_youtube_ids = $db->prepare(
+                "SELECT DISTINCT b.youtube_id FROM bookmarks b
+                 JOIN playlists p ON p.id = b.playlist_id
+                 WHERE p.user_id = ?"
+            );
+            $my_youtube_ids->execute([$viewer]);
+            $mine = array_values(array_filter($my_youtube_ids->fetchAll(PDO::FETCH_COLUMN)));
+            $mine_set = array_fill_keys($mine, true);
+            // 視聴者の利用カテゴリ上位2件 (曲数ベース)
+            $cat_stmt = $db->prepare(
+                "SELECT p.category, COUNT(*) AS c FROM bookmarks b
+                 JOIN playlists p ON p.id = b.playlist_id
+                 WHERE p.user_id = ? GROUP BY p.category ORDER BY c DESC LIMIT 2"
+            );
+            $cat_stmt->execute([$viewer]);
+            $top_cats = array_values(array_filter($cat_stmt->fetchAll(PDO::FETCH_COLUMN, 0)));
+            // お気に入り済みプレイリスト (自分のお気に入り + 公開お気に入り)
+            $fav_stmt = $db->prepare(
+                "SELECT p.id FROM playlists p WHERE p.user_id = ? AND p.is_favorite = 1"
+            );
+            $fav_stmt->execute([$viewer]);
+            $own_fav_ids = array_fill_keys(array_map('intval', $fav_stmt->fetchAll(PDO::FETCH_COLUMN)), true);
+            $pub_fav_stmt = $db->prepare(
+                "SELECT target_id FROM public_favorites WHERE user_id = ? AND kind = 'playlist'"
+            );
+            $pub_fav_stmt->execute([$viewer]);
+            foreach ($pub_fav_stmt->fetchAll(PDO::FETCH_COLUMN) as $fid) $own_fav_ids[(int)$fid] = true;
+            $stmt = $db->query(
+                "SELECT p.*, COALESCE(u.display_name, u.username) AS author, COALESCE(u.display_name, u.username) AS author_name,
+                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
+                        ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
+                         + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
+                 FROM playlists p
+                 JOIN users u ON u.id = p.user_id
+                 WHERE p.is_public = 1 AND p.system_key IS NULL"
+            );
+            $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $track_stmt = $db->prepare("SELECT youtube_id FROM bookmarks WHERE playlist_id = ?");
+            $scored = [];
+            foreach ($candidates as $pl) {
+                $track_stmt->execute([$pl['id']]);
+                $tids = $track_stmt->fetchAll(PDO::FETCH_COLUMN);
+                $common = 0;
+                foreach ($tids as $tid) if (isset($mine_set[$tid])) $common++;
+                $cat_bonus = in_array($pl['category'] ?? '', $top_cats, true) ? 1 : 0;
+                $is_own = ((int)$pl['user_id'] === $viewer);
+                $is_faved = isset($own_fav_ids[(int)$pl['id']]);
+                $score = $common * 20 + ($cat_bonus ? 8 : 0)
+                    + (int)$pl['favorite_count'] * 1.0 + (int)$pl['track_count'] * 0.05
+                    + ((int)$pl['id'] % 100) * 0.001;
+                if ($is_own) $score -= 1000;
+                if ($is_faved) $score -= 500;
+                if ($common > 0) {
+                    $reason = "保存曲{$common}曲と共通";
+                } elseif ($cat_bonus && !empty($pl['category'])) {
+                    $reason = "{$pl['category']}好きにおすすめ";
+                } elseif ((int)$pl['favorite_count'] > 0) {
+                    $reason = "今人気";
+                } else {
+                    $reason = "新着";
+                }
+                $pl['common_count'] = $common;
+                $pl['recommend_reason'] = $reason;
+                $pl['recommend_score'] = $score;
+                $scored[] = $pl;
+            }
+            usort($scored, fn($a, $b) => $b['recommend_score'] <=> $a['recommend_score']);
+            $scored = array_slice($scored, 0, $limit);
+            // 空リストの自分の公開分だけしか無い場合などはフォールバックで人気順を返す
+            if (count($scored) === 0) {
+                $scored = [];
+            }
+            $scored = with_default_playlist_covers($db, $scored);
+            echo json_encode($scored, JSON_UNESCAPED_UNICODE);
             break;
 
         case 'radar_tunelot':
@@ -928,13 +1068,10 @@ try {
         // ==========================================
         case 'reorder_playlists':
             if ($method === 'POST' && isset($input['ordered_ids']) && is_array($input['ordered_ids'])) {
-                $user_id = require_user_or_guest($db);
-                $ids = array_values(array_filter(array_map('intval', $input['ordered_ids'])));
                 // 固定タブ (未整理 / 公開用お気に入り) は並び替え対象外 (サイドバーで常に先頭固定)
-                $stmt = $db->prepare("UPDATE playlists SET sort_order = ? WHERE id = ? AND user_id = ? AND system_key IS NULL");
-                foreach ($ids as $pos => $pid) {
-                    $stmt->execute([$pos, $pid, $user_id]);
-                }
+                save_sort_order($db,
+                    "UPDATE playlists SET sort_order = ? WHERE id = ? AND user_id = ? AND system_key IS NULL",
+                    $input['ordered_ids'], require_user_or_guest($db));
                 echo json_encode(['success' => true]);
             } else {
                 echo json_encode(['success' => false, 'error' => 'Invalid input']);
@@ -946,12 +1083,9 @@ try {
         // ==========================================
         case 'reorder_bookmarks':
             if ($method === 'POST' && isset($input['ordered_ids']) && is_array($input['ordered_ids'])) {
-                $user_id = require_user_or_guest($db);
-                $ids = array_values(array_filter(array_map('intval', $input['ordered_ids'])));
-                $stmt = $db->prepare("UPDATE bookmarks SET sort_order = ? WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
-                foreach ($ids as $pos => $bid) {
-                    $stmt->execute([$pos, $bid, $user_id]);
-                }
+                save_sort_order($db,
+                    "UPDATE bookmarks SET sort_order = ? WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)",
+                    $input['ordered_ids'], require_user_or_guest($db));
                 echo json_encode(['success' => true]);
             } else {
                 echo json_encode(['success' => false, 'error' => 'Invalid input']);
@@ -963,20 +1097,16 @@ try {
         // ==========================================
         case 'radar_map': {
             $public = isset($_GET['public']) ? (int)$_GET['public'] : 0;
-            $port = get_active_auth_port();
-            $ctx = stream_context_create(['http' => ['timeout' => 30]]);
-            $raw = @file_get_contents("http://127.0.0.1:{$port}/radar/map?public={$public}", false, $ctx);
-            if ($raw === false) {
-                http_response_code(503);
-                echo json_encode(['success' => false, 'error' => 'UMAPマップサーバーに接続できません。(app.py を起動してください)'], JSON_UNESCAPED_UNICODE);
-                break;
-            }
+            $raw = flask_proxy_request("/radar/map?public={$public}", [
+                'timeout' => 30,
+                'error' => 'UMAPマップサーバーに接続できません。(app.py を起動してください)',
+            ]);
+            if ($raw === null) break;
             echo $raw;
             break;
         }
 
         case 'radar_analyze_all': {
-            $port = get_active_auth_port();
             // force / audio / limit / wait を Flask へ転送する
             // (旧パラメータ名 essentia も audio として受付)
             $qs = http_build_query([
@@ -986,33 +1116,22 @@ try {
                 'limit' => isset($_GET['limit']) ? (int)$_GET['limit'] : 0,
                 'wait' => isset($_GET['wait']) ? (int)$_GET['wait'] : 0,
             ]);
-            $timeout = (isset($_GET['wait']) && (int)$_GET['wait'] === 1) ? 3600 : 60;
-            $ctx = stream_context_create(['http' => ['timeout' => $timeout]]);
-            $raw = @file_get_contents("http://127.0.0.1:{$port}/radar/analyze_all?{$qs}", false, $ctx);
-            if ($raw === false) {
-                http_response_code(503);
-                echo json_encode([
-                    'success' => false,
-                    'error' => '再解析サーバー(app.py)に接続できません。./start.sh で起動してください。',
-                ], JSON_UNESCAPED_UNICODE);
-                break;
-            }
+            // wait=1 は全曲解析の完了まで待つため、接続タイムアウトを長く取る
+            $raw = flask_proxy_request("/radar/analyze_all?{$qs}", [
+                'timeout' => (isset($_GET['wait']) && (int)$_GET['wait'] === 1) ? 3600 : 60,
+                'error' => '再解析サーバー(app.py)に接続できません。./start.sh で起動してください。',
+            ]);
+            if ($raw === null) break;
             echo $raw;
             break;
         }
 
         case 'radar_analyze_status': {
-            $port = get_active_auth_port();
-            $ctx = stream_context_create(['http' => ['timeout' => 20]]);
-            $raw = @file_get_contents("http://127.0.0.1:{$port}/radar/analyze_status", false, $ctx);
-            if ($raw === false) {
-                http_response_code(503);
-                echo json_encode([
-                    'success' => false,
-                    'error' => '再解析サーバー(app.py)に接続できません。',
-                ], JSON_UNESCAPED_UNICODE);
-                break;
-            }
+            $raw = flask_proxy_request('/radar/analyze_status', [
+                'timeout' => 20,
+                'error' => '再解析サーバー(app.py)に接続できません。',
+            ]);
+            if ($raw === null) break;
             echo $raw;
             break;
         }
@@ -1029,28 +1148,21 @@ try {
                 echo json_encode(['error' => '無効な認証エンドポイントです。']);
                 break;
             }
-            $auth_port = get_active_auth_port();
-            $auth_url = "http://127.0.0.1:{$auth_port}/auth/{$endpoint}";
-            $auth_body = file_get_contents('php://input');
+            // MAMP では Authorization ヘッダが $_SERVER に直接入らないため auth_header_value() で取り出す
             $auth_header = auth_header_value();
-            $auth_ctx = stream_context_create(['http' => [
+            $auth_resp = flask_proxy_request("/auth/{$endpoint}", [
                 'method' => $endpoint === 'me' ? 'GET' : 'POST',
-                'header' => "Content-Type: application/json\r\n" . ($auth_header !== '' ? "Authorization: {$auth_header}\r\n" : ''),
-                'content' => $auth_body,
+                'headers' => array_merge(
+                    ['Content-Type: application/json'],
+                    $auth_header !== '' ? ["Authorization: {$auth_header}"] : []
+                ),
+                'body' => file_get_contents('php://input'),
                 'ignore_errors' => true,
+                'passthrough_status' => true,
                 'timeout' => 15,
-            ]]);
-            $auth_resp = @file_get_contents($auth_url, false, $auth_ctx);
-            if ($auth_resp === false) {
-                http_response_code(503);
-                echo json_encode(['error' => '認証サーバーに接続できません。app.py が起動しているか確認してください。']);
-                break;
-            }
-            foreach ($http_response_header ?? [] as $response_header) {
-                if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $response_header, $matches)) {
-                    http_response_code((int)$matches[1]);
-                }
-            }
+                'error' => '認証サーバーに接続できません。app.py が起動しているか確認してください。',
+            ]);
+            if ($auth_resp === null) break;
             echo $auth_resp;
             break;
 

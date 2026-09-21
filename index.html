@@ -7,10 +7,14 @@
     <title>Tune drop - Music Bookmark & Radar</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Material Symbols は全アイコン収録版だと約3.1MBあるため、icon_names で使用中の
+         アイコンだけをサブセット配信する（23アイコンで約19KB）。アイコンを追加したら、
+         下の icon_names にアルファベット順で追加すること（未知の名前があると全収録版の
+         約3.1MBにフォールバックする）。 -->
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=add,arrow_back,close,delete,description,drag_indicator,drive_file_move,edit,favorite,heart_broken,home,library_music,lock,menu,more_vert,music_note,person,play_arrow,public,radar,share,skip_next,skip_previous&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="frontend/style.css?v=mobile-player-gap-1">
+    <link rel="stylesheet" href="frontend/style.css?v=share-16">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
@@ -113,11 +117,16 @@
             </aside>
             <section class="content-area radar-content-area">
                 <div class="radar-map-toolbar">
-                    <h2 class="section-title" style="margin:0;">雰囲気 楽曲マップ</h2>
+                    <h2 class="section-title" style="margin:0;">雰囲気 楽曲マップ <span class="radar-count-badge" id="radar-result-count"></span></h2>
                     <div class="radar-map-controls">
-                        <input type="text" id="radar-title-search" class="ctrl-search"
-                            placeholder="🔍 曲名・アーティストで絞り込み..." oninput="applyRadarFilter()">
-                        <select id="radar-category-filter" class="ctrl-select" onchange="applyRadarFilter()">
+                        <div class="radar-search-wrap">
+                            <input type="text" id="radar-title-search" class="ctrl-search"
+                                placeholder="🔍 曲名・アーティストで絞り込み... (Enterで先頭を再生)" oninput="queueRadarFilter()"
+                                onkeydown="onRadarSearchKey(event)"
+                                aria-label="曲名・アーティストで絞り込み">
+                            <button class="radar-search-clear" id="btn-radar-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearRadarSearch()">×</button>
+                        </div>
+                        <select id="radar-category-filter" class="ctrl-select" onchange="radarStripLimit=30;applyRadarFilter(true)">
                             <option value="">All</option>
                             <option value="Vocaloid">Vocaloid</option>
                             <option value="J-POP">J-POP</option>
@@ -127,16 +136,45 @@
                         </select>
                         <button class="ctrl-chip" id="btn-radar-random" onclick="playRadarRandomThree()"
                             title="表示中のマップからランダムに最大3曲を発掘して再生">📡 Radar</button>
-                        <button class="ctrl-chip" id="btn-radar-zoom-in" title="ズームイン">＋</button>
-                        <button class="ctrl-chip" id="btn-radar-zoom-out" title="ズームアウト">－</button>
-                        <button class="ctrl-chip" id="btn-radar-zoom-reset" title="リセット">⤾</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-in" title="ズームイン" aria-label="ズームイン">＋</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-out" title="ズームアウト" aria-label="ズームアウト">－</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-fit" title="表示中の曲が収まるよう調整" aria-label="表示中の曲にフィット">⤢</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-reset" title="リセット" aria-label="ズームと位置をリセット">⤾</button>
+                    </div>
+                    <div class="radar-map-controls radar-map-subcontrols">
+                        <select id="radar-vibe-filter" class="ctrl-select" onchange="radarStripLimit=30;applyRadarFilter(true)"
+                            title="雰囲気タグで絞り込み" aria-label="雰囲気タグで絞り込み">
+                            <option value="">雰囲気: All</option>
+                        </select>
+                        <select id="radar-tempo-filter" class="ctrl-select" onchange="radarStripLimit=30;applyRadarFilter(true)"
+                            title="BPMで絞り込み" aria-label="BPMで絞り込み">
+                            <option value="">BPM: All</option>
+                        </select>
+                        <select id="radar-sort" class="ctrl-select" onchange="applyRadarFilter(true)"
+                            title="一覧の並び順" aria-label="一覧の並び順">
+                            <option value="default">おすすめ順</option>
+                            <option value="title">タイトル順</option>
+                            <option value="bpm-asc">BPM昇順</option>
+                            <option value="bpm-desc">BPM降順</option>
+                        </select>
+                        <button class="ctrl-chip radar-clear-chip" id="btn-radar-clear" onclick="clearRadarFilters()"
+                            title="検索・絞り込みをすべて解除">条件クリア</button>
                     </div>
                 </div>
                 <div class="radar-map-container" id="radar-map-container">
-                    <canvas id="radar-map-canvas" class="radar-map-canvas"></canvas>
+                    <canvas id="radar-map-canvas" class="radar-map-canvas" tabindex="0" role="application"
+                        aria-label="雰囲気楽曲マップ。矢印キーで移動、プラス・マイナスでズーム、0でリセット、Enterで選択中の曲を再生"></canvas>
+                    <div class="radar-map-zoom" role="group" aria-label="マップのズーム">
+                        <button type="button" onclick="radarZoomAtCenter(1.25)" title="ズームイン" aria-label="ズームイン">＋</button>
+                        <button type="button" onclick="radarZoomAtCenter(0.8)" title="ズームアウト" aria-label="ズームアウト">－</button>
+                        <button type="button" onclick="fitRadarToFiltered()" title="表示中の曲にフィット" aria-label="表示中の曲にフィット">⤢</button>
+                        <button type="button" onclick="resetRadarView()" title="リセット" aria-label="ズームと位置をリセット">⤾</button>
+                    </div>
                     <div class="radar-map-legend" id="radar-map-legend"></div>
                     <div class="radar-map-hud" id="radar-map-hud">解析中…</div>
                     <div class="radar-map-tooltip" id="radar-map-tooltip"></div>
+                    <div class="radar-selected-panel" id="radar-selected-panel" hidden></div>
+                    <div class="radar-overlap-popup" id="radar-overlap-popup" hidden></div>
                 </div>
                 <div class="vibe-track-strip" id="vibe-track-strip"></div>
             </section>
@@ -147,8 +185,12 @@
                 <div class="share-toolbar">
                     <h2 class="section-title" style="margin:0;">みんなのプレイリスト</h2>
                     <div class="radar-map-controls">
-                        <input type="text" id="share-search" class="ctrl-search" placeholder="🔍 プレイリスト名・ユーザー名で検索..."
-                            oninput="renderSharePlaylists()">
+                        <div class="share-search-wrap">
+                            <input type="text" id="share-search" class="ctrl-search" placeholder="プレイリスト名・ユーザー名で検索..."
+                                oninput="onShareSearchInput()" onkeydown="onShareSearchKey(event)"
+                                aria-label="プレイリスト名・ユーザー名で検索">
+                            <button class="share-search-clear" id="btn-share-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearShareSearch()">×</button>
+                        </div>
                         <select id="share-category" class="ctrl-select" onchange="renderSharePlaylists()">
                             <option value="">All</option>
                             <option value="Vocaloid">Vocaloid</option>
@@ -157,8 +199,19 @@
                             <option value="Lo-Fi">Lo-Fi</option>
                             <option value="Other">Other</option>
                         </select>
-                        <button type="button" id="btn-share-random" class="share-random-btn" onclick="openRandomSharePlaylist()" title="ランダムに1つ選ぶ">🎲 おまかせ</button>
+                        <select id="share-sort" class="ctrl-select" onchange="renderSharePlaylists()" title="並び順">
+                            <option value="popular">人気順</option>
+                            <option value="newest" selected>新着順</option>
+                            <option value="tracks">曲数順</option>
+                        </select>
+                        <button type="button" id="btn-share-random" class="share-random-btn" onclick="openRandomSharePlaylist()" title="ランダムに1つ選ぶ"><span class="material-symbols-rounded">radar</span>おまかせ</button>
                     </div>
+                </div>
+                <div id="share-recommend" class="share-recommend" hidden></div>
+                <div id="share-ranking" class="share-ranking" hidden></div>
+                <div class="share-grid-header">
+                    <h3 class="share-grid-title" id="share-grid-title">すべて</h3>
+                    <span class="share-count-badge" id="share-count-badge"></span>
                 </div>
                 <div class="grid-container share-grid" id="share-playlists-grid"></div>
             </section>
@@ -436,10 +489,7 @@
     </div>
 
     <script src="frontend/config.js"></script>
-    <script src="frontend/api-client.js"></script>
-    <script src="frontend/app.js?v=random-playlist-1"></script>
-    <script type="module" src="frontend/manager-lists.js?v=share-fun-1"></script>
-    <script src="frontend/text-marquee.js?v=left-loop-2"></script>
+    <script src="frontend/app.js?v=share-16"></script>
 </body>
 
 </html>

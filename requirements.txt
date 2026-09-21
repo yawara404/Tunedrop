@@ -22,3 +22,23 @@ numpy>=1.26
 #       .venv の大半 (1.8GB) は CLAP の重み 630k-audioset-best.pt である。
 # yt-dlp + ffmpeg も必要 (音源の取得と WAV 変換)。
 
+# .venv 軽量化メモ (2026-09: 全体 2.83GB -> 2.5GB、動作検証済み)
+#   再作成時は venv を作り直した後に下記を適用すること (.venv は git 管理外のため)。
+#   1. venv パッチ (sklearn 不要化):
+#      laion_clap/clap_module/__init__.py の
+#        from .loss import ClipLoss, gather_features, LPLoss, lp_gather_features, LPMetrics
+#      を try/except ImportError で囲む (学習用 loss の import を遅延。推論は影響なし)。
+#      適用後は scikit-learn を入れなくてよい (joblib は librosa が使うため残す)。
+#      なお transformers/generation/candidate_generator.py は is_sklearn_available()
+#      ガード済みのため無修正で動く。
+#   2. 削除済み (再作成時は入れないか、入れた後に消す):
+#      __pycache__ 全削除 / 各パッケージの tests/test/testing ディレクトリ /
+#      transformers/models の bert,roberta,bart,gpt2,auto 以外の arch /
+#      rich,typer,pygments,markdown-it,shellingham,mdurl,networkx,setuptools /
+#      hf_xet / 数値計算に使わない .py (torch 未使用部・scipy 未使用部等。
+#      起動時 import trace + 全テスト + CLAP実推論で検証)
+#      削除禁止: 630k-audioset-best.pt / torch 本体・lib / numpy/testing・torch/testing
+#      (import 時に必要) / librosa 全体 (lazy_loader のため) / pandas・PIL・h5py・
+#      webdataset・torchvision・transformers 本体・huggingface_hub・narwhals /
+#      cryptography (Google ログイン) / sympy・mpmath・tokenizers (推論チェーンで必要) / pip
+

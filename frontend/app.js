@@ -1,3 +1,57 @@
+// ===== api-client (旧 frontend/api-client.js を統合: API接続先の自動検出) =====
+// Live Serverは静的配信専用。PHPが実行される接続先を確認してからAPIを呼ぶ。
+let tunedropApiPromise;
+
+async function resolveTunedropApi() {
+    const config = window.TUNEDROP_CONFIG || {};
+    const candidates = config.apiUrl ? [config.apiUrl] : [
+        new URL('api.php', window.location.href).href,
+        config.mampApiUrl || 'http://localhost:8888/Tunedrop/api.php',
+        'http://localhost:8888/api.php'
+    ];
+    for (const candidate of [...new Set(candidates)]) {
+        const url = new URL(candidate, window.location.href);
+        url.search = '?action=health';
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2500);
+        try {
+            const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+            if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) continue;
+            const data = await response.json();
+            if (data.service === 'TuneDrop PHP API' && data.status === 'ok') {
+                url.search = '';
+                return url;
+            }
+        } catch (_) {
+            // Live ServerのPHPソース・404・停止中のサーバーは候補から除外。
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+    throw new Error('APIに接続できません。MAMPを起動し、config.jsのmampApiUrlと公開フォルダを確認してください。');
+}
+
+async function tunedropFetch(path, options) {
+    if (!tunedropApiPromise) {
+        tunedropApiPromise = resolveTunedropApi().catch(error => {
+            tunedropApiPromise = null;
+            throw error;
+        });
+    }
+    const url = new URL((await tunedropApiPromise).href);
+    url.search = new URL(path, window.location.href).search;
+    // JWT (app.py が発行) を自動付与する。api.php はこれでユーザーごとのデータ分離を行う。
+    const headers = new Headers(options && options.headers ? options.headers : undefined);
+    const token = localStorage.getItem('tunedrop_token');
+    if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
+    const response = await fetch(url, Object.assign({}, options, { headers }));
+    if (!response.headers.get('content-type')?.includes('application/json')) {
+        tunedropApiPromise = null;
+        throw new Error('APIからJSONが返りません。MAMPのPHP設定とconfig.jsを確認してください。');
+    }
+    return response;
+}
+
 let player;
 let playerReady = false;
 let isPlaying = false;
@@ -10,6 +64,7 @@ let allPlaylists = [];
 let allRadarPlaylists = [];
 let allRadarRecentPlaylists = [];
 let sharePlaylists = [];
+let shareRecommended = [];
 let currentTracks = [];
 let currentDetailTracks = [];
 let selectedTrackIdForMove = null;
@@ -135,16 +190,6 @@ function isMobileMenuViewport() {
 window.addEventListener('resize', () => {
     if (isMobileMenuOpen() && !isMobileMenuViewport()) closeMobileMenu();
 });
-
-function toggleBottomPlayer() {
-    const hidden = document.body.classList.toggle('player-bar-hidden');
-    const button = document.getElementById('player-bar-toggle');
-    if (button) {
-        button.innerText = hidden ? '＋' : '×';
-        button.title = hidden ? '再生バーを表示' : '再生バーを隠す';
-        button.setAttribute('aria-label', button.title);
-    }
-}
 
 function closeYoutubePlayer() {
     const popup = document.getElementById('youtube-popup');
@@ -476,11 +521,6 @@ function initGoogleAuth() {
     );
 }
 
-// 既存互換: ログインモーダルを開いたら公式Googleボタンを表示する
-function triggerGoogleLogin() {
-    initGoogleAuth();
-}
-
 async function handleGoogleCredential(response) {
     const credential = response && response.credential;
     if (!credential) return;
@@ -524,30 +564,9 @@ function filterManagerPlaylists() {
     renderManagerLists(filtered);
 }
 
-// サイドバー・カード一覧の描画。Vue (frontend/manager-lists.js) が読み込まれていれば
-// リアクティブ描画に委ね、未ロード時のみ従来の手動描画へフォールバックする。
+// サイドバー・カード一覧の描画 (バニラJS: Vue依存を排除して軽量化)。
 function renderManagerLists(filtered) {
-    const systemLists = allPlaylists.filter(isSystemPlaylist).sort(compareSystemPlaylists);
-    const userLists = filtered.filter(list => !isSystemPlaylist(list));
-
-    if (window.ManagerLists) {
-        window.ManagerLists.setData({
-            systemLists,
-            userLists,
-            currentPlaylistId,
-            homeMode: currentPlaylistId === 'fav_playlists' ? 'fav_playlists' : 'home',
-            sortMode: playlistSortMode,
-        });
-    } else {
-        renderPlaylistNav(filtered);
-        return;
-    }
-
-    // 見出しの更新 (従来 renderPlaylistNav が担っていた)
-    if (currentPlaylistId === 'home' || currentPlaylistId === 'fav_playlists') {
-        const titleEl = document.getElementById('home-section-title');
-        if (titleEl) titleEl.innerText = currentPlaylistId === 'fav_playlists' ? "お気に入りリスト" : "マイ・プレイリスト";
-    }
+    renderPlaylistNav(filtered);
 }
 
 function renderPlaylistNav(playlists) {
@@ -740,10 +759,10 @@ document.addEventListener('click', (event) => {
     }
 }, true);
 
-// Vue (frontend/manager-lists.js) からドラッグ終了を通知してもらうためのブリッジ
+// ドラッグ終了の抑止用ブリッジ (タッチ並び替え直後の誤クリック防止)。
 window.markDragEnded = () => { lastPointerDragEndedAt = Date.now(); };
 
-// Vue 側で並び替えたユーザーリスト順を app.js の状態とDBへ反映する (再描画はしない)
+// 並び替えたユーザーリスト順を状態とDBへ反映する (再描画はしない)。
 window.onPlaylistsReordered = (orderedIds) => {
     applyPlaylistOrderToState(orderedIds);
     savePlaylistOrder();
@@ -1304,44 +1323,38 @@ document.addEventListener('keydown', event => {
 // ==========================================================
 // ソート機能
 // ==========================================================
-function sortPlaylists(playlists, mode) {
-    const arr = [...playlists];
+// リスト (created_at / name) と曲 (added_at / title) で使うキーだけが違うため共通化。
+// 'custom' は DB が返した並び (sort_order → id 昇順) を尊重する。
+function sortByMode(items, mode, dateKey, nameKey) {
+    const arr = [...items];
     switch (mode) {
         case 'newest':
             // 新規順: id 降順 (新しいほど id 大)
-            return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0) || (b.created_at || '').localeCompare(a.created_at || ''));
+            return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0) || (b[dateKey] || '').localeCompare(a[dateKey] || ''));
         case 'oldest':
             // 古い順: id 昇順
-            return arr.sort((a, b) => (a.id ?? 0) - (b.id ?? 0) || (a.created_at || '').localeCompare(b.created_at || ''));
+            return arr.sort((a, b) => (a.id ?? 0) - (b.id ?? 0) || (a[dateKey] || '').localeCompare(b[dateKey] || ''));
         case 'name':
             // 名前順 (localeCompare で自然な並び)
-            return arr.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja'));
+            return arr.sort((a, b) => (a[nameKey] || '').localeCompare(b[nameKey] || '', 'ja'));
         case 'custom':
         default:
-            // カスタム順: sort_order → id 昇順 (DBから返ってきた並びを尊重)
             return arr.sort((a, b) => ((a.sort_order ?? 0) - (b.sort_order ?? 0)) || ((a.id ?? 0) - (b.id ?? 0)));
     }
 }
 
+function sortPlaylists(playlists, mode) {
+    return sortByMode(playlists, mode, 'created_at', 'name');
+}
+
 function sortTracks(tracks, mode) {
-    const arr = [...tracks];
-    switch (mode) {
-        case 'newest':
-            return arr.sort((a, b) => (b.id ?? 0) - (a.id ?? 0) || (b.added_at || '').localeCompare(a.added_at || ''));
-        case 'oldest':
-            return arr.sort((a, b) => (a.id ?? 0) - (b.id ?? 0) || (a.added_at || '').localeCompare(b.added_at || ''));
-        case 'name':
-            return arr.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
-        case 'custom':
-        default:
-            return arr.sort((a, b) => ((a.sort_order ?? 0) - (b.sort_order ?? 0)) || ((a.id ?? 0) - (b.id ?? 0)));
-    }
+    return sortByMode(tracks, mode, 'added_at', 'title');
 }
 
 function onPlaylistSortChange() {
     const sel = document.getElementById('playlist-sort-select');
     playlistSortMode = sel ? sel.value : 'custom';
-    // ソート順の変更を反映 (Vue はリアクティブに再描画する)
+    // ソート順の変更を反映 (再描画する)
     filterManagerPlaylists();
 }
 
@@ -1556,6 +1569,8 @@ let radarPan = { x: 0, y: 0 };   // 正規化空間(0..1)でのパン量
 let radarDragging = false;
 let radarMoved = false;
 let radarSelectedId = null;
+let radarPlotCache = null;   // 直近 drawRadarMap の当たり判定用プロット (mousemove毎の再計算を避ける)
+let radarDrawQueued = false; // ドラッグ/ホイール中の再描画まとめ用
 
 const CATEGORY_COLORS = {
     'Vocaloid': '#ff5c7a',
@@ -1597,6 +1612,50 @@ function radarVibeLabel(features) {
     return f.mood || '';
 }
 
+// マップの点・曲カード・ツールチップで共通に使う表示ラベル一式
+function radarTrackLabels(track) {
+    const f = (track && track.features) || {};
+    return {
+        category: (track && track.category) || 'Other',
+        tempo: (f.tempo > 0) ? `${Math.round(f.tempo)} BPM` : '—',
+        bpmSource: radarBpmLabel(f),
+        vibe: radarVibeLabel(f),
+        engine: radarEngineLabel(f.engine),
+    };
+}
+
+// 楽曲をマップ上のピクセル座標へ射影する (パン + ズーム適用済み)。
+// 座標 (features.x / features.y) が無い曲は円配置へフォールバックする。
+// 描画 (drawRadarMap) と当たり判定 (bindRadarPointer) が同じ式を使うため共通化している。
+function radarPlotPoints(tracks, W, H) {
+    const list = tracks || [];
+    return list.map((track, index) => {
+        const f = track.features || {};
+        let x, y;
+        if (typeof f.x === 'number' && typeof f.y === 'number') {
+            x = Math.max(0, Math.min(1, f.x));
+            y = Math.max(0, Math.min(1, f.y));
+        } else {
+            const angle = (Math.PI * 2 * index) / Math.max(1, list.length) - Math.PI / 2;
+            x = 0.5 + 0.35 * Math.cos(angle);
+            y = 0.5 + 0.35 * Math.sin(angle);
+        }
+        return {
+            t: track,
+            px: W / 2 + (x - 0.5) * W * radarZoom + radarPan.x * W,
+            py: H / 2 + (y - 0.5) * H * radarZoom + radarPan.y * H,
+        };
+    });
+}
+
+// マップ上の吹き出し (マウスホバー時のツールチップ) の中身
+function radarTooltipHtml(track) {
+    const { category, tempo, bpmSource, vibe, engine } = radarTrackLabels(track);
+    return `<b>${escapeHtml(track.title)}</b><span>${escapeHtml(track.channel || '')}</span>`
+        + `<span>${escapeHtml(category)} · ${tempo}${bpmSource ? ' ' + escapeHtml(bpmSource) : ''}`
+        + `${vibe ? ' · ' + escapeHtml(vibe) : ''}${engine ? ' · ' + escapeHtml(engine) : ''}</span>`;
+}
+
 async function loadRadarData() {
     const hud = document.getElementById('radar-map-hud');
     const statusBtn = document.getElementById('btn-vibe-radar');
@@ -1622,16 +1681,38 @@ async function loadRadarData() {
         const eng = data.points && data.points.length && data.points[0].features
             ? data.points[0].features.engine : null;
         const engLabel = eng === 'gemini' ? 'Gemini AI' : (eng === 'rules' ? 'AI推定(ルール)' : '');
+        const pendingCount = (data.pending && data.pending.length) || 0;
+        const pendingLabel = pendingCount ? ` · ${pendingCount} 曲は解析待ち` : '';
         if (hud) hud.textContent = data.method === 'umap'
-            ? `${data.count} 曲を AI×UMAP で表示${engLabel ? ' · ' + engLabel : ''}`
-            : `${data.count} 曲を表示` + (data.pending && data.pending.length ? ` · ${data.pending.length} 曲は解析待ち` : '');
-        applyRadarFilter();
+            ? `${data.count} 曲を AI×UMAP で表示${engLabel ? ' · ' + engLabel : ''}${pendingLabel}`
+            : `${data.count} 曲を表示${pendingLabel}`;
+        radarPendingCount = pendingCount;
+        radarLastTotal = vibeMapData.length;
+        radarStripLimit = 30;
+        buildRadarVibeOptions();
+        buildRadarTempoOptions();
+        radarOptionsSig = radarDataSig();
+        updateRadarAnalyzeButton();
+        applyRadarFilter(false);
     } catch (err) {
         console.error('Radar map error:', err);
         if (hud) hud.textContent = 'Flaskサーバー (app.py) に接続できません。';
         drawRadarMap([]);
     } finally {
-        if (statusBtn) statusBtn.innerText = '🔍 雰囲気検索';
+        updateRadarAnalyzeButton();
+    }
+}
+
+// 未解析曲数に応じてサイドバーの解析ボタンの表示を変える (0件なら押せない)
+function updateRadarAnalyzeButton() {
+    const statusBtn = document.getElementById('btn-vibe-radar');
+    if (!statusBtn || statusBtn.disabled) return;
+    if (radarPendingCount > 0) {
+        statusBtn.innerText = `🔍 未解析${radarPendingCount}曲を解析`;
+    } else if (vibeMapData.length > 0) {
+        statusBtn.innerText = '✓ 解析済み';
+    } else {
+        statusBtn.innerText = '🔍 雰囲気検索';
     }
 }
 
@@ -1643,31 +1724,329 @@ async function loadVibeRadar() {
     try {
         // 未解析の楽曲のみ、音源実測 (librosa/CLAP) で雰囲気特徴を解析する。
         // 解析バッチが終わるまで待ってからマップへ反映する (従来は待たずに再読込していた)。
-        await tunedropFetch('api.php?action=radar_analyze_all&force=0&audio=1');
+        let started = null;
+        try {
+            const res = await tunedropFetch('api.php?action=radar_analyze_all&force=0&audio=1');
+            started = await res.json();
+        } catch (_) { started = null; }
+        if (!started || started.success === false) {
+            await loadRadarData();
+            return;
+        }
+        // 未解析曲なし (かつ実行中バッチなし) はポーリングせずそのまま再読込する。
+        // 実行中バッチがある場合はポーリングして完了を待つ。
+        if ((!started.queued || started.queued.length === 0) && !started.running) {
+            await loadRadarData();
+            return;
+        }
         await pollAnalyzeStatus(statusBtn);
         await loadRadarData();
     } catch (_) {
         await loadRadarData();
     } finally {
-        if (statusBtn) { statusBtn.disabled = false; statusBtn.innerText = '🔍 雰囲気検索'; }
+        if (statusBtn) { statusBtn.disabled = false; }
+        updateRadarAnalyzeButton();
     }
 }
 
-function applyRadarFilter() {
+let radarFilterTimer = null;
+let radarStripLimit = 30;
+let radarLastTotal = 0;
+let radarPendingCount = 0;
+let radarVibeOptions = [];
+let radarOptionsSig = '';
+
+function radarDataSig() {
+    return `${vibeMapData.length}:${vibeMapData.length ? vibeMapData[0].youtube_id : ''}`;
+}
+
+// 絞り込み選択肢の欠落を自己修復する (古いJSキャッシュや取得順序の入れ違いで空のまま残った場合用)。
+// データ署名が変わったか、選択肢が空のときだけ作り直す (入力中の再構築で開いている選択肢を閉じないため)
+function ensureRadarFilterOptions() {
+    if (!vibeMapData.length) return;
+    const vibeSel = document.getElementById('radar-vibe-filter');
+    const tempoSel = document.getElementById('radar-tempo-filter');
+    const empty = (sel) => !sel || !sel.options || sel.options.length <= 1;
+    if (radarOptionsSig !== radarDataSig() || empty(vibeSel) || empty(tempoSel)) {
+        radarOptionsSig = radarDataSig();
+        buildRadarVibeOptions();
+        buildRadarTempoOptions();
+    }
+}
+
+function queueRadarFilter() {
+    //  typing every keystroke resets view previously; now debounce + preserve view
+    if (radarFilterTimer) clearTimeout(radarFilterTimer);
+    radarFilterTimer = setTimeout(() => { radarFilterTimer = null; applyRadarFilter(true); }, 150);
+}
+
+function clearRadarSearch() {
+    const input = document.getElementById('radar-title-search');
+    if (input) input.value = '';
+    radarStripLimit = 30;
+    applyRadarFilter(true);
+    if (input) input.focus();
+}
+
+// 検索欄の Enter=先頭結果を再生、Escape=クリア
+function onRadarSearchKey(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        applyRadarFilter(true);
+        const first = vibeFiltered[0];
+        if (first) selectRadarTrack(first.youtube_id, { play: true });
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        clearRadarSearch();
+    }
+}
+
+// 検索・カテゴリ・雰囲気・BPM・並び順をすべて初期化
+function clearRadarFilters() {
+    const q = document.getElementById('radar-title-search');
+    const cat = document.getElementById('radar-category-filter');
+    const vibe = document.getElementById('radar-vibe-filter');
+    const tempo = document.getElementById('radar-tempo-filter');
+    const sort = document.getElementById('radar-sort');
+    if (q) q.value = '';
+    if (cat) cat.value = '';
+    if (vibe) vibe.value = '';
+    if (tempo) tempo.value = '';
+    if (sort) sort.value = 'default';
+    radarStripLimit = 30;
+    radarSelectedId = null;
+    hideRadarOverlap();
+    applyRadarFilter(true);
+    resetRadarView();
+}
+
+function radarTempoValue(t) {
+    const v = Number(t?.features?.tempo);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+// 大まかな3区分の固定選択肢 (細かい10刻みではなく「ゆったり/ふつう/速め」で選ぶ)
+const RADAR_TEMPO_BANDS = [
+    { key: 'slow', label: 'ゆったり (~100)', lo: 0, hi: 100 },
+    { key: 'mid', label: 'ふつう (100〜140)', lo: 100, hi: 140 },
+    { key: 'fast', label: '速め (140〜)', lo: 140, hi: Infinity },
+];
+let radarTempoBands = [];
+
+function buildRadarTempoOptions() {
+    const vals = (vibeMapData || []).map(radarTempoValue).filter(v => v > 0);
+    const sel = document.getElementById('radar-tempo-filter');
+    radarTempoBands = RADAR_TEMPO_BANDS.map(b => ({
+        ...b, count: vals.filter(v => v >= b.lo && v < b.hi).length,
+    }));
+    if (!sel) return;
+    if (!vals.length) {
+        sel.innerHTML = '<option value="">BPM: All</option>';
+        sel.title = 'BPM取得済みの曲がありません';
+        return;
+    }
+    const prev = sel.value || '';
+    sel.innerHTML = '<option value="">BPM: All</option>' + radarTempoBands.map(b =>
+        `<option value="${b.key}"${b.count ? '' : ' disabled'}>BPM ${b.label} (${b.count}曲)</option>`).join('');
+    if (prev && radarTempoBands.some(b => b.key === prev && b.count)) sel.value = prev;
+    const lo = Math.floor(Math.min(...vals));
+    const hi = Math.ceil(Math.max(...vals));
+    sel.title = `BPMで絞り込み (取得済 ${lo}〜${hi}・${vals.length}曲)`;
+}
+
+function radarTempoMatch(t, key) {
+    if (!key) return true;
+    const band = RADAR_TEMPO_BANDS.find(b => b.key === key);
+    if (!band) return true;
+    const bpm = radarTempoValue(t);
+    if (!bpm) return false;   // BPM未取得の曲はBPM指定がある場合のみ対象外
+    return bpm >= band.lo && bpm < band.hi;
+}
+
+function radarVibeMatch(t, key) {
+    if (!key) return true;
+    const f = t?.features || {};
+    if (Array.isArray(f.vibe_tags) && f.vibe_tags.includes(key)) return true;
+    return (f.mood || '') === key;
+}
+
+// 全曲から雰囲気タグ候補を作る (件数が多い順・最大12件)
+function buildRadarVibeOptions() {
+    const counts = new Map();
+    (vibeMapData || []).forEach(t => {
+        const f = t?.features || {};
+        (f.vibe_tags || []).forEach(tag => {
+            if (tag) counts.set(tag, (counts.get(tag) || 0) + 1);
+        });
+        if ((!f.vibe_tags || !f.vibe_tags.length) && f.mood) {
+            counts.set(f.mood, (counts.get(f.mood) || 0) + 1);
+        }
+    });
+    radarVibeOptions = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([tag]) => tag);
+    const sel = document.getElementById('radar-vibe-filter');
+    if (!sel) return;
+    const prev = sel.value || '';
+    sel.innerHTML = '<option value="">雰囲気: All</option>' + radarVibeOptions.map(tag =>
+        `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
+    if (prev && radarVibeOptions.includes(prev)) sel.value = prev;
+}
+
+function resetRadarView() {
+    radarZoom = 1.0;
+    radarPan = { x: 0, y: 0 };
+    drawRadarMap(vibeFiltered);
+}
+
+function applyRadarFilter(preserveView) {
+    ensureRadarFilterOptions();
     const query = (document.getElementById('radar-title-search')?.value || '').toLowerCase();
     const category = document.getElementById('radar-category-filter')?.value || '';
+    const vibe = document.getElementById('radar-vibe-filter')?.value || '';
+    const tempo = document.getElementById('radar-tempo-filter')?.value || '';
+    const sort = document.getElementById('radar-sort')?.value || 'default';
     vibeFiltered = vibeMapData.filter(t => {
         const text = `${t.title} ${t.channel} ${t.author} ${t.playlist_name}`.toLowerCase();
         const okText = !query || text.includes(query);
         const okCat = !category || (t.category || 'Other') === category;
-        return okText && okCat;
+        return okText && okCat && radarVibeMatch(t, vibe) && radarTempoMatch(t, tempo);
     });
-    radarZoom = 1.0;
-    radarPan = { x: 0, y: 0 };
-    radarSelectedId = null;
+    if (sort === 'title') {
+        vibeFiltered.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ja'));
+    } else if (sort === 'bpm-asc') {
+        vibeFiltered.sort((a, b) => (radarTempoValue(a) || 9999) - (radarTempoValue(b) || 9999));
+    } else if (sort === 'bpm-desc') {
+        vibeFiltered.sort((a, b) => radarTempoValue(b) - radarTempoValue(a));
+    }
+    if (!preserveView) {
+        radarZoom = 1.0;
+        radarPan = { x: 0, y: 0 };
+        radarSelectedId = null;
+    } else if (radarSelectedId && !vibeFiltered.some(t => t.youtube_id === radarSelectedId)) {
+        radarSelectedId = null;
+    }
+    // reset strip paging only when filter text/category changed via explicit call chain;
+    // queueRadarFilter/clear keep it simple: reset to first page on new filter
+    if (!preserveView) radarStripLimit = 30;
+    else if (['radar-title-search', 'radar-category-filter', 'radar-vibe-filter', 'radar-tempo-filter'].includes(document.activeElement?.id)) radarStripLimit = 30;
     drawRadarMap(vibeFiltered);
     renderVibeTracks(vibeFiltered);
     renderRadarLegend();
+    updateRadarCount();
+    updateRadarClearButton();
+    updateRadarSelectedPanel();
+}
+
+function updateRadarCount() {
+    const el = document.getElementById('radar-result-count');
+    if (!el) return;
+    const total = vibeMapData.length;
+    const shown = vibeFiltered.length;
+    el.textContent = total ? `${shown} / ${total}曲` : '';
+}
+
+function updateRadarClearButton() {
+    const btn = document.getElementById('btn-radar-search-clear');
+    const input = document.getElementById('radar-title-search');
+    if (!btn || !input) return;
+    btn.style.display = input.value ? 'block' : 'none';
+}
+
+// マップ右上の選択中カード (再生・周辺再生・中央寄せを1か所に集約)
+function updateRadarSelectedPanel() {
+    const panel = document.getElementById('radar-selected-panel');
+    if (!panel) return;
+    const t = (vibeFiltered.find(t => t.youtube_id === radarSelectedId)
+        || vibeMapData.find(t => t.youtube_id === radarSelectedId));
+    if (!t) { panel.hidden = true; panel.innerHTML = ''; return; }
+    const { category, tempo, vibe } = radarTrackLabels(t);
+    const near = radarNeighbors(t.youtube_id, 8);
+    panel.hidden = false;
+    panel.innerHTML = '';
+    const thumb = document.createElement('div');
+    thumb.className = 'radar-panel-thumb';
+    thumb.innerHTML = t.youtube_id
+        ? `<img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="">`
+        : '🎵';
+    const info = document.createElement('div');
+    info.className = 'radar-panel-info';
+    const title = document.createElement('div');
+    title.className = 'radar-panel-title';
+    title.textContent = t.title || t.youtube_id;
+    title.title = t.title || '';
+    const meta = document.createElement('div');
+    meta.className = 'radar-panel-meta';
+    meta.textContent = `${category} · ${tempo}${vibe ? ' · ' + vibe : ''}`;
+    const row = document.createElement('div');
+    row.className = 'radar-panel-row';
+    const mkBtn = (label, hint, fn) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'radar-panel-btn';
+        b.textContent = label;
+        b.title = hint;
+        b.onclick = (e) => { e.stopPropagation(); fn(); };
+        return b;
+    };
+    row.appendChild(mkBtn('▶ 再生', 'この曲を再生', () => playFromRadar(t)));
+    row.appendChild(mkBtn(`周辺${near.length + 1}曲`, '近い雰囲気の曲と連続再生', () => playRadarNeighbors(t.youtube_id, 8)));
+    row.appendChild(mkBtn('◎ 中央へ', 'マップの中央に寄せる', () => focusRadarTrack(t.youtube_id)));
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'radar-panel-close';
+    close.textContent = '×';
+    close.title = '選択を解除 (Esc)';
+    close.setAttribute('aria-label', '選択を解除');
+    close.onclick = (e) => { e.stopPropagation(); selectRadarTrack(null); };
+    info.appendChild(title);
+    info.appendChild(meta);
+    info.appendChild(row);
+    panel.appendChild(thumb);
+    panel.appendChild(info);
+    panel.appendChild(close);
+}
+
+// 点が重なったときの候補選択ポップアップ
+function hideRadarOverlap() {
+    const pop = document.getElementById('radar-overlap-popup');
+    if (!pop) return;
+    pop.hidden = true;
+    pop.innerHTML = '';
+}
+
+function showRadarOverlap(candidates, x, y) {
+    const pop = document.getElementById('radar-overlap-popup');
+    const container = document.getElementById('radar-map-container');
+    if (!pop || !container || !candidates || candidates.length < 2) return;
+    pop.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'radar-overlap-head';
+    head.textContent = `重なった ${candidates.length} 曲から選択`;
+    pop.appendChild(head);
+    candidates.slice(0, 8).forEach(o => {
+        const t = o.t;
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'radar-overlap-item';
+        const dot = document.createElement('span');
+        dot.className = 'legend-dot';
+        dot.style.background = radarCategoryColor(t.category);
+        b.appendChild(dot);
+        const label = document.createElement('span');
+        label.className = 'radar-overlap-label';
+        label.textContent = t.title || t.youtube_id;
+        b.appendChild(label);
+        b.title = `${t.title || ''} を選択・再生`;
+        b.onclick = (e) => { e.stopPropagation(); selectRadarTrack(t.youtube_id, { play: true }); };
+        pop.appendChild(b);
+    });
+    pop.hidden = false;
+    const pw = 240;
+    const ph = Math.min(280, 36 + candidates.length * 34);
+    pop.style.left = Math.max(8, Math.min(x + 12, container.clientWidth - pw - 8)) + 'px';
+    pop.style.top = Math.max(8, Math.min(y + 12, container.clientHeight - ph - 8)) + 'px';
 }
 
 function bindRadarControls() {
@@ -1675,9 +2054,11 @@ function bindRadarControls() {
     const zoomOut = document.getElementById('btn-radar-zoom-out');
     const zoomReset = document.getElementById('btn-radar-zoom-reset');
     const analyzeAll = document.getElementById('btn-radar-analyze-all');
-    if (zoomIn) zoomIn.onclick = () => { radarZoom = Math.min(8, radarZoom * 1.25); drawRadarMap(vibeFiltered); };
-    if (zoomOut) zoomOut.onclick = () => { radarZoom = Math.max(0.2, radarZoom * 0.8); drawRadarMap(vibeFiltered); };
-    if (zoomReset) zoomReset.onclick = () => { radarZoom = 1.0; radarPan = { x: 0, y: 0 }; drawRadarMap(vibeFiltered); };
+    if (zoomIn) zoomIn.onclick = () => { radarZoomAtCenter(1.25); };
+    if (zoomOut) zoomOut.onclick = () => { radarZoomAtCenter(0.8); };
+    if (zoomReset) zoomReset.onclick = () => resetRadarView();
+    const zoomFit = document.getElementById('btn-radar-zoom-fit');
+    if (zoomFit) zoomFit.onclick = () => fitRadarToFiltered();
     if (analyzeAll) analyzeAll.onclick = async () => {
         if (!confirm("全曲を再解析します。\n\nGemini AI 推定に加えて、音源解析 (librosa/CLAP) で実測BPM・雰囲気を取得します。\n曲数が多いと数分〜数十分かかります。\n\n実行しますか？")) return;
         analyzeAll.disabled = true; analyzeAll.innerText = '再解析開始...';
@@ -1743,12 +2124,147 @@ async function pollAnalyzeStatus(btn) {
 function renderRadarLegend() {
     const legend = document.getElementById('radar-map-legend');
     if (!legend) return;
-    const cats = [...new Set(vibeFiltered.map(t => t.category || 'Other'))];
-    legend.innerHTML = cats.map(c =>
-        `<span class="legend-item"><span class="legend-dot" style="background:${radarCategoryColor(c)}"></span>${c}</span>`
-    ).join('');
+    const activeCat = document.getElementById('radar-category-filter')?.value || '';
+    const cats = [...new Set(vibeMapData.map(t => t.category || 'Other'))];
+    if (!cats.length) { legend.innerHTML = ''; return; }
+    legend.innerHTML = '';
+    cats.forEach(c => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'legend-item legend-btn' + (activeCat === c ? ' is-active' : '');
+        btn.title = `${c}で絞り込み` + (activeCat === c ? ' (解除するにはもう一度クリック)' : '');
+        btn.setAttribute('aria-pressed', String(activeCat === c));
+        const dot = document.createElement('span');
+        dot.className = 'legend-dot';
+        dot.style.background = radarCategoryColor(c);
+        btn.appendChild(dot);
+        btn.appendChild(document.createTextNode(c));
+        btn.onclick = () => {
+            const sel = document.getElementById('radar-category-filter');
+            if (!sel) return;
+            sel.value = (sel.value === c) ? '' : c;
+            radarStripLimit = 30;
+            applyRadarFilter(true);
+        };
+        legend.appendChild(btn);
+    });
 }
 
+function radarZoomAtCenter(factor) {
+    radarZoom = Math.max(0.2, Math.min(8, radarZoom * factor));
+    drawRadarMap(vibeFiltered);
+}
+
+// 選択曲が画面中央に来るようパンする (一覧→マップ連携用)
+function focusRadarTrack(youtubeId) {
+    const track = vibeFiltered.find(t => t.youtube_id === youtubeId);
+    if (!track || !track.features) return;
+    const f = track.features;
+    if (typeof f.x !== 'number' || typeof f.y !== 'number') return;
+    const x = Math.max(0, Math.min(1, f.x));
+    const y = Math.max(0, Math.min(1, f.y));
+    radarPan.x = -(x - 0.5) * radarZoom;
+    radarPan.y = -(y - 0.5) * radarZoom;
+    drawRadarMap(vibeFiltered);
+}
+
+// 表示中の曲全体が収まるようズーム・パンを調整 (件数が少ない絞り込み後に便利)
+function fitRadarToFiltered() {
+    const pts = (vibeFiltered || []).map(t => t?.features).filter(f => f && typeof f.x === 'number' && typeof f.y === 'number');
+    if (!pts.length) { resetRadarView(); return; }
+    if (pts.length === 1) {
+        radarZoom = Math.max(radarZoom, 2.5);
+        const t = vibeFiltered.find(t => typeof t?.features?.x === 'number');
+        if (t) { focusRadarTrack(t.youtube_id); return; }
+    }
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    pts.forEach(f => {
+        const x = Math.max(0, Math.min(1, f.x));
+        const y = Math.max(0, Math.min(1, f.y));
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+    });
+    const pad = 0.12;
+    const spanX = Math.max(0.05, (maxX - minX) + pad * 2);
+    const spanY = Math.max(0.05, (maxY - minY) + pad * 2);
+    radarZoom = Math.max(0.2, Math.min(8, Math.min(1 / spanX, 1 / spanY)));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    radarPan.x = -(cx - 0.5) * radarZoom;
+    radarPan.y = -(cy - 0.5) * radarZoom;
+    drawRadarMap(vibeFiltered);
+}
+
+function radarNormPos(t) {
+    const f = t?.features || {};
+    if (typeof f.x !== 'number' || typeof f.y !== 'number') return null;
+    return { x: Math.max(0, Math.min(1, f.x)), y: Math.max(0, Math.min(1, f.y)) };
+}
+
+// マップ上で近い曲＝雰囲気が近い曲。選択曲の周辺 n 曲を返す
+function radarNeighbors(youtubeId, n) {
+    const base = (vibeFiltered.find(t => t.youtube_id === youtubeId)
+        || vibeMapData.find(t => t.youtube_id === youtubeId));
+    const bp = base && radarNormPos(base);
+    if (!bp) return [];
+    return vibeFiltered
+        .filter(t => t.youtube_id !== youtubeId && radarNormPos(t))
+        .map(t => {
+            const p = radarNormPos(t);
+            return { t, d: Math.hypot(p.x - bp.x, p.y - bp.y) };
+        })
+        .sort((a, b) => a.d - b.d)
+        .slice(0, Math.max(0, n || 8))
+        .map(o => o.t);
+}
+
+function radarQueueFromTracks(tracks, startId) {
+    const list = (tracks || []).filter(t => t && t.youtube_id).map(t => ({
+        ...t, id: t.youtube_id, is_favorite: t.is_favorite || 0, fromRadar: true,
+    }));
+    if (!list.length) return { queue: [], index: 0 };
+    const idx = startId ? list.findIndex(t => t.youtube_id === startId) : 0;
+    return { queue: list, index: idx >= 0 ? idx : 0 };
+}
+
+// 選択曲＋周辺の近い曲を連続再生
+function playRadarNeighbors(youtubeId, count) {
+    const base = vibeFiltered.find(t => t.youtube_id === youtubeId)
+        || vibeMapData.find(t => t.youtube_id === youtubeId);
+    if (!base) return;
+    const near = radarNeighbors(youtubeId, Math.max(0, (count || 8) - 1));
+    const { queue } = radarQueueFromTracks([base, ...near], base.youtube_id);
+    closeMobileMenu();
+    playTrackFromQueue(0, queue);
+}
+
+// 選択状態の一元更新: マップ・一覧・パネルを同期する
+function selectRadarTrack(youtubeId, opts) {
+    const o = opts || {};
+    radarSelectedId = youtubeId || null;
+    hideRadarOverlap();
+    drawRadarMap(vibeFiltered);
+    renderVibeTracks(vibeFiltered);
+    updateRadarSelectedPanel();
+    if (youtubeId && o.center) focusRadarTrack(youtubeId);
+    if (youtubeId && o.play) {
+        const t = vibeFiltered.find(t => t.youtube_id === youtubeId)
+            || vibeMapData.find(t => t.youtube_id === youtubeId);
+        if (t) playFromRadar(t);
+    }
+}
+
+
+// ドラッグ/ホイール中の連続再描画を rAF で1フレームにまとめる (CPU/GPU負荷の軽減)。
+// クリック選択・ズームボタン・絞り込みなどの単発更新は drawRadarMap を直接呼ぶ。
+function queueRadarDraw() {
+    if (typeof requestAnimationFrame !== 'function') { drawRadarMap(vibeFiltered); return; }
+    if (radarDrawQueued) return;
+    radarDrawQueued = true;
+    requestAnimationFrame(() => { radarDrawQueued = false; drawRadarMap(vibeFiltered); });
+}
 
 // UMAP座標をキャンバスに描画 (パン/ズーム/ホバー/クリック対応)
 function drawRadarMap(tracks) {
@@ -1793,48 +2309,30 @@ function drawRadarMap(tracks) {
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.font = '13px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('解析済みの楽曲がありません。「⟳ 全曲解析」で解析を実行してください。', W / 2, H / 2);
+        const emptyMsg = (vibeMapData && vibeMapData.length)
+            ? '条件に合う曲がありません。検索・絞り込みを見直してください。'
+            : '解析済みの楽曲がありません。「⟳ 全曲解析」で解析を実行してください。';
+        ctx.fillText(emptyMsg, W / 2, H / 2);
+        if (tracks === vibeFiltered) radarPlotCache = [];
         return;
     }
 
-    // 射影変換: 正規化座標(0..1) → キャンバス座標 (パン+ズーム)
-    const hasCoords = tracks.some(t => typeof (t.features || {}).x === 'number');
-    const R = hasCoords ? 1.0 : 0.66;              // 座標なしは円配置
-    function toPixel(x, y) {
-        const cx = W / 2 + (x - 0.5) * W * radarZoom + radarPan.x * W;
-        const cy = H / 2 + (y - 0.5) * H * radarZoom + radarPan.y * H;
-        return [cx, cy];
-    }
+    // 射影変換: 正規化座標(0..1) → キャンバス座標 (パン+ズーム)。座標なしは円配置
+    const plot = radarPlotPoints(tracks, W, H);
+    // 当たり判定 (ホバー/タップ) はこのキャッシュを使い、mousemove毎の再計算を避ける
+    radarPlotCache = (tracks === vibeFiltered) ? plot : null;
 
-    // 円配置の角度生成（座標がない場合のフォールバック）
-    function circleAngle(i, n) {
-        return (Math.PI * 2 * i) / Math.max(1, n) - Math.PI / 2;
-    }
-
-    const plot = tracks.map((t, i) => {
-        const f = t.features || {};
-        const hasXY = typeof f.x === 'number' && typeof f.y === 'number';
-        let x, y;
-        if (hasXY) {
-            x = Math.max(0, Math.min(1, f.x));
-            y = Math.max(0, Math.min(1, f.y));
-        } else {
-            const a = circleAngle(i, tracks.length);
-            x = 0.5 + 0.35 * Math.cos(a);
-            y = 0.5 + 0.35 * Math.sin(a);
-        }
-        const [px, py] = toPixel(x, y);
-        return { t, x, y, px, py, hasXY, i };
-    });
-
-    // 選択中の楽曲をハイライト
+    // 選択中の楽曲をハイライト (選択時は他を減光)
     const selected = plot.find(o => o.t.youtube_id === radarSelectedId);
+    const hasSelection = Boolean(selected);
+    const baseR = 5 * Math.max(0.85, Math.min(1.5, Math.sqrt(radarZoom)));
 
-    // 各点を描画
+    // 各点を描画 (画面外はスキップ)
     plot.forEach((o) => {
+        if (o.px < -20 || o.py < -20 || o.px > W + 20 || o.py > H + 20) return;
         const isSel = radarSelectedId === o.t.youtube_id;
         const color = radarCategoryColor(o.t.category);
-        const r = isSel ? 7 : 5;
+        const r = isSel ? baseR + 2 : baseR;
         const glow = isSel ? 14 : 0;
 
         if (glow) {
@@ -1844,6 +2342,7 @@ function drawRadarMap(tracks) {
             ctx.fillStyle = g;
             ctx.beginPath(); ctx.arc(o.px, o.py, glow, 0, Math.PI * 2); ctx.fill();
         }
+        ctx.globalAlpha = hasSelection && !isSel ? 0.45 : 1;
         ctx.beginPath();
         ctx.arc(o.px, o.py, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
@@ -1851,7 +2350,26 @@ function drawRadarMap(tracks) {
         ctx.strokeStyle = 'rgba(255,255,255,0.85)';
         ctx.lineWidth = isSel ? 2 : 1;
         ctx.stroke();
+        ctx.globalAlpha = 1;
     });
+
+    // 選択曲と雰囲気が近い曲を細線で結ぶ (周辺発見の手がかり用)
+    if (selected) {
+        const nearIds = new Set(radarNeighbors(selected.t.youtube_id, 6).map(t => t.youtube_id));
+        if (nearIds.size) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            plot.forEach(o => {
+                if (!nearIds.has(o.t.youtube_id)) return;
+                ctx.beginPath();
+                ctx.moveTo(selected.px, selected.py);
+                ctx.lineTo(o.px, o.py);
+                ctx.stroke();
+            });
+            ctx.setLineDash([]);
+        }
+    }
 
     // 選択ラベル（タイトル吹き出し）
     if (selected) {
@@ -1881,17 +2399,25 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
-function renderVibeTracks(tracks) {
+function renderVibeTracks(tracks, scrollToSelected) {
     const strip = document.getElementById('vibe-track-strip');
     if (!strip) return;
     strip.innerHTML = '';
     if (!tracks || tracks.length === 0) {
-        strip.innerHTML = '<p style="color:var(--text-sub); padding:12px;">表示できる楽曲がありません。</p>';
+        const hasFilter = (document.getElementById('radar-title-search')?.value || '')
+            || (document.getElementById('radar-category-filter')?.value || '')
+            || (document.getElementById('radar-vibe-filter')?.value || '')
+            || (document.getElementById('radar-tempo-filter')?.value || '');
+        const hint = hasFilter
+            ? `条件に合う曲がありません。<button type="button" class="radar-strip-clear" onclick="clearRadarFilters()">条件をクリア</button>`
+            : '表示できる楽曲がありません。';
+        strip.innerHTML = `<p class="radar-strip-empty">🔍 ${hint}</p>`;
         return;
     }
 
-    tracks.slice(0, 30).forEach(t => {
-        const f = t.features || {};
+    const visible = tracks.slice(0, radarStripLimit);
+    visible.forEach(t => {
+        const { category, tempo, bpmSource, vibe, engine } = radarTrackLabels(t);
         const color = radarCategoryColor(t.category);
         const card = document.createElement('div');
         card.className = 'strip-card';
@@ -1899,28 +2425,46 @@ function renderVibeTracks(tracks) {
         if (radarSelectedId === t.youtube_id) card.classList.add('selected');
 
         const coverHtml = t.youtube_id
-            ? `<img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="thumb">`
+            ? `<img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="thumb" loading="lazy" decoding="async">`
             : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:24px;">🎵</div>`;
-        const tempo = (f.tempo && f.tempo > 0) ? `${Math.round(f.tempo)} BPM` : '—';
-        const vibe = radarVibeLabel(f);
-        const bpmLabel = radarBpmLabel(f);
-        const engLabel = radarEngineLabel(f.engine);
 
         card.innerHTML = `
             <div class="strip-thumb">${coverHtml}<div class="card-hover-play"></div></div>
             <div class="strip-info">
                 <div class="strip-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
                 <div class="strip-artist">${escapeHtml(t.channel || 'Unknown Artist')}</div>
-                <div class="strip-meta">${escapeHtml(t.category || 'Other')} · <b>tempo</b> ${tempo}${bpmLabel ? ' (' + bpmLabel + ')' : ''}${vibe ? ' · <b>' + escapeHtml(vibe) + '</b>' : ''} · <b>${escapeHtml(engLabel)}</b></div>
+                <div class="strip-meta">${escapeHtml(category)} · <b>tempo</b> ${tempo}${bpmSource ? ' (' + bpmSource + ')' : ''}${vibe ? ' · <b>' + escapeHtml(vibe) + '</b>' : ''} · <b>${escapeHtml(engine)}</b></div>
             </div>
         `;
         card.onclick = () => {
-            radarSelectedId = t.youtube_id;
-            drawRadarMap(vibeFiltered);
-            playFromRadar(t);
+            const wasSelected = radarSelectedId === t.youtube_id;
+            const found = (radarPlotCache || []).find(o => o.t.youtube_id === t.youtube_id);
+            const offscreen = !found || found.px < 0 || found.py < 0 || found.px > canvasWidth() || found.py > canvasHeight();
+            selectRadarTrack(t.youtube_id, { play: true, center: !wasSelected && offscreen });
         };
+        card.ondblclick = (e) => { e.stopPropagation(); focusRadarTrack(t.youtube_id); };
         strip.appendChild(card);
     });
+    if (tracks.length > visible.length) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'radar-strip-more';
+        more.textContent = `さらに表示 (${visible.length} / ${tracks.length}曲)`;
+        more.onclick = () => { radarStripLimit += 30; renderVibeTracks(vibeFiltered); };
+        strip.appendChild(more);
+    }
+    // 選択カードを可視範囲へ (曲送りでの再描画時はスクロールを奪わない)
+    if (scrollToSelected !== false) {
+        const sel = strip.querySelector('.strip-card.selected');
+        if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    }
+}
+
+function canvasWidth() {
+    return document.getElementById('radar-map-container')?.clientWidth || 0;
+}
+function canvasHeight() {
+    return document.getElementById('radar-map-container')?.clientHeight || 0;
 }
 
 function playFromRadar(t) {
@@ -1943,24 +2487,13 @@ function bindRadarPointer() {
     if (!container || !canvas) return;
 
     function currentPlot() {
-        const W = Math.max(1, container.clientWidth);
-        const H = Math.max(1, container.clientHeight);
-        return vibeFiltered.map((t, i) => {
-            const f = t.features || {};
-            const hasXY = typeof f.x === 'number' && typeof f.y === 'number';
-            let x, y;
-            if (hasXY) {
-                x = Math.max(0, Math.min(1, f.x));
-                y = Math.max(0, Math.min(1, f.y));
-            } else {
-                const a = (Math.PI * 2 * i) / Math.max(1, vibeFiltered.length) - Math.PI / 2;
-                x = 0.5 + 0.35 * Math.cos(a);
-                y = 0.5 + 0.35 * Math.sin(a);
-            }
-            const px = W / 2 + (x - 0.5) * W * radarZoom + radarPan.x * W;
-            const py = H / 2 + (y - 0.5) * H * radarZoom + radarPan.y * H;
-            return { t, x, y, px, py, hasXY, i };
-        });
+        // 直近の描画結果を使い回す (同一データ・同一ビューの間は再計算しない)。
+        // キャッシュが無い場合 (初回描画前など) のみ計算する。
+        if (!radarPlotCache) {
+            radarPlotCache = radarPlotPoints(vibeFiltered,
+                Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
+        }
+        return radarPlotCache;
     }
 
     function localPos(e) {
@@ -1975,6 +2508,15 @@ function bindRadarPointer() {
             if (d < bestD) { bestD = d; best = o; }
         });
         return best;
+    }
+
+    // 重なり対応: 半径内の候補を距離順に全件返す
+    function findAllNear(px, py, maxDist) {
+        return currentPlot()
+            .map(o => ({ o, d: Math.hypot(o.px - px, o.py - py) }))
+            .filter(({ d }) => d < maxDist)
+            .sort((a, b) => a.d - b.d)
+            .map(({ o }) => o);
     }
 
     const pointers = new Map();
@@ -1994,6 +2536,7 @@ function bindRadarPointer() {
 
     canvas.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
+        hideRadarOverlap();
         const [x, y] = localPos(e);
         if (!pointers.size) radarMoved = false;
         pointers.set(e.pointerId, { x, y });
@@ -2025,21 +2568,22 @@ function bindRadarPointer() {
                 y: (y / H - 0.5) - (gesture.y / H - 0.5 - gesture.pan.y) * ratio,
             };
             canvas.style.cursor = 'grabbing';
-            drawRadarMap(vibeFiltered);
+            queueRadarDraw();
             return;
         }
         if (e.pointerType !== 'mouse') return;
-        const o = findNearest(mx, my, 12);
+        const o = findNearest(mx, my, 14);
         canvas.style.cursor = o ? 'pointer' : 'grab';
         if (!o) { tooltip.style.display = 'none'; return; }
-        const f = o.t.features || {};
-        const vibe = radarVibeLabel(f);
-        const bpmLabel = radarBpmLabel(f);
-        const engLabel = f.engine === 'gemini' ? 'AI' : (f.engine === 'rules' ? 'AI推定' : '');
-        tooltip.style.display = 'block';
-        tooltip.innerHTML = `<b>${escapeHtml(o.t.title)}</b><span>${escapeHtml(o.t.channel || '')}</span><span>${escapeHtml(o.t.category || 'Other')} · ${f.tempo ? Math.round(f.tempo) + ' BPM' : '—'}${bpmLabel ? ' ' + bpmLabel : ''}${vibe ? ' · ' + escapeHtml(vibe) : ''}${engLabel ? ' · ' + engLabel : ''}</span>`;
-        tooltip.style.left = Math.max(0, Math.min(mx + 14, container.clientWidth - tooltip.offsetWidth)) + 'px';
-        tooltip.style.top = Math.max(0, Math.min(my + 14, container.clientHeight - tooltip.offsetHeight)) + 'px';
+        tooltip.style.display = 'flex';
+        tooltip.innerHTML = radarTooltipHtml(o.t);
+        // 吹き出しが枠外にはみ出さないよう反対側へ折り返す
+        const tw = tooltip.offsetWidth || 200;
+        const th = tooltip.offsetHeight || 60;
+        const flipX = mx + 14 + tw > container.clientWidth;
+        const flipY = my + 14 + th > container.clientHeight;
+        tooltip.style.left = (flipX ? Math.max(0, mx - tw - 12) : mx + 14) + 'px';
+        tooltip.style.top = (flipY ? Math.max(0, my - th - 12) : my + 14) + 'px';
     });
 
     function endGesture(e) {
@@ -2053,22 +2597,88 @@ function bindRadarPointer() {
         canvas.style.cursor = 'grab';
         if (!select) return;
         const [mx, my] = localPos(e);
-        const o = findNearest(mx, my, e.pointerType === 'mouse' ? 14 : 24);
-        radarSelectedId = o ? o.t.youtube_id : null;
-        drawRadarMap(vibeFiltered);
-        renderVibeTracks(vibeFiltered);
-        if (o) playFromRadar(o.t);
+        const radius = e.pointerType === 'mouse' ? 14 : 26;
+        const near = findAllNear(mx, my, radius);
+        if (near.length > 1) {
+            // 重なっている場合は候補から選ぶ (誤タップ防止のため即再生しない)
+            tooltip.style.display = 'none';
+            selectRadarTrack(near[0].t.youtube_id, { play: false });
+            showRadarOverlap(near, mx, my);
+            return;
+        }
+        const o = near[0] || null;
+        if (!o) { selectRadarTrack(null); return; }
+        selectRadarTrack(o.t.youtube_id, { play: true });
+        if (e.pointerType !== 'mouse') {
+            // タッチではツールチップを残して確認しやすくする
+            tooltip.style.display = 'flex';
+            tooltip.innerHTML = radarTooltipHtml(o.t);
+            tooltip.style.left = Math.max(0, Math.min(mx + 14, container.clientWidth - (tooltip.offsetWidth || 200))) + 'px';
+            tooltip.style.top = Math.max(0, Math.min(my + 14, container.clientHeight - (tooltip.offsetHeight || 60))) + 'px';
+            setTimeout(() => { tooltip.style.display = 'none'; }, 2500);
+        }
     }
     canvas.addEventListener('pointerup', endGesture);
     canvas.addEventListener('pointercancel', endGesture);
     canvas.addEventListener('lostpointercapture', endGesture);
     canvas.addEventListener('pointerleave', () => { tooltip.style.display = 'none'; });
 
+    // ダブルクリック/ダブルタップでズームイン (Shift+はズームアウト)
+    canvas.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        const [mx, my] = localPos(e);
+        radarZoomToPoint(mx, my, e.shiftKey ? 0.7 : 1.4);
+    });
+
+    // キーボード操作: +/-/0/矢印/Escape/Enter
+    canvas.addEventListener('keydown', (e) => {
+        const W = Math.max(1, container.clientWidth);
+        const H = Math.max(1, container.clientHeight);
+        const step = 0.08;
+        if (e.key === '+' || e.key === '=') { radarZoomAtCenter(1.2); e.preventDefault(); }
+        else if (e.key === '-' || e.key === '_') { radarZoomAtCenter(0.85); e.preventDefault(); }
+        else if (e.key === '0') { resetRadarView(); e.preventDefault(); }
+        else if (e.key === 'ArrowLeft') { radarPan.x += step / radarZoom; queueRadarDraw(); e.preventDefault(); }
+        else if (e.key === 'ArrowRight') { radarPan.x -= step / radarZoom; queueRadarDraw(); e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { radarPan.y += step / radarZoom; queueRadarDraw(); e.preventDefault(); }
+        else if (e.key === 'ArrowDown') { radarPan.y -= step / radarZoom; queueRadarDraw(); e.preventDefault(); }
+        else if (e.key === 'Escape') {
+            hideRadarOverlap();
+            selectRadarTrack(null);
+            tooltip.style.display = 'none';
+            e.preventDefault();
+        } else if (e.key === 'Enter') {
+            const t = vibeFiltered.find(t => t.youtube_id === radarSelectedId);
+            if (t) playFromRadar(t);
+            e.preventDefault();
+        }
+    });
+
     container.addEventListener('wheel', (e) => {
         e.preventDefault();
-        radarZoom = Math.max(0.2, Math.min(8, radarZoom * (e.deltaY < 0 ? 1.1 : 0.9)));
-        drawRadarMap(vibeFiltered);
+        hideRadarOverlap();
+        const rect = canvas.getBoundingClientRect();
+        radarZoomToPoint(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.1 : 0.9);
     }, { passive: false });
+}
+
+// カーソル位置を基準にズーム (ホイール/ダブルクリック用)。ズーム後も指先の点が追従する
+function radarZoomToPoint(mx, my, factor) {
+    const container = document.getElementById('radar-map-container');
+    if (!container) return;
+    const W = Math.max(1, container.clientWidth);
+    const H = Math.max(1, container.clientHeight);
+    const oldZoom = radarZoom;
+    const newZoom = Math.max(0.2, Math.min(8, oldZoom * factor));
+    if (newZoom === oldZoom) return;
+    const ratio = newZoom / oldZoom;
+    // (mx/W-0.5-pan) を ratio で拡縮し、カーソル下の地物が動かないようパンを補正
+    const nx = mx / W - 0.5;
+    const ny = my / H - 0.5;
+    radarPan.x = nx - (nx - radarPan.x) * ratio;
+    radarPan.y = ny - (ny - radarPan.y) * ratio;
+    radarZoom = newZoom;
+    queueRadarDraw();
 }
 
 
@@ -2331,6 +2941,8 @@ function playRadarRandomThree() {
     // 再生が始まったらメニューを閉じてマップ/コンテンツを見せる
     closeMobileMenu();
     playTrackFromQueue(0, queue);
+    // 1曲目の位置が分かるようマップを寄せる (ズームは維持)
+    if (queue[0]) focusRadarTrack(queue[0].youtube_id);
 }
 
 // ==========================================================
@@ -2341,8 +2953,14 @@ async function loadSharePlaylists() {
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';
     try {
-        const res = await tunedropFetch('api.php?action=get_public_playlists');
-        sharePlaylists = await res.json();
+        const [pubRes, recRes] = await Promise.all([
+            tunedropFetch('api.php?action=get_public_playlists'),
+            tunedropFetch('api.php?action=get_recommended_playlists&limit=6').catch(() => null),
+        ]);
+        sharePlaylists = await pubRes.json();
+        try {
+            shareRecommended = recRes && recRes.ok ? await recRes.json() : [];
+        } catch (_) { shareRecommended = []; }
         renderSharePlaylists();
     } catch (err) {
         grid.innerHTML = '<p style="color:var(--text-sub); grid-column: 1 / -1;">読み込みに失敗しました。</p>';
@@ -2350,48 +2968,288 @@ async function loadSharePlaylists() {
     }
 }
 
+function shareFavCount(p) {
+    const n = Number(p?.favorite_count);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function shareTrackCount(p) {
+    const n = Number(p?.track_count);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+// 人気順の順位表 (id -> 1-based rank)。同点は track_count → 新着(id降順) で決める。
+function sharePopularRanks(lists) {
+    const sorted = [...(lists || [])].sort((a, b) =>
+        shareFavCount(b) - shareFavCount(a)
+        || shareTrackCount(b) - shareTrackCount(a)
+        || (b.id ?? 0) - (a.id ?? 0));
+    const ranks = new Map();
+    sorted.forEach((p, i) => ranks.set(p.id, i + 1));
+    return { sorted, ranks };
+}
+
+function matchShareQuery(p, query, category) {
+    const name = (p?.name || '').toLowerCase();
+    const author = ((p?.author || p?.author_name || p?.username || '')).toLowerCase();
+    const okText = !query || name.includes(query) || author.includes(query);
+    const okCat = !category || (p?.category || 'Other') === category;
+    return okText && okCat;
+}
+
+// 検索・カテゴリ・並び順を適用した一覧を返す (描画とEnterジャンプで共有)
+function getShareFiltered() {
+    const query = (document.getElementById('share-search')?.value || '').toLowerCase();
+    const category = document.getElementById('share-category')?.value || '';
+    const sortMode = document.getElementById('share-sort')?.value || 'newest';
+    const all = sharePlaylists || [];
+    const filtered = all.filter(p => matchShareQuery(p, query, category));
+    const sorted = [...filtered].sort((a, b) => {
+        if (sortMode === 'tracks') return shareTrackCount(b) - shareTrackCount(a) || shareFavCount(b) - shareFavCount(a) || (b.id ?? 0) - (a.id ?? 0);
+        if (sortMode === 'newest') return (b.id ?? 0) - (a.id ?? 0);
+        return shareFavCount(b) - shareFavCount(a) || shareTrackCount(b) - shareTrackCount(a) || (b.id ?? 0) - (a.id ?? 0);
+    });
+    return { query, category, sortMode, filtered, sorted };
+}
+
+function onShareSearchInput() {
+    updateShareClearButton();
+    renderSharePlaylists();
+}
+
+function clearShareSearch() {
+    const input = document.getElementById('share-search');
+    if (input) input.value = '';
+    renderSharePlaylists();
+    if (input) input.focus();
+}
+
+// 検索欄の Enter=先頭結果を開く、Escape=クリア
+function onShareSearchKey(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const { sorted } = getShareFiltered();
+        if (sorted[0]) openPlaylistDetail(sorted[0].id, sorted[0].name, sorted[0].cover_id);
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        clearShareSearch();
+    }
+}
+
+function updateShareClearButton() {
+    const btn = document.getElementById('btn-share-search-clear');
+    const input = document.getElementById('share-search');
+    if (!btn || !input) return;
+    btn.style.display = input.value ? 'block' : 'none';
+}
+
 function renderSharePlaylists() {
     const grid = document.getElementById('share-playlists-grid');
     if (!grid) return;
-    const query = (document.getElementById('share-search')?.value || '').toLowerCase();
-    const category = document.getElementById('share-category')?.value || '';
-    const filtered = (sharePlaylists || []).filter(p => {
-        const name = (p.name || '').toLowerCase();
-        const author = ((p.author || p.author_name || p.username || '')).toLowerCase();
-        const okText = !query || name.includes(query) || author.includes(query);
-        const okCat = !category || (p.category || 'Other') === category;
-        return okText && okCat;
-    });
+    updateShareClearButton();
+    const { query, category, sortMode, filtered, sorted } = getShareFiltered();
+    const all = sharePlaylists || [];
 
-    if (filtered.length === 0) {
-        grid.innerHTML = '<div class="share-empty"><div class="share-empty-icon">🎉</div><p>まだ公開されたプレイリストがありません。</p><p class="share-empty-sub">「編集・公開」から最初の1つを公開してみよう！</p></div>';
+    const { sorted: popularSorted } = sharePopularRanks(all);
+    renderShareRanking(popularSorted);
+    renderShareRecommend();
+
+    const badge = document.getElementById('share-count-badge');
+    if (badge) badge.textContent = filtered.length ? `${filtered.length}件` : '';
+    const gridTitle = document.getElementById('share-grid-title');
+    if (gridTitle) {
+        gridTitle.textContent = sortMode === 'popular' ? '人気順'
+            : sortMode === 'tracks' ? '曲数順' : '新着順';
+    }
+
+    if (sorted.length === 0) {
+        const searching = query || category;
+        grid.innerHTML = searching
+            ? '<div class="share-empty"><span class="material-symbols-rounded share-empty-icon">radar</span><p>条件に合うプレイリストがありません。</p><p class="share-empty-sub">検索やカテゴリを変えてみてください。</p></div>'
+            : '<div class="share-empty"><span class="material-symbols-rounded share-empty-icon">public</span><p>まだ公開されたプレイリストがありません。</p><p class="share-empty-sub">「編集・公開」から最初の1つを公開してみよう！</p></div>';
         return;
     }
 
     grid.innerHTML = '';
-    filtered.forEach((list, index) => {
+    sorted.forEach((list, index) => {
         const card = document.createElement('div');
         card.className = 'card share-card';
         card.style.animationDelay = `${Math.min(index * 40, 480)}ms`;
         card.onclick = () => openPlaylistDetail(list.id, list.name, list.cover_id);
 
         const coverHtml = list.cover_id
-            ? `<img src="https://img.youtube.com/vi/${list.cover_id}/hqdefault.jpg" alt="cover">`
-            : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:40px;">🎵</div>`;
-        const catBadge = list.category ? `<span class="cat-badge" style="position:absolute; top:10px; left:10px; z-index:10; margin:0;">${escapeHtml(list.category)}</span>` : '';
+            ? `<img src="https://img.youtube.com/vi/${list.cover_id}/hqdefault.jpg" alt="cover" loading="lazy">`
+            : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="font-size:40px; color:var(--text-sub);">music_note</span></div>`;
+        const catBadge = list.category ? `<span class="cat-badge share-cat-badge">${escapeHtml(list.category)}</span>` : '';
+        const favs = shareFavCount(list);
+        const isFav = list.is_favorite == 1;
         const authorName = escapeHtml(list.author || list.author_name || list.username || 'User');
-        const trackCount = (typeof list.track_count === 'number') ? list.track_count : '—';
+        const trackCount = (typeof list.track_count === 'number' || typeof list.track_count === 'string') ? list.track_count : '—';
 
         card.innerHTML = `
-            ${catBadge}
-            <div class="card-img-wrapper">${coverHtml}<div class="card-hover-play"></div></div>
+            <div class="card-img-wrapper">${coverHtml}<div class="card-hover-play"></div>
+                ${catBadge}
+                <button type="button" class="share-fav-btn${isFav ? ' is-fav' : ''}" title="${isFav ? 'お気に入り解除' : 'お気に入り追加'}" aria-label="${isFav ? 'お気に入り解除' : 'お気に入り追加'}" aria-pressed="${isFav ? 'true' : 'false'}"><span class="material-symbols-rounded share-fav-icon is-filled">favorite</span><span class="share-fav-count">${favs}</span></button>
+            </div>
             <div class="info">
                 <div class="title" title="${escapeHtml(list.name)}">${escapeHtml(list.name)}</div>
-                <div class="artist"><span class="material-symbols-rounded share-author-icon">person</span>${authorName}<span class="share-track-count">🎵 ${trackCount}曲</span></div>
+                <div class="artist"><span class="material-symbols-rounded share-author-icon">person</span><span class="share-author-name">${authorName}</span></div>
+                <div class="share-card-stats"><span class="material-symbols-rounded share-meta-icon">music_note</span>${trackCount}曲<span class="share-card-stats-dot">·</span><span class="material-symbols-rounded share-meta-icon">favorite</span>${favs}</div>
             </div>
         `;
+        card.querySelector('.share-fav-btn')?.addEventListener('click', (e) => toggleShareFavorite(list.id, e));
         grid.appendChild(card);
     });
+}
+
+function renderShareRecommend() {
+    const box = document.getElementById('share-recommend');
+    if (!box) return;
+    const rawQuery = (document.getElementById('share-search')?.value || '').trim().toLowerCase();
+    const category = document.getElementById('share-category')?.value || '';
+    const filtering = Boolean(rawQuery || category);
+    let lists = (shareRecommended || []).filter(p => p && p.id);
+    // API失敗・空応答時のフォールバック: 公開一覧の人気順で必ず何か出す
+    let isFallback = false;
+    if (lists.length === 0 && (sharePlaylists || []).length > 0) {
+        isFallback = true;
+        const { sorted } = sharePopularRanks(sharePlaylists);
+        lists = sorted.slice(0, 6).map(p => ({ ...p, recommend_reason: '今人気' }));
+    }
+    // 検索・絞り込み中はおすすめ内も同じ条件で絞る (一致があれば表示し続ける)
+    if (filtering) lists = lists.filter(p => matchShareQuery(p, rawQuery, category));
+    if (lists.length === 0) {
+        box.hidden = true;
+        box.innerHTML = '';
+        return;
+    }
+    box.hidden = false;
+    const subText = filtering ? `検索に一致 ${lists.length}件`
+        : isFallback ? '今人気のリストをピックアップ' : '保存曲・好みからピックアップ';
+    box.innerHTML = `
+        <div class="share-recommend-title"><span class="material-symbols-rounded share-section-icon">radar</span>あなたへのおすすめ <span class="share-recommend-sub">${subText}</span>
+            <button type="button" class="share-recommend-reload" id="btn-share-recommend-reload" title="おすすめを更新">⟳ 更新</button>
+        </div>
+        <div class="share-recommend-row">
+            ${lists.map(p => {
+                const cover = p.cover_id
+                    ? `<img src="https://img.youtube.com/vi/${p.cover_id}/mqdefault.jpg" alt="" loading="lazy">`
+                    : `<div class="share-recommend-noimg"><span class="material-symbols-rounded">music_note</span></div>`;
+                const isFav = p.is_favorite == 1;
+                const reason = escapeHtml(p.recommend_reason || 'おすすめ');
+                return `<div class="share-recommend-card" data-id="${p.id}" role="button" tabindex="0" title="${escapeHtml(p.name || '')}">
+                    <span class="share-recommend-cover">${cover}</span>
+                    <span class="share-recommend-info">
+                        <span class="share-recommend-reason">${reason}</span>
+                        <span class="share-recommend-name">${escapeHtml(p.name || '')}</span>
+                        <span class="share-recommend-meta"><span class="material-symbols-rounded share-meta-icon">favorite</span>${shareFavCount(p)} · <span class="material-symbols-rounded share-meta-icon">music_note</span>${shareTrackCount(p)}曲</span>
+                    </span>
+                    <button type="button" class="share-fav-btn share-recommend-fav${isFav ? ' is-fav' : ''}" title="${isFav ? 'お気に入り解除' : 'お気に入り追加'}" aria-label="${isFav ? 'お気に入り解除' : 'お気に入り追加'}" aria-pressed="${isFav ? 'true' : 'false'}"><span class="material-symbols-rounded share-fav-icon is-filled">favorite</span><span class="share-fav-count">${shareFavCount(p)}</span></button>
+                </div>`;
+            }).join('')}
+        </div>`;
+    document.getElementById('btn-share-recommend-reload')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+            const res = await tunedropFetch('api.php?action=get_recommended_playlists&limit=6');
+            if (res.ok) shareRecommended = await res.json();
+        } catch (_) { /* 失敗時は現在の表示を維持 */ }
+        renderShareRecommend();
+    });
+    box.querySelectorAll('.share-recommend-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const id = Number(card.dataset.id);
+            const found = (shareRecommended || []).find(p => p.id == id)
+                || (sharePlaylists || []).find(p => p.id == id);
+            if (found) openPlaylistDetail(found.id, found.name, found.cover_id);
+        });
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+        });
+    });
+    box.querySelectorAll('.share-recommend-fav').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const card = e.currentTarget.closest('.share-recommend-card');
+            toggleShareFavorite(Number(card?.dataset.id), e);
+        });
+    });
+}
+
+function renderShareRanking(popularSorted) {
+    const box = document.getElementById('share-ranking');
+    if (!box) return;
+    const query = (document.getElementById('share-search')?.value || '').trim();
+    const category = document.getElementById('share-category')?.value || '';
+    // 検索・絞り込み中はランキングを隠して一覧に集中させる
+    if (query || category || !popularSorted || popularSorted.length === 0) {
+        box.hidden = true;
+        box.innerHTML = '';
+        return;
+    }
+    const top = popularSorted.slice(0, 3);
+    box.hidden = false;
+    box.innerHTML = `
+        <div class="share-ranking-title"><span class="material-symbols-rounded share-section-icon">favorite</span>お気に入りランキング <span class="share-ranking-sub">みんなのお気に入りで決定！</span></div>
+        <div class="share-podium">
+            ${top.map((p, i) => {
+                const cover = p.cover_id
+                    ? `<img src="https://img.youtube.com/vi/${p.cover_id}/mqdefault.jpg" alt="" loading="lazy">`
+                    : `<div class="share-podium-noimg"><span class="material-symbols-rounded">music_note</span></div>`;
+                return `<button type="button" class="share-podium-card podium-${i + 1}" data-id="${p.id}" title="${escapeHtml(p.name || '')}">
+                    <span class="share-podium-rank podium-rank-${i + 1}">${i + 1}</span>
+                    <span class="share-podium-cover">${cover}</span>
+                    <span class="share-podium-info">
+                        <span class="share-podium-name">${escapeHtml(p.name || '')}</span>
+                        <span class="share-podium-meta"><span class="material-symbols-rounded share-meta-icon">favorite</span>${shareFavCount(p)} · <span class="material-symbols-rounded share-meta-icon">music_note</span>${shareTrackCount(p)}曲</span>
+                    </span>
+                </button>`;
+            }).join('')}
+        </div>`;
+    box.querySelectorAll('.share-podium-card').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = Number(btn.dataset.id);
+            const found = (sharePlaylists || []).find(p => p.id == id);
+            if (found) openPlaylistDetail(found.id, found.name, found.cover_id);
+        });
+    });
+}
+
+// Shareカード上の♥ボタン: 詳細を開かずにお気に入り切替＋件数を即時更新
+async function toggleShareFavorite(id, event) {
+    if (event) event.stopPropagation();
+    const btn = event?.currentTarget;
+    if (btn) btn.disabled = true;
+    try {
+        const res = await tunedropFetch('api.php?action=toggle_favorite_playlist', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            if (data.error) alert(data.error);
+            return data;
+        }
+        const target = (sharePlaylists || []).find(p => p.id == id);
+        if (target) {
+            target.is_favorite = data.is_favorite;
+            if (typeof data.favorite_count === 'number') target.favorite_count = data.favorite_count;
+            else target.favorite_count = shareFavCount(target) + (data.is_favorite ? 1 : -1);
+            if (target.favorite_count < 0) target.favorite_count = 0;
+        }
+        const rec = (shareRecommended || []).find(p => p.id == id);
+        if (rec) {
+            rec.is_favorite = data.is_favorite;
+            if (typeof data.favorite_count === 'number') rec.favorite_count = data.favorite_count;
+            else rec.favorite_count = shareFavCount(rec) + (data.is_favorite ? 1 : -1);
+            if (rec.favorite_count < 0) rec.favorite_count = 0;
+        }
+        renderSharePlaylists();
+        return data;
+    } catch (err) {
+        console.error(err);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 // Share画面の「おまかせ」: 公開プレイリストからランダムに1つ開く
@@ -2414,7 +3272,8 @@ function playTrackFromQueue(index, queue) {
         radarSelectedId = track.youtube_id;
         if (document.getElementById('view-radar').classList.contains('active')) {
             drawRadarMap(vibeFiltered);
-            renderVibeTracks(vibeFiltered);
+            renderVibeTracks(vibeFiltered, false);
+            updateRadarSelectedPanel();
         }
     }
 
@@ -2588,3 +3447,93 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!location.hash) history.replaceState(null, '', '#/manager');
     }
 });
+
+// ===== text-marquee (旧 frontend/text-marquee.js を統合: 長文の自動スクロール) =====
+// Share a single set of observers across dynamic lists, Radar and the player.
+(() => {
+    // Node テスト (vm) などブラウザAPIが無い環境では何もしない。
+    if (typeof matchMedia !== 'function' || typeof document === 'undefined'
+        || typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined'
+        || typeof IntersectionObserver === 'undefined' || typeof requestAnimationFrame !== 'function') return;
+    const selector = [
+        '.card .info .title', '.card .info .artist',
+        '.strip-title', '.strip-artist', '.strip-meta',
+        '.track-info .title', '.track-info .artist',
+        '.track-details .title', '.track-details .artist',
+        '.playlist-nav .list-name', '[data-auto-scroll]',
+    ].join(',');
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    const tracked = new Set();
+    let pending = false;
+
+    function schedule() {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(refresh);
+    }
+
+    const resize = new ResizeObserver(schedule);
+    const visibility = new IntersectionObserver(entries => {
+        changes.disconnect();
+        for (const entry of entries) {
+            entry.target.classList.toggle('is-marquee-visible', entry.isIntersecting);
+        }
+        observeChanges();
+    });
+    const changes = new MutationObserver(schedule);
+    function observeChanges() {
+        changes.observe(document.body, {
+            subtree: true, childList: true, characterData: true,
+            attributes: true, attributeFilter: ['class', 'style', 'hidden'],
+        });
+    }
+
+    function unwrap(element) {
+        const content = element.querySelector(':scope > .auto-marquee-text');
+        if (content) content.replaceWith(...content.childNodes);
+        element.classList.remove('auto-marquee');
+        element.style.removeProperty('--text-slide-distance');
+        element.style.removeProperty('--text-slide-duration');
+    }
+
+    function refresh() {
+        pending = false;
+        changes.disconnect();
+        for (const element of tracked) {
+            if (!element.isConnected) {
+                resize.unobserve(element);
+                visibility.unobserve(element);
+                tracked.delete(element);
+            }
+        }
+        for (const element of document.querySelectorAll(selector)) {
+            if (!tracked.has(element)) {
+                tracked.add(element);
+                resize.observe(element);
+                visibility.observe(element);
+            }
+            // Apply the same overflow loop to Radar and all other views at any width.
+            const enabled = !reducedMotion.matches;
+            if (!enabled) { unwrap(element); continue; }
+            if (!element.clientWidth || !element.getClientRects().length) continue;
+            let content = element.querySelector(':scope > .auto-marquee-text');
+            const distance = (content ? content.scrollWidth : element.scrollWidth) - element.clientWidth;
+            if (distance <= 2) { unwrap(element); continue; }
+            if (!content) {
+                content = document.createElement('span');
+                content.className = 'auto-marquee-text';
+                content.append(...element.childNodes);
+                element.append(content);
+            }
+            element.classList.add('auto-marquee');
+            element.style.setProperty('--text-slide-distance', `-${Math.ceil(distance)}px`);
+            // Scroll left at about 28px/s, pause at the end, then reset on the next loop.
+            element.style.setProperty('--text-slide-duration', `${Math.max(3, distance / (28 * 0.7))}s`);
+        }
+        observeChanges();
+    }
+
+    reducedMotion.addEventListener('change', schedule);
+    document.fonts?.ready.then(schedule);
+    schedule();
+})();
