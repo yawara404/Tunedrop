@@ -1,4 +1,4 @@
-// 公開環境: MAMP/Apache (port 8888) + Cloudflare Tunnel (https://music.wawa-app.me)
+// 公開環境: MAMP/Apache (port 8888) + Cloudflare Tunnel (https://music.wawa-app.me/tunedrop)
 // APIは localhost:8888/api.php (ドキュメントルート = Tunedrop/ 直下) で配信される。
 window.TUNEDROP_CONFIG = {
     mampApiUrl: 'http://localhost:8888/api.php',
@@ -8,7 +8,7 @@ window.TUNEDROP_CONFIG = {
     //   - http://localhost:8888 (MAMP) / http://127.0.0.1:8888
     //   - http://localhost:8000 (start.sh の PHPビルトインサーバー)
     //   - http://localhost:5500 / http://127.0.0.1:5500 (VS Code Live Server)
-    //   - https://music.wawa-app.me (Cloudflare Tunnel)
+    //   - https://music.wawa-app.me/tunedrop (Cloudflare Tunnel)
     //   - https://gainfully-macaroni-swivel.ngrok-free.dev (ngrok)
     // ※ localhost と 127.0.0.1、ポート違いは「別 origin」として扱われるため個別登録が必要。
     // ※ クライアントIDは APIキー (AQ./AIzaで始まる値) とは別物。ログインモーダルに現在の origin が表示される。

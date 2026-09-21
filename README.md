@@ -1,6 +1,6 @@
 # Tune drop
 
-> **お試し公開URL**: https://music.wawa-app.me/
+> **お試し公開URL**: https://music.wawa-app.me/tunedrop/
 > （Cloudflare Tunnelによる公開のため、サーバー停止中はアクセスできません）
 
 YouTubeの音楽を自分好みにコレクション・整理し、みんなの公開プレイリストを発掘・共有できるセルフホスト型のWebアプリです。

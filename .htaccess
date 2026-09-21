@@ -19,8 +19,9 @@
 Options -Indexes -MultiViews
 DirectoryIndex index.html
 # mod_authz_core is standard in Apache 2.4; mod_rewrite is not required.
-# Support both the project DocumentRoot and MAMP's /Tunedrop/ layout.
-Require expr "%{REQUEST_URI} =~ m#^/(?:Tunedrop/)?(?:index\.html|api\.php|admin\.php|admin\.js|admin\.css|frontend/(?:app|config)\.js|frontend/style\.css)?$#"
+# Support both the project DocumentRoot and MAMP's /Tunedrop/ layout,
+# plus the public alias /tunedrop/.
+Require expr "%{REQUEST_URI} =~ m#^/(?:[Tt]unedrop/)?(?:index\.html|api\.php|admin\.php|admin\.js|admin\.css|frontend/(?:app|config)\.js|frontend/style\.css)?$#"
 
 # ==========================================================
 # TuneDrop: 配信の軽量化 (gzip + ブラウザ資産のキャッシュ)
