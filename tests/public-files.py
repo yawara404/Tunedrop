@@ -26,7 +26,7 @@ def check(command, cwd, port):
                 time.sleep(.05)
         base = f'http://127.0.0.1:{port}'
         for path in ['/', '/frontend/app.js', '/frontend/style.css',
-                     '/frontend/config.js',
+                     '/frontend/config.js', '/frontend/favicon.svg',
                      '/frontend/manager-lists.js', '/frontend/api-client.js', '/frontend/text-marquee.js',
                      '/vendor/vue.esm-browser.prod.js',
                      '/database.sqlite', '/database.sqlite-wal', '/.jwt_secret', '/.admin_token',
@@ -38,7 +38,7 @@ def check(command, cwd, port):
                     status = response.status
             except urllib.error.HTTPError as error:
                 status = error.code
-            expected = 200 if path in ['/', '/frontend/app.js', '/frontend/style.css', '/frontend/config.js'] else 403
+            expected = 200 if path in ['/', '/frontend/app.js', '/frontend/style.css', '/frontend/config.js', '/frontend/favicon.svg'] else 403
             assert status == expected, (command[0], path, status, expected)
     finally:
         process.terminate()
@@ -57,6 +57,7 @@ with tempfile.TemporaryDirectory() as temporary:
     for name in ['.htaccess', 'router.php']:
         shutil.copy(ROOT/name, web/name)
     for name in ['index.html','frontend/app.js','frontend/style.css','frontend/config.js',
+                 'frontend/favicon.svg',
                  'database.sqlite','.jwt_secret','.admin_token','app.py','setup.sql','README.md',
                  'tests/test.js','_backup_pre_radar/api.php','.git/config','database.sqlite-wal']:
         path=web/name
