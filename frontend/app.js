@@ -208,7 +208,7 @@ function goToHome() {
 // ==========================================================
 // ルーティング (URLハッシュでブラウザ戻る/進むボタン対応)
 // ==========================================================
-const VIEW_FOR_HASH = { manager: 'manager', radar: 'radar', share: 'share', profile: 'profile', playlist: 'playlist-detail' };
+const VIEW_FOR_HASH = { manager: 'manager', tunedrop: 'manager', radar: 'radar', share: 'share', profile: 'profile', playlist: 'playlist-detail' };
 
 function currentHashView() {
     const hash = (location.hash || '').replace(/^#\/?/, '');
@@ -220,7 +220,7 @@ function currentHashView() {
 
 // ビューをURLに記録しつつ遷移する (戻る履歴へ積む)
 function navigateView(viewName, id) {
-    let hashPath = viewName === 'playlist-detail' ? 'playlist' : viewName;
+    let hashPath = viewName === 'playlist-detail' ? 'playlist' : (viewName === 'manager' ? 'tunedrop' : viewName);
     if (id) hashPath += '/' + id;
     if (('#' + hashPath) !== location.hash) {
         location.hash = hashPath;
@@ -3444,7 +3444,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
         switchView(view);
         // ハッシュが無い場合は URL を揃える (履歴置換)
-        if (!location.hash) history.replaceState(null, '', '#/manager');
+        if (!location.hash) history.replaceState(null, '', '#/tunedrop');
     }
 });
 
