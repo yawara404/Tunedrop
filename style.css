@@ -2088,11 +2088,11 @@ body.player-bar-hidden .track-details {
         padding: 16px 12px 132px !important;
     }
 
-    /* 再生中: 下部の動画ポップアップ(bottom:72px + 高さ200px)が覆う分を
+    /* 再生中: 下部の動画ポップアップ(bottom:104px + 高さ200px)が覆う分を
        スクロールして操作できるよう、隠れる高さ分の余白を確保する。
-       (動画上端 = viewport 下端から 272px。Radar 画面は上部配置なので除外) */
+       (動画上端 = viewport 下端から 304px。Radar 画面は上部配置なので除外) */
     body:has(.youtube-popup.is-active) .content-area:not(.radar-content-area) {
-        padding-bottom: 292px !important;
+        padding-bottom: 324px !important;
     }
 
     .section-title {
@@ -2163,7 +2163,7 @@ body.player-bar-hidden .track-details {
     /* Keep the YouTube frame at its required 355x200px size. */
     .youtube-popup {
         top: auto !important;
-        bottom: 72px !important;
+        bottom: 104px !important;
         left: 50% !important;
         width: 355px !important;
         height: 200px !important;
