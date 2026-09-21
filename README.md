@@ -33,19 +33,23 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 ### 全体構成
 
 ```text
-ブラウザ (SPA)
-├─ フロントエンド: Vanilla JS (ES Modules) + Vue 3 + Canvas マップ描画
-├─ データ管理API: PHP + SQLite (PDO)
-└─ 認証・解析サーバー: Python (Flask) + 楽曲解析エンジン
+ブラウザ (SPA, ビルド不要)
+├─ フロントエンド: Vanilla JS (plain script) + Canvas マップ描画
+├─ データ管理API: PHP + SQLite (PDO, WAL)
+└─ 認証・解析サーバー: Python (Flask + Waitress) + 楽曲解析エンジン
+配信: MAMP/Apache (:8888) + ngrok、または PHPビルトインサーバー (start.sh)
 ```
 
 ### フロントエンド
 
-- 主要ロジック（画面切替・プレイヤー制御・並び替え）はフレームワークに頼らないVanilla JavaScript (ES Modules) で実装し、Manager側リストの状態管理のみVue 3 (vendored) を使用
+- フレームワークなしのVanilla JavaScript（classic script、ビルド・ES Modules不要）。`frontend/config.js` + `frontend/app.js` + `frontend/style.css` の3ファイルのみ
+  （旧 `api-client.js` / `manager-lists.js` / `text-marquee.js` は `app.js` に統合済み、vendored Vueは削除しVue依存なし）
+- API接続先の自動検出（同一originの `api.php` → `mampApiUrl` のhealthプローブ）とJWTの自動付与
 - YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
 - Google Identity ServicesによるGoogleログイン（任意）
-- モダンCSS（CSS変数・`:has()`・pointer-events）によるタッチ／マウス両対応のドラッグ並び替えと、CSS変数ベースのテーマ
+- Inter + Material Symbols Rounded（`icon_names` サブセット約19KB）を使用
 - 楽曲マップはCanvas描画で、ズーム・パン・色分け（カテゴリ別）に対応
+- モダンCSS（CSS変数・`:has()`・pointer-events）によるタッチ／マウス両対応のドラッグ並び替えと、CSS変数ベースのテーマ
 
 ### データ管理API
 
@@ -53,11 +57,16 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 - トークンベースのセッション管理によるユーザーごとのデータ分離
 - SQLiteはWALジャーナル + busy_timeoutで運用し、データAPI（PHP）と解析エンジン（Python）が
   同じDBを同時に読み書きしてもリクエストが待たされない構成（スキーマ更新は版管理で必要時のみ実行）
+- 認証系はFlaskサーバーへのプロキシ（`.auth_port` → 既知ポート走査で動的検出）
+- 公開ファイル制限は `.htaccess`（Apache）と `router.php`（開発サーバー）の許可リストで実施。
+  FastCGI向けのAuthorizationヘッダ補正、gzip圧縮、`?v=` によるブラウザ資産のキャッシュ版管理付き
 
 ### 認証サーバー
 
-- Python (Flask) によるメール登録・ログイン・Googleログイン検証
-- パスワードはハッシュ化して保存し、署名付きトークンでセッションを維持
+- Python (Flask + flask-cors + PyJWT + Werkzeug + google-auth) によるメール登録・ログイン・Googleログイン検証
+- Waitressで配信（未導入時はFlask開発サーバーにフォールバック）。空きポートを自動選択し `.auth_port` に記録
+- パスワードはハッシュ化して保存し、署名付きJWT（24時間）でセッションを維持
+- 楽曲メタデータ取得はYouTube Data API v3（任意、未設定時はoEmbed/noembedフォールバック）
 
 ### 楽曲解析エンジン（Radarの中核）
 
@@ -81,17 +90,18 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 
 **AI推定（Gemini API）**
 
-- 曲名・アーティスト名から音楽特徴量（tempo / energy / valence 等）を推定（音源ダウンロード不要）
+- 曲名・アーティスト名から音楽特徴量（tempo / energy / valence 等）を推定（音源ダウンロード不要。Gemini 3系は `thinkingBudget=0` でJSON取得）
 - 未設定・失敗時は決定的なルールベースにフォールバック
 
-**マップ配置（UMAP）**
+**マップ配置（UMAP、任意）**
 
-- 8次元特徴ベクトルをUMAPで2次元へ射影し、[0,1]に正規化してマップ描画に使用
+- 8次元特徴ベクトルをUMAPで2次元へ射影し、[0,1]に正規化してマップ描画に使用（numpy必須、UMAP任意）
 - UMAP未導入・サンプル数不足時はPCA / 円配置にフォールバック
 
 **解析キャッシュ**
 
-- 解析結果はキャッシュして再利用し、AI推定値より音源実測値（librosa / CLAP）を優先してマージ保存
+- 解析結果は `analysis_cache.py` にキャッシュして再利用し、AI推定値より音源実測値（librosa / CLAP）を優先してマージ保存
+- `TUNEDROP_AUDIO_ENGINE=none` で音源解析をスキップ可。全曲再解析は `reanalyze_songs.py` でバッチ実行
 - 全曲解析の際は実測BPMが既にある曲の音源再取得を省略し、高速化（アルゴリズム版が古い曲は測り直す）
 - ツールチップのBPM表示には、実測/推定の別に加えてオクターブ補正の有無も表示する
 
