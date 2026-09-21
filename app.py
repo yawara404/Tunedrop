@@ -145,11 +145,15 @@ def migrate_system_playlists(conn):
         pass
 
 
+GUEST_USERNAME = 'guest'
+
+
 def migrate_unique_bookmarks(conn):
     """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
 
     過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
-    別リストへの同じ曲の登録は引き続き許可する。
+    ゲスト ('guest' ユーザー) は全リスト横断で同じ曲を1つだけ持てるため、最も古い行だけ残す。
+    ログイン中の一般ユーザーは別リストへの同じ曲の登録を引き続き許可する。
     """
     # 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
     conn.execute(
@@ -157,6 +161,23 @@ def migrate_unique_bookmarks(conn):
         DELETE FROM bookmarks
          WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
         """
+    )
+    # ゲストは全リストで同じ曲を1つだけ持てる: 他リストの重複は最も古い行だけ残す
+    conn.execute(
+        """
+        DELETE FROM bookmarks
+         WHERE id NOT IN (
+           SELECT MIN(b.id) FROM bookmarks b
+           JOIN playlists p ON p.id = b.playlist_id
+           JOIN users u ON u.id = p.user_id AND u.username = ?
+           GROUP BY b.youtube_id
+         )
+         AND playlist_id IN (
+           SELECT p.id FROM playlists p
+           JOIN users u ON u.id = p.user_id AND u.username = ?
+         )
+        """,
+        (GUEST_USERNAME, GUEST_USERNAME),
     )
     try:
         conn.execute(
@@ -166,6 +187,43 @@ def migrate_unique_bookmarks(conn):
     except sqlite3.IntegrityError:
         # 同時書き込みで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
         pass
+    # ゲスト横断の重複をDBレベルでも防ぐ (一般ユーザーの別リスト登録には影響しない)
+    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert")
+    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update")
+    conn.execute(
+        """
+        CREATE TRIGGER bookmarks_guest_video_unique_insert
+         BEFORE INSERT ON bookmarks
+         WHEN EXISTS (
+           SELECT 1 FROM bookmarks b
+           JOIN playlists p ON p.id = b.playlist_id
+           JOIN users u ON u.id = p.user_id AND u.username = 'guest'
+           JOIN playlists np ON np.id = NEW.playlist_id
+           JOIN users nu ON nu.id = np.user_id AND nu.username = 'guest'
+           WHERE b.youtube_id = NEW.youtube_id AND b.playlist_id != NEW.playlist_id
+         )
+         BEGIN
+           SELECT RAISE(ABORT, 'guest_duplicate_video');
+         END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER bookmarks_guest_video_unique_update
+         BEFORE UPDATE OF playlist_id, youtube_id ON bookmarks
+         WHEN EXISTS (
+           SELECT 1 FROM bookmarks b
+           JOIN playlists p ON p.id = b.playlist_id
+           JOIN users u ON u.id = p.user_id AND u.username = 'guest'
+           JOIN playlists np ON np.id = NEW.playlist_id
+           JOIN users nu ON nu.id = np.user_id AND nu.username = 'guest'
+           WHERE b.youtube_id = NEW.youtube_id AND b.id != NEW.id
+         )
+         BEGIN
+           SELECT RAISE(ABORT, 'guest_duplicate_video');
+         END
+        """
+    )
 
 
 def new_display_name(cursor):
@@ -188,26 +246,20 @@ SAMPLE_BOOKMARKS = [
 def insert_default_library(cursor, user_id):
     """新規ユーザー向けに、サイト初期データのサンプル楽曲を入れたデフォルトプレイリストを用意する。
 
-    - 未整理 (非公開) … サンプル2曲
+    - 未整理 (非公開) … 空 (ゲストは全リストで同じ曲を1つだけ持てるため)
     - 公開用お気に入り (公開) … サンプル2曲
-    どちらのリストを開いてもサンプルが見えるように、両方に配置する。
     cover_id は api.php 側で最新曲が自動設定されるため NULL で作成する。
     """
     cursor.execute(
         "INSERT INTO playlists (user_id, name, category, is_public, cover_id, is_favorite, system_key, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, '未整理', 'Other', 0, None, 0, 'inbox', 0)
     )
-    unorganized_id = cursor.lastrowid
     cursor.execute(
         "INSERT INTO playlists (user_id, name, category, is_public, cover_id, is_favorite, system_key, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, '公開用お気に入り', 'J-POP', 1, None, 1, 'public_favorites', 1)
     )
     fav_playlist_id = cursor.lastrowid
     for sort_order, (youtube_id, title, channel) in enumerate(SAMPLE_BOOKMARKS):
-        cursor.execute(
-            "INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, sort_order) VALUES (?, ?, ?, ?, ?)",
-            (unorganized_id, youtube_id, title, channel, sort_order)
-        )
         cursor.execute(
             "INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, sort_order) VALUES (?, ?, ?, ?, ?)",
             (fav_playlist_id, youtube_id, title, channel, sort_order)

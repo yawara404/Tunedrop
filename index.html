@@ -11,8 +11,12 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=mobile-player-gap-1">
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer onload="initGoogleAuth()"></script>
+    <script src="https://www.youtube.com/iframe_api" defer></script>
+    <script>
+        window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
+        window.initGoogleAuth = window.initGoogleAuth || function () { window.__gsiReadyQueued = true; };
+    </script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
 <body>
@@ -413,14 +417,16 @@
         <div
             style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; text-align:center;">
             <h2 style="margin-bottom:20px; color:var(--accent-color);">Tune drop</h2>
-            <input type="text" id="auth-username" placeholder="ログインID（メールアドレスなど）"
+            <form id="login-form" onsubmit="return false;" style="margin:0;">
+            <input type="text" id="auth-username" placeholder="ログインID（メールアドレスなど）" autocomplete="username"
                 style="width:100%; padding:12px; margin-bottom:15px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px;">
-            <input type="password" id="auth-password" placeholder="パスワード"
+            <input type="password" id="auth-password" placeholder="パスワード" autocomplete="current-password"
                 style="width:100%; padding:12px; margin-bottom:20px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px;">
             <button onclick="loginWithEmail()"
                 style="width:100%; padding:12px; background:var(--accent-color); color:#000; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-bottom:10px;">ログイン</button>
             <button onclick="registerWithEmail()"
                 style="width:100%; padding:12px; background:transparent; color:var(--text-main); border:1px solid #555; border-radius:6px; cursor:pointer; margin-bottom:20px;">新規登録</button>
+            </form>
             <hr style="border:0; border-top:1px solid #444; margin-bottom:20px;">
             <div id="g_id_signin" class="google-signin-box" style="display:flex; justify-content:center; min-height:40px;"></div>
             <p id="google-origin-hint" style="display:none; margin-top:10px; font-size:11px; line-height:1.6; word-break:break-all;"></p>

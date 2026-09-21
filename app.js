@@ -439,8 +439,11 @@ function initGoogleAuth() {
         );
         return;
     }
-    if (googleAuthInitialized) return;
+    // GSI スクリプト未ロード時は初期化を待機する (ログインモーダルを開いたときに再試行)。
+    // 未登録 origin では Google 側が [GSI_LOGGER] エラーを出すため、コンソールを汚さないよう
+    // 初期化はユーザーがログインモーダルを開いたタイミングに限定する。
     if (!(window.google && google.accounts && google.accounts.id)) return;
+    if (googleAuthInitialized) return;
 
     googleAuthInitialized = true;
     google.accounts.id.initialize({
@@ -2441,20 +2444,23 @@ function skipTrack(direction) {
 }
 
 function onYouTubeIframeAPIReady() {
-    if (player) return;
+    // YT スクリプト未ロード・プレイヤー作成済みの二重発火は何もしない
+    if (player || !(window.YT && window.YT.Player)) return;
     const initialVideoId = currentQueue[currentTrackIndex]?.youtube_id || '';
     createYouTubePlayer(initialVideoId);
 }
 
 function createYouTubePlayer(videoId) {
+    if (!(window.YT && window.YT.Player)) return;
     document.getElementById('youtube-player')?.remove();
     document.getElementById('youtube-player-frame')?.remove();
+    const popup = document.getElementById('youtube-popup');
+    if (!popup) return;
     const playerContainer = document.createElement('div');
     playerContainer.id = 'youtube-player-frame';
-    document.getElementById('youtube-popup').appendChild(playerContainer);
+    popup.appendChild(playerContainer);
     player = new YT.Player('youtube-player-frame', {
         height: '200', width: '355', videoId,
-        host: 'https://www.youtube-nocookie.com',
         playerVars: {
             'autoplay': 1,
             'cc_load_policy': 0,
@@ -2542,9 +2548,14 @@ function formatTime(seconds) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    if (window.YT?.Player && !player) onYouTubeIframeAPIReady();
+    // head 内のスタブ経由で先行発火した外部スクリプトをここで回収する
+    if (window.__ytApiReadyQueued) { window.__ytApiReadyQueued = false; onYouTubeIframeAPIReady(); }
+    else if (window.YT?.Player && !player) onYouTubeIframeAPIReady();
     checkLoginStatus();
-    initGoogleAuth();
+    // Google ボタンはログインモーダルを開いたときに初期化する。
+    // ページ表示直後に initialize すると、未登録 origin の環境では
+    // Google 側の [GSI_LOGGER] エラーがコンソールに出続けるため。
+    if (window.__gsiReadyQueued) { window.__gsiReadyQueued = false; }
     bindRadarControls();
     bindRadarPointer();
     // Keep the canvas aligned while the mobile workspace slides below the player.

@@ -1,92 +1,110 @@
-"""同じリスト内で同じ曲 (youtube_id) が重複しないことを確認する。
-
-- add_bookmark: 同じリストへの2回目の追加は拒否され、別リストへの追加は許可される
-- 修正前のDBに同一リスト内の重複が残っていてもマイグレーションで掃除される
-- move_bookmark: 移動先に同じ曲がある場合は移動できず、無ければ移動できる
-"""
+"""Guest holds each song at most once across all lists."""
 import json
 import os
-from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-with tempfile.TemporaryDirectory() as directory:
-    database = Path(directory) / 'unique.sqlite'
-    api = Path(directory) / 'api.php'
-    # CLI has no php://input; adapt only the HTTP request-body boundary.
-    source = (ROOT / 'api.php').read_text().replace("file_get_contents('php://input')", "getenv('TEST_BODY')")
-    api.write_text(source)
-    with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
-        # ブックマーク操作は require_user_or_guest 経由で guest ユーザーとして走る
-        db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
-        db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (91,99,'Guest list A',0)")
-        db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (92,99,'Guest list B',0)")
-        db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (93,99,'Guest list C',0)")
-        # 索引が無い時代のDBに残っていた「同一リスト内の重複」を再現する
-        db.execute("DROP INDEX bookmarks_playlist_video_unique")
-        db.execute("INSERT INTO bookmarks (id,playlist_id,youtube_id,title) VALUES (50,91,'oldedupe0001','Old dup A')")
-        db.execute("INSERT INTO bookmarks (id,playlist_id,youtube_id,title) VALUES (51,91,'oldedupe0001','Old dup B')")
-        db.commit()
+ROOT = Path("/Users/<username>/Tunedrop")
+TMP = tempfile.mkdtemp()
+database = Path(TMP) / "unique.sqlite"
+api = Path(TMP) / "api.php"
+src = (ROOT / "api.php").read_text()
+src = src.replace("file_get_contents('php://input')", "getenv('TEST_BODY')")
+api.write_text(src)
+con = sqlite3.connect(str(database))
+con.executescript((ROOT / "setup.sql").read_text())
+con.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','x')")
+con.execute("INSERT INTO users (id,username,password_hash) VALUES (98,'regular','x')")
+con.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (91,99,'GA',0)")
+con.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (92,99,'GB',0)")
+con.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (93,99,'GC',0)")
+con.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (81,98,'RA',0)")
+con.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (82,98,'RB',0)")
+con.execute("DROP INDEX bookmarks_playlist_video_unique")
+con.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert")
+con.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update")
+con.execute("INSERT INTO bookmarks (id,playlist_id,youtube_id,title) VALUES (50,91,'oldedupe0001','A')")
+con.execute("INSERT INTO bookmarks (id,playlist_id,youtube_id,title) VALUES (51,91,'oldedupe0001','B')")
+con.execute("INSERT INTO bookmarks (id,playlist_id,youtube_id,title) VALUES (52,91,'guestcross01','C')")
+con.execute("INSERT INTO bookmarks (id,playlist_id,youtube_id,title) VALUES (53,92,'guestcross01','D')")
+con.commit()
+con.close()
 
-    def request(action, body=None):
-        script = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]]; require $argv[3];'
-        return json.loads(subprocess.check_output(
-            [os.environ.get('PHP_BIN', 'php'), '-r', script, 'POST' if body is not None else 'GET', action, str(api)],
-            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body)}, text=True,
-        ))
 
-    # どのリクエストでも最初にマイグレーションが走り、同一リスト内の重複は最も古い行だけ残る
-    request('get_playlists')
-    with sqlite3.connect(database) as db:
-        assert db.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='oldedupe0001'").fetchone()[0] == 1
-        assert db.execute("SELECT COUNT(*) FROM bookmarks WHERE id=50").fetchone()[0] == 1
-        assert db.execute(
-            "SELECT COUNT(*) FROM bookmarks GROUP BY playlist_id, youtube_id HAVING COUNT(*) > 1"
-        ).fetchall() == []
-        assert db.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='bookmarks_playlist_video_unique'"
-        ).fetchone()[0] == 1
+def req(action, body=None):
+    code = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]]; require $argv[3];'
+    args = ["php", "-r", code, "POST" if body is not None else "GET", action, str(api)]
+    env = dict(os.environ)
+    env["TUNEDROP_DB"] = str(database)
+    env["TEST_BODY"] = json.dumps(body)
+    out = subprocess.check_output(args, env=env, text=True)
+    return json.loads(out)
 
-    # 新しい曲を Guest list A に追加 → 成功
-    first = request('add_bookmark', {'youtube_id': 'newvideo0001', 'playlist_id': 91, 'title': 'New Video', 'channel': 'Test Channel'})
-    assert first['success'] is True, first
 
-    # 同じリストへもう一度追加 → 拒否され、重複行は増えない
-    second = request('add_bookmark', {'youtube_id': 'newvideo0001', 'playlist_id': 91, 'title': 'New Video', 'channel': 'Test Channel'})
-    assert second['success'] is False and '既に' in second['error'], second
-    with sqlite3.connect(database) as db:
-        assert db.execute("SELECT COUNT(*) FROM bookmarks WHERE playlist_id=91 AND youtube_id='newvideo0001'").fetchone()[0] == 1
-
-    # 別リスト (Guest list B) への同じ曲の追加は許可される
-    other = request('add_bookmark', {'youtube_id': 'newvideo0001', 'playlist_id': 92, 'title': 'New Video', 'channel': 'Test Channel'})
-    assert other['success'] is True, other
-    with sqlite3.connect(database) as db:
-        assert db.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='newvideo0001'").fetchone()[0] == 2
-
-    with sqlite3.connect(database) as db:
-        row = db.execute("SELECT id FROM bookmarks WHERE playlist_id=91 AND youtube_id='newvideo0001'").fetchone()
-        bookmark_in_a = row[0]
-
-    # 移動先 (Guest list B) に同じ曲がある場合は移動できない
-    blocked_move = request('move_bookmark', {'id': bookmark_in_a, 'target_playlist_id': 92})
-    assert blocked_move['success'] is False and '移動先' in blocked_move['error'], blocked_move
-    with sqlite3.connect(database) as db:
-        assert db.execute("SELECT playlist_id FROM bookmarks WHERE id=?", (bookmark_in_a,)).fetchone()[0] == 91
-
-    # 移動先 (Guest list C) に同じ曲がなければ移動できる
-    moved = request('move_bookmark', {'id': bookmark_in_a, 'target_playlist_id': 93})
-    assert moved['success'] is True, moved
-    with sqlite3.connect(database) as db:
-        assert db.execute("SELECT playlist_id FROM bookmarks WHERE id=?", (bookmark_in_a,)).fetchone()[0] == 93
-        assert db.execute(
-            "SELECT COUNT(*) FROM bookmarks GROUP BY playlist_id, youtube_id HAVING COUNT(*) > 1"
-        ).fetchall() == []
-
-    # 同じ曲でも他ユーザー (setup.sql の user 1) のリストには影響しない
-    with sqlite3.connect(database) as db:
-        assert db.execute("SELECT COUNT(*) FROM bookmarks WHERE playlist_id=2 AND youtube_id='uSijY6BEMRE'").fetchone()[0] == 1
-
-print('PASS: 同じリスト内で曲が重複せず、別リストへの登録は引き続き許可される。')
+req("get_playlists")
+con = sqlite3.connect(str(database))
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='oldedupe0001'").fetchone()[0] == 1
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE id=50").fetchone()[0] == 1
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='guestcross01'").fetchone()[0] == 1
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE id=52").fetchone()[0] == 1
+trigs = set(r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall())
+assert "bookmarks_guest_video_unique_insert" in trigs, trigs
+assert "bookmarks_guest_video_unique_update" in trigs, trigs
+con.close()
+first = req("add_bookmark", {"youtube_id": "newvideo0001", "playlist_id": 91, "title": "T", "channel": "C"})
+assert first["success"] is True, first
+second = req("add_bookmark", {"youtube_id": "newvideo0001", "playlist_id": 91, "title": "T", "channel": "C"})
+assert second["success"] is False, second
+other = req("add_bookmark", {"youtube_id": "newvideo0001", "playlist_id": 92, "title": "T", "channel": "C"})
+assert other["success"] is False, other
+assert "別のリスト" in other["error"], other
+con = sqlite3.connect(str(database))
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='newvideo0001'").fetchone()[0] == 1
+bid = con.execute("SELECT id FROM bookmarks WHERE playlist_id=91 AND youtube_id='newvideo0001'").fetchone()[0]
+con.execute("INSERT INTO bookmarks (playlist_id,youtube_id,title) VALUES (91,'movecan0001','M')")
+con.commit()
+movable = con.execute("SELECT id FROM bookmarks WHERE playlist_id=91 AND youtube_id='movecan0001'").fetchone()[0]
+con.close()
+moved = req("move_bookmark", {"id": movable, "target_playlist_id": 93})
+assert moved["success"] is True, moved
+con = sqlite3.connect(str(database))
+assert con.execute("SELECT playlist_id FROM bookmarks WHERE id=?", (movable,)).fetchone()[0] == 93
+con.close()
+blocked = req("move_bookmark", {"id": movable, "target_playlist_id": 92})
+assert blocked["success"] is True, blocked
+# ゲストは全リストで1曲1件のため、移動は常に安全 (移動先に同じ曲がある状態自体が重複であり、
+# マイグレーションで整理される)。移動後も重複が無いことを確認する。
+con = sqlite3.connect(str(database))
+assert con.execute("SELECT playlist_id FROM bookmarks WHERE id=?", (movable,)).fetchone()[0] == 92
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='movecan0001'").fetchone()[0] == 1
+con.close()
+blocked2 = req("move_bookmark", {"id": movable, "target_playlist_id": 93})
+assert blocked2["success"] is True, blocked2
+con = sqlite3.connect(str(database))
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='movecan0001'").fetchone()[0] == 1
+con.execute("INSERT INTO bookmarks (playlist_id,youtube_id,title) VALUES (91,'updatetest01','U1')")
+con.execute("INSERT INTO bookmarks (playlist_id,youtube_id,title) VALUES (92,'updatetest02','U2')")
+con.commit()
+uid = con.execute("SELECT id FROM bookmarks WHERE youtube_id='updatetest02'").fetchone()[0]
+try:
+    con.execute("UPDATE bookmarks SET youtube_id='updatetest01' WHERE id=?", (uid,))
+    con.commit()
+    raise SystemExit("direct cross-list update should fail")
+except sqlite3.IntegrityError as e:
+    assert "guest_duplicate_video" in str(e), e
+    con.rollback()
+con = sqlite3.connect(str(database))
+try:
+    con.execute("INSERT INTO bookmarks (playlist_id,youtube_id,title) VALUES (92,'newvideo0001','X')")
+    con.commit()
+    raise SystemExit("direct duplicate insert should fail")
+except sqlite3.IntegrityError as e:
+    assert "guest_duplicate_video" in str(e), e
+con.execute("INSERT INTO bookmarks (playlist_id,youtube_id,title) VALUES (81,'regular001','R1')")
+con.execute("INSERT INTO bookmarks (playlist_id,youtube_id,title) VALUES (82,'regular001','R2')")
+con.commit()
+assert con.execute("SELECT COUNT(*) FROM bookmarks WHERE youtube_id='regular001'").fetchone()[0] == 2
+con.close()
+print("PASS guest-all-lists unique")

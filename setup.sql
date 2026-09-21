@@ -32,9 +32,39 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     FOREIGN KEY(playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
 );
 
--- 同じリスト内に同じ曲を二重登録できないようにする (別リストへの登録は許可)
+-- 同じリスト内に同じ曲を二重登録できないようにする (一般ユーザーの別リスト登録は許可)
 CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique
     ON bookmarks(playlist_id, youtube_id);
+
+-- ゲスト ('guest' ユーザー) は全リストで同じ曲を1つだけ持てる (一般ユーザーには影響しない)
+DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert;
+DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update;
+CREATE TRIGGER bookmarks_guest_video_unique_insert
+    BEFORE INSERT ON bookmarks
+    WHEN EXISTS (
+        SELECT 1 FROM bookmarks b
+        JOIN playlists p ON p.id = b.playlist_id
+        JOIN users u ON u.id = p.user_id AND u.username = 'guest'
+        JOIN playlists np ON np.id = NEW.playlist_id
+        JOIN users nu ON nu.id = np.user_id AND nu.username = 'guest'
+        WHERE b.youtube_id = NEW.youtube_id AND b.playlist_id != NEW.playlist_id
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'guest_duplicate_video');
+    END;
+CREATE TRIGGER bookmarks_guest_video_unique_update
+    BEFORE UPDATE OF playlist_id, youtube_id ON bookmarks
+    WHEN EXISTS (
+        SELECT 1 FROM bookmarks b
+        JOIN playlists p ON p.id = b.playlist_id
+        JOIN users u ON u.id = p.user_id AND u.username = 'guest'
+        JOIN playlists np ON np.id = NEW.playlist_id
+        JOIN users nu ON nu.id = np.user_id AND nu.username = 'guest'
+        WHERE b.youtube_id = NEW.youtube_id AND b.id != NEW.id
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'guest_duplicate_video');
+    END;
 
 -- 解析結果のキャッシュ (AI推定 Gemini + 音源実測 librosa/CLAP)
 CREATE TABLE IF NOT EXISTS analysis_cache (

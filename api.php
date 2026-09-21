@@ -198,22 +198,98 @@ function migrate_system_playlists(PDO $db): void {
 
 /** 同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
  *  過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
- *  別リストへの同じ曲の登録は引き続き許可する。 */
+ *  ゲスト ('guest' ユーザー) は全リスト横断で同じ曲を持てないため、最も古い行だけ残して整理する。
+ *  ログイン中の一般ユーザーは別リストへの同じ曲の登録を引き続き許可する。 */
 function migrate_unique_bookmarks(PDO $db): void {
     // 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
     $db->exec(
         "DELETE FROM bookmarks
           WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)"
     );
+    // ゲストは全リストで同じ曲を1つだけ持てる: 他リストの重複は最も古い行だけ残す
+    $db->exec(
+        "DELETE FROM bookmarks
+          WHERE id NOT IN (
+            SELECT MIN(b.id) FROM bookmarks b
+            JOIN playlists p ON p.id = b.playlist_id
+            JOIN users u ON u.id = p.user_id AND u.username = '" . TUNEDROP_GUEST_USERNAME . "'
+            GROUP BY b.youtube_id
+          )
+          AND playlist_id IN (
+            SELECT p.id FROM playlists p
+            JOIN users u ON u.id = p.user_id AND u.username = '" . TUNEDROP_GUEST_USERNAME . "'
+          )"
+    );
     try {
         $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique ON bookmarks(playlist_id, youtube_id)");
     } catch (PDOException $error) {
         // 同時リクエストで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
     }
+    // ゲスト横断の重複をDBレベルでも防ぐ (一般ユーザーの別リスト登録には影響しない)
+    $db->exec("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert");
+    $db->exec("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update");
+    $db->exec(
+        "CREATE TRIGGER bookmarks_guest_video_unique_insert
+         BEFORE INSERT ON bookmarks
+         WHEN EXISTS (
+           SELECT 1 FROM bookmarks b
+           JOIN playlists p ON p.id = b.playlist_id
+           JOIN users u ON u.id = p.user_id AND u.username = '" . TUNEDROP_GUEST_USERNAME . "'
+           JOIN playlists np ON np.id = NEW.playlist_id
+           JOIN users nu ON nu.id = np.user_id AND nu.username = '" . TUNEDROP_GUEST_USERNAME . "'
+           WHERE b.youtube_id = NEW.youtube_id AND b.playlist_id != NEW.playlist_id
+         )
+         BEGIN
+           SELECT RAISE(ABORT, 'guest_duplicate_video');
+         END"
+    );
+    $db->exec(
+        "CREATE TRIGGER bookmarks_guest_video_unique_update
+         BEFORE UPDATE OF playlist_id, youtube_id ON bookmarks
+         WHEN EXISTS (
+           SELECT 1 FROM bookmarks b
+           JOIN playlists p ON p.id = b.playlist_id
+           JOIN users u ON u.id = p.user_id AND u.username = '" . TUNEDROP_GUEST_USERNAME . "'
+           JOIN playlists np ON np.id = NEW.playlist_id
+           JOIN users nu ON nu.id = np.user_id AND nu.username = '" . TUNEDROP_GUEST_USERNAME . "'
+           WHERE b.youtube_id = NEW.youtube_id AND b.id != NEW.id
+         )
+         BEGIN
+           SELECT RAISE(ABORT, 'guest_duplicate_video');
+         END"
+    );
+}
+
+/** ゲスト ('guest' ユーザー) の全リスト内に同じ曲があるか。ログイン中ユーザーは対象外。 */
+function is_guest_user(PDO $db, int $user_id): bool {
+    $stmt = $db->prepare("SELECT username FROM users WHERE id = ?");
+    $stmt->execute([$user_id]);
+    return $stmt->fetchColumn() === TUNEDROP_GUEST_USERNAME;
+}
+
+/** ゲストの全リスト内に同じ曲があるか (追加先・自分自身を除いて判定できる)。 */
+function guest_has_video_elsewhere(PDO $db, int $user_id, string $youtube_id, ?int $exclude_bookmark_id = null, ?int $exclude_playlist_id = null): bool {
+    if (!is_guest_user($db, $user_id)) return false;
+    $sql = "SELECT 1 FROM bookmarks b
+             JOIN playlists p ON p.id = b.playlist_id AND p.user_id = ?
+            WHERE b.youtube_id = ?";
+    $params = [$user_id, $youtube_id];
+    if ($exclude_bookmark_id !== null) {
+        $sql .= " AND b.id != ?";
+        $params[] = $exclude_bookmark_id;
+    }
+    if ($exclude_playlist_id !== null) {
+        $sql .= " AND b.playlist_id != ?";
+        $params[] = $exclude_playlist_id;
+    }
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    return (bool)$stmt->fetchColumn();
 }
 
 /** サイト初期データのサンプル楽曲入りデフォルトライブラリを作成する (app.py の insert_default_library と同一内容)。
-    「未整理」「公開用お気に入り」のどちらを開いてもサンプル2曲が見えるように、両方に配置する。 */
+    ゲストは全リストで同じ曲を1つだけ持てるため、サンプルは「公開用お気に入り」にだけ入れる。
+    ログイン中の一般ユーザーも含め、両方に同じ曲を置くと「移動」や「追加」が重複扱いで弾かれるため。 */
 function insert_default_library_php(PDO $db, int $user_id): int {
     $samples = [
         ['uSijY6BEMRE', 'Yellow', 'kz (livetune)'],
@@ -222,13 +298,11 @@ function insert_default_library_php(PDO $db, int $user_id): int {
     $ins = $db->prepare("INSERT INTO playlists (user_id, name, category, is_public, cover_id, is_favorite, system_key, sort_order) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)");
     $unorganized = TUNEDROP_SYSTEM_PLAYLISTS['inbox'];
     $ins->execute([$user_id, $unorganized['name'], $unorganized['category'], $unorganized['is_public'], $unorganized['is_favorite'], 'inbox', 0]);
-    $unorganized_id = (int)$db->lastInsertId();
     $public_favorites = TUNEDROP_SYSTEM_PLAYLISTS['public_favorites'];
     $ins->execute([$user_id, $public_favorites['name'], $public_favorites['category'], $public_favorites['is_public'], $public_favorites['is_favorite'], 'public_favorites', 1]);
     $fav_playlist_id = (int)$db->lastInsertId();
     $bm = $db->prepare("INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, sort_order) VALUES (?, ?, ?, ?, ?)");
     foreach ($samples as $sort_order => $s) {
-        $bm->execute([$unorganized_id, $s[0], $s[1], $s[2], $sort_order]);
         $bm->execute([$fav_playlist_id, $s[0], $s[1], $s[2], $sort_order]);
     }
     return $fav_playlist_id;
@@ -517,6 +591,11 @@ try {
                     echo json_encode(['success' => false, 'error' => 'この曲は既にこのリストに登録されています。'], JSON_UNESCAPED_UNICODE);
                     break;
                 }
+                // ゲストは全リストで同じ曲を1つだけ持てる (他のリストにある場合は追加しない)
+                if (guest_has_video_elsewhere($db, $user_id, $youtube_id)) {
+                    echo json_encode(['success' => false, 'error' => 'この曲は既にゲストの別のリストに登録されています。'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
 
                 // タイトル/アーティスト未指定なら oEmbed → noembed の順で自動解決
                 if ($title === '' || $title === 'Unknown Title') {
@@ -545,8 +624,12 @@ try {
                     $stmt = $db->prepare("INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, added_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))");
                     $stmt->execute([$playlist_id, $youtube_id, $title, $channel]);
                 } catch (PDOException $error) {
-                    // 同時リクエストで先に同一リストへ追加されていた場合 (ユニーク索引違反) も重複を作らず通知する
-                    echo json_encode(['success' => false, 'error' => 'この曲は既にこのリストに登録されています。'], JSON_UNESCAPED_UNICODE);
+                    // 同時リクエストで先に同一曲が追加されていた場合も重複を作らず通知する。
+                    // ゲストはトリガー違反 (guest_duplicate_video)、一般は同一リスト内のユニーク索引違反。
+                    $message = (strpos($error->getMessage(), 'guest_duplicate_video') !== false || is_guest_user($db, $user_id))
+                        ? 'この曲は既にゲストの別のリストに登録されています。'
+                        : 'この曲は既にこのリストに登録されています。';
+                    echo json_encode(['success' => false, 'error' => $message], JSON_UNESCAPED_UNICODE);
                     break;
                 }
                 $updateCoverStmt = $db->prepare("UPDATE playlists SET cover_id = ? WHERE id = ? AND cover_id IS NULL AND user_id = ?");
@@ -584,7 +667,15 @@ try {
                     break;
                 }
                 // 移動先のリストに同じ曲が既にある場合は移動できない (同じリスト内の重複を防ぐ)。
+                // ゲストは移動先以外の全リストも対象 (全リストで同じ曲を1つだけ持てる)。
                 // 自分自身が今あるリストへの移動 (実質キャンセル) はこれまでどおり許可する。
+                $moving = $db->prepare("SELECT youtube_id, playlist_id FROM bookmarks WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
+                $moving->execute([$input['id'], $user_id]);
+                $movingRow = $moving->fetch(PDO::FETCH_ASSOC);
+                if (!$movingRow) {
+                    echo json_encode(['success' => false, 'error' => '移動する曲が見つかりません'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
                 $dupeCheck = $db->prepare(
                     "SELECT 1 FROM bookmarks
                       WHERE playlist_id = ?
@@ -596,12 +687,21 @@ try {
                     echo json_encode(['success' => false, 'error' => '移動先のリストに同じ曲が既にあります'], JSON_UNESCAPED_UNICODE);
                     break;
                 }
+                if ((int)$movingRow['playlist_id'] !== (int)$input['target_playlist_id']
+                    && guest_has_video_elsewhere($db, $user_id, (string)$movingRow['youtube_id'], (int)$input['id'])) {
+                    echo json_encode(['success' => false, 'error' => 'ゲストの別のリストに同じ曲が既にあります'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
                 try {
                     $stmt = $db->prepare("UPDATE bookmarks SET added_at = CASE WHEN playlist_id != ? THEN strftime('%Y-%m-%d %H:%M:%f', 'now') ELSE added_at END, playlist_id = ? WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
                     $stmt->execute([$input['target_playlist_id'], $input['target_playlist_id'], $input['id'], $user_id]);
                 } catch (PDOException $error) {
-                    // 同時リクエストで移動先に同一曲が入った場合も重複を作らない
-                    echo json_encode(['success' => false, 'error' => '移動先のリストに同じ曲が既にあります'], JSON_UNESCAPED_UNICODE);
+                    // 同時リクエストで移動先に同一曲が入った場合も重複を作らない。
+                    // ゲストは他リストとの重複 (guest_duplicate_video) もここで通知する。
+                    $message = (strpos($error->getMessage(), 'guest_duplicate_video') !== false || is_guest_user($db, $user_id))
+                        ? 'ゲストの別のリストに同じ曲が既にあります'
+                        : '移動先のリストに同じ曲が既にあります';
+                    echo json_encode(['success' => false, 'error' => $message], JSON_UNESCAPED_UNICODE);
                     break;
                 }
                 echo json_encode(['success' => true]);
