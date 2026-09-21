@@ -129,6 +129,16 @@ const TUNEDROP_SYSTEM_PLAYLISTS = [
     'public_favorites' => ['name' => '公開用お気に入り', 'category' => 'J-POP', 'is_public' => 1, 'is_favorite' => 1],
 ];
 
+/**
+ * DBスキーマの版。ensure_schema() は user_version がこの値未満のときだけ
+ * テーブル作成・列追加・重複整理 (書き込み) を実行する。
+ * 列や索引を追加したときはここを +1 する。
+ */
+const TUNEDROP_SCHEMA_VERSION = 1;
+
+/** SQLite のロック待ち時間 (ミリ秒)。FastCGI の idle timeout (30秒) より十分短くする。 */
+const TUNEDROP_BUSY_TIMEOUT_MS = 5000;
+
 /** 固定タブ (未整理 / 公開用お気に入り) かどうか。全ユーザー共通で名称・削除・並び替えを固定する。 */
 function is_system_playlist(array $playlist): bool {
     return !empty($playlist['system_key']);
@@ -167,18 +177,31 @@ function system_key_of_playlist(PDO $db, int $user_id, int $playlist_id): ?strin
     return ($key === false || $key === null || $key === '') ? null : (string)$key;
 }
 
-/** 既存DBへ system_key 列を追加し、名前から未整理/公開用お気に入りを自動で印付ける。 */
+/** 既存DBへ system_key 列を追加し、名前から未整理/公開用お気に入りを自動で印付ける。
+ *
+ *  毎リクエスト呼ばれるため、書き込み (ALTER/UPDATE/DELETE) は
+ *  「直すべき行があるとき」だけ実行する。無条件に書き込むと、Python の解析書き込みと
+ *  SQLite のロックを取り合い、MAMP 側が応答しなくなる。
+ */
 function migrate_system_playlists(PDO $db): void {
     $columns = $db->query("PRAGMA table_info(playlists)")->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('system_key', $columns, true)) {
         $db->exec("ALTER TABLE playlists ADD COLUMN system_key TEXT");
     }
-    try {
-        $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS playlists_system_key_unique ON playlists(user_id, system_key)");
-    } catch (PDOException $error) {
-        // 既に重複した system_key がある場合は索引作成をあきらめる (動作には影響しない)
+    $index_names = array_column(
+        $db->query("PRAGMA index_list(playlists)")->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (!in_array('playlists_system_key_unique', $index_names, true)) {
+        try {
+            $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS playlists_system_key_unique ON playlists(user_id, system_key)");
+        } catch (PDOException $error) {
+            // 既に重複した system_key がある場合は索引作成をあきらめる (動作には影響しない)
+        }
     }
     foreach (['inbox' => '未整理', 'public_favorites' => '公開用お気に入り'] as $system_key => $name) {
+        // 印を付ける対象が無ければ書き込まない
+        $check = $db->prepare("SELECT 1 FROM playlists WHERE system_key IS NULL AND name = ? LIMIT 1");
+        $check->execute([$name]);
+        if (!$check->fetchColumn()) continue;
         $stmt = $db->prepare(
             "UPDATE playlists SET system_key = :key
              WHERE system_key IS NULL AND name = :name
@@ -189,33 +212,57 @@ function migrate_system_playlists(PDO $db): void {
     // 固定タブは各ユーザー専用 (自分のものを1つだけ持つ) ため、過去に他ユーザーの固定タブへ
     // 登録したお気に入りは同名タブが二重に並ぶ原因になる。重複表示を避けるため取り除く。
     // (自分の固定タブは public_favorites ではなく playlists.is_favorite で管理する)
-    $db->exec(
-        "DELETE FROM public_favorites
-          WHERE kind = 'playlist'
-            AND target_id IN (SELECT id FROM playlists WHERE system_key IS NOT NULL)"
-    );
+    // 対象が無ければ DELETE しない。
+    $stale = $db->query(
+        "SELECT 1 FROM public_favorites f
+          JOIN playlists p ON p.id = f.target_id
+          WHERE f.kind = 'playlist' AND p.system_key IS NOT NULL LIMIT 1"
+    )->fetchColumn();
+    if ($stale) {
+        $db->exec(
+            "DELETE FROM public_favorites
+              WHERE kind = 'playlist'
+                AND target_id IN (SELECT id FROM playlists WHERE system_key IS NOT NULL)"
+        );
+    }
 }
 
 /** 同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
  *  過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
  *  違うリストへの同じ曲の登録は許可する (ゲストも含む)。
  *  「すべてのブックマーク」「お気に入り曲」など複数リストをまとめて表示する画面では、
- *  表示側で youtube_id ごとに1件にまとめる (下の get_my_bookmarks を参照)。 */
+ *  表示側で youtube_id ごとに1件にまとめる (下の get_my_bookmarks を参照)。
+ *
+ *  migrate_system_playlists と同じく、掃除・索引作成は必要なときだけ実行する。 */
 function migrate_unique_bookmarks(PDO $db): void {
     // 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
-    $db->exec(
-        "DELETE FROM bookmarks
-          WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)"
-    );
-    try {
-        $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique ON bookmarks(playlist_id, youtube_id)");
-    } catch (PDOException $error) {
-        // 同時リクエストで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
+    $duplicated = $db->query(
+        "SELECT 1 FROM bookmarks GROUP BY playlist_id, youtube_id HAVING COUNT(*) > 1 LIMIT 1"
+    )->fetchColumn();
+    if ($duplicated) {
+        $db->exec(
+            "DELETE FROM bookmarks
+              WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)"
+        );
+    }
+    $index_names = array_column(
+        $db->query("PRAGMA index_list(bookmarks)")->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (!in_array('bookmarks_playlist_video_unique', $index_names, true)) {
+        try {
+            $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique ON bookmarks(playlist_id, youtube_id)");
+        } catch (PDOException $error) {
+            // 同時リクエストで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
+        }
     }
     // 旧仕様 (ゲスト全リストで1曲1件) のトリガーが残っていたら撤去する。
     // 現仕様は「違うリストなら同じ曲OK」のため、ゲスト用トリガーは使わない。
-    $db->exec("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert");
-    $db->exec("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update");
+    $legacy_triggers = $db->query(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger'
+          AND name IN ('bookmarks_guest_video_unique_insert', 'bookmarks_guest_video_unique_update')"
+    )->fetchAll(PDO::FETCH_COLUMN, 0);
+    foreach ($legacy_triggers as $legacy_trigger) {
+        $db->exec("DROP TRIGGER IF EXISTS " . $legacy_trigger);
+    }
 }
 
 /** サイト初期データのサンプル楽曲入りデフォルトライブラリを作成する (app.py の insert_default_library と同一内容)。
@@ -344,10 +391,46 @@ function toggle_public_favorite(PDO $db, int $user_id, string $kind, int $id): i
     }
 }
 
-try {
-    $db = new PDO("sqlite:" . $db_path);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+/**
+ * SQLite 接続を開き、MAMP (PHP) と Python (app.py) が同じ DB を同時に使っても
+ * リクエストがハングしないように設定する。
+ *
+ * - WAL … 読み手と書き手が互いをブロックしない (ロールバックジャーナル方式だと
+ *         Python の解析書き込み中に PHP の読み取りが待たされ、FastCGI の
+ *         idle timeout (30秒) で切れて「応答が返らない」状態になる)
+ * - busy_timeout … 書き込みが重なったときも短時間だけ待って、待ち切れなければ
+ *                  JSON エラーを返す (30秒待たせない)
+ */
+function open_tunedrop_db(string $db_path): PDO {
+    $db = new PDO("sqlite:" . $db_path, null, null, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_TIMEOUT => (int)ceil(TUNEDROP_BUSY_TIMEOUT_MS / 1000),
+    ]);
+    $db->exec("PRAGMA busy_timeout = " . TUNEDROP_BUSY_TIMEOUT_MS . ";");
     $db->exec("PRAGMA foreign_keys = ON;");
+    try {
+        // 一度 WAL にすると DB ファイル自体に記憶されるため、以降は実質 no-op。
+        $db->exec("PRAGMA journal_mode = WAL;");
+        $db->exec("PRAGMA synchronous = NORMAL;");
+    } catch (PDOException $error) {
+        // WAL にできないファイルシステム (ネットワーク越し等) でも動作は続ける
+    }
+    return $db;
+}
+
+/**
+ * テーブル作成と列追加を行う。書き込みを伴う処理なので user_version で
+ * 「スキーマが古いときだけ」実行する。
+ * (MAMP のリクエストごとに実行すると Python の解析書き込みとロック競合して
+ *  サイト全体が応答しなくなる)
+ *
+ * 旧データの掃除・索引・トリガー撤去は migrate_system_playlists() /
+ * migrate_unique_bookmarks() が毎リクエスト確認する (直すべき行があるときだけ書き込む)。
+ */
+function ensure_schema(PDO $db): void {
+    $version = (int)$db->query("PRAGMA user_version")->fetchColumn();
+    if ($version >= TUNEDROP_SCHEMA_VERSION) return;
+
     $user_columns = $db->query("PRAGMA table_info(users)")->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('display_name', $user_columns, true)) {
         $db->exec("ALTER TABLE users ADD COLUMN display_name TEXT");
@@ -374,7 +457,7 @@ try {
     if (!in_array('sort_order', $columns_pl)) {
         $db->exec("ALTER TABLE playlists ADD COLUMN sort_order INTEGER DEFAULT 0");
     }
-    
+
     $columns_bm = $db->query("PRAGMA table_info(bookmarks)")->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('is_favorite', $columns_bm)) {
         $db->exec("ALTER TABLE bookmarks ADD COLUMN is_favorite INTEGER DEFAULT 0");
@@ -383,9 +466,17 @@ try {
         $db->exec("ALTER TABLE bookmarks ADD COLUMN sort_order INTEGER DEFAULT 0");
     }
 
-    // 全ユーザー共通の固定タブ (未整理 / 公開用お気に入り) の識別列を用意する
+    // 固定タブの印付け・古い重複行の掃除は、直すべき行があるときだけ書き込む
+    // migrate_* 側で毎リクエスト確認する (ここでは呼ばない)。
+    $db->exec("PRAGMA user_version = " . TUNEDROP_SCHEMA_VERSION);
+}
+
+try {
+    $db = open_tunedrop_db($db_path);
+    ensure_schema($db);
+    // 旧DBの掃除 (固定タブの印・古いお気に入り行・重複ブックマーク) は毎回確認する。
+    // 直すべき行があるときだけ書き込むため、通常のリクエストは読み取りだけで済む。
     migrate_system_playlists($db);
-    // 同じリスト内で同じ曲が二重登録されないようにする (掃除 + ユニーク索引)
     migrate_unique_bookmarks($db);
 
     $action = $_GET['action'] ?? '';
@@ -599,7 +690,15 @@ try {
                 $cacheStmt->execute([$youtube_id]);
                 $cachedAnalysis = json_decode((string)$cacheStmt->fetchColumn(), true);
                 if (!is_array($cachedAnalysis) || empty($cachedAnalysis['feature_vector'])) {
-                    @file_get_contents('http://127.0.0.1:' . get_active_auth_port() . '/analysis/async/' . rawurlencode($youtube_id));
+                    // 解析サーバーの AI 推定は数秒かかることがある。timeout を省くと
+                    // php.ini の default_socket_timeout (60秒) まで待って Apache の
+                    // FastCGI idle timeout (30秒) に切られ、応答が返らなくなる。
+                    // キャッシュ更新は補助処理なので短い timeout で諦める。
+                    $analysisCtx = stream_context_create(['http' => [
+                        'timeout' => 8, 'ignore_errors' => true,
+                    ]]);
+                    @file_get_contents('http://127.0.0.1:' . get_active_auth_port()
+                        . '/analysis/async/' . rawurlencode($youtube_id), false, $analysisCtx);
                 }
 
                 echo json_encode(['success' => true, 'title' => $title]);
@@ -961,7 +1060,14 @@ try {
     }
 
 } catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database error: ' . $e->getMessage()]);
+    // ロック待ち (busy_timeout) はハングではなく即エラーで返す。
+    // フロントは「時間をおいて再試行」すれば復帰できる。
+    $locked = stripos($e->getMessage(), 'database is locked') !== false
+        || stripos($e->getMessage(), 'database table is locked') !== false;
+    http_response_code($locked ? 503 : 500);
+    echo json_encode([
+        'error' => $locked ? 'データベースが混雑しています。少し待って再試行してください。' : 'Database error: ' . $e->getMessage(),
+        'retryable' => $locked,
+    ], JSON_UNESCAPED_UNICODE);
 }
 ?>

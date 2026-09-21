@@ -15,7 +15,7 @@ GitHub → サーバーでコードを取得・更新
 
 ## 1. 今回追加した公開対策
 
-- `.htaccess` は公開するHTML・JS・CSSと `api.php`・`admin.php` だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git` はHTTPで取得できません。新しい画像やJSファイルを追加するときは許可リストにも追加してください。
+- `.htaccess` は公開するHTML・JS・CSSと `api.php`・`admin.php` だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git` はHTTPで取得できません。ブラウザ用のCSS/JSは `frontend/` に置きます。新しい画像やJSファイルを追加するときは許可リストにも追加してください。
 - `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と `./admin.sh --serve` はこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
 - JWT署名鍵はPython起動時に `.jwt_secret` にランダム生成され、PHPも同じファイルを読みます。既知の旧鍵は拒否します。既存ユーザーは更新後に再ログインが必要です。
 - Googleログインは `google-auth` で署名・宛先・発行者・有効期限を検証し、検証失敗や通信失敗をログイン拒否にします。`GOOGLE_CLIENT_ID` 未設定ならGoogleログインは利用できません。
@@ -66,7 +66,7 @@ PORT=5001 .venv/bin/python app.py
 
 Google Cloud Consoleでウェブアプリ用OAuthクライアントを設定します。
 
-- `config.js` の `googleClientId` にクライアントIDを設定。
+- `frontend/config.js` の `googleClientId` にクライアントIDを設定。
 - サーバー起動時の `GOOGLE_CLIENT_ID` に同じ値を指定。クライアントIDは秘密鍵ではありません。
 - 承認済みJavaScript生成元に `http://localhost:8888` と `https://music.example.com` を追加。URLのパスや末尾の `/` は含めません。
 
@@ -76,7 +76,7 @@ Google Cloud Consoleでウェブアプリ用OAuthクライアントを設定し�
 GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh --mamp
 ```
 
-Googleログインを使わない場合は `PORT=5001 ./start.sh --mamp` で起動し、`config.js` の `googleClientId` を空文字にします。通常の新規登録・パスワードログインは使えます。
+Googleログインを使わない場合は `PORT=5001 ./start.sh --mamp` で起動し、`frontend/config.js` の `googleClientId` を空文字にします。通常の新規登録・パスワードログインは使えます。
 
 `.jwt_secret` は一度生成したものを再利用します。中身をGitHub、チャット、ログへ貼らないでください。MAMPのPHP実行ユーザーがこのファイルを読める必要があります。既定の権限は600です。PHPを別ユーザーで動かす構成では専用グループと640などで読取権限を付け、全員が読める権限にはしないでください。
 
@@ -264,6 +264,8 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 
 復元時は公開とPython・Apacheを停止し、現行DBも退避してからバックアップを `database.sqlite` として戻します。古い `-wal` / `-shm` が残る場合はDB本体とセットで退避し、古いWALを復元DBへ混在させないでください。所有者・書込権限を確認して再起動します。
 
+`database.sqlite` は **WALジャーナル**（`PRAGMA journal_mode = WAL`）で運用されます（MAMPのPHPとPythonが同じDBを共有するため、読み書きが互いをブロックしないようにする設定です）。`-wal` / `-shm` の一時ファイルは正常な動作で作られるもので、`.gitignore` によりGit管理外です。バックアップは上の `.backup` コマンド（またはサービス停止後のコピー）を使ってください。
+
 常時運用には、Macのスリープを無効にし、Apache・Python・cloudflaredの3つを再起動後も起動するよう設定します。`./start.sh --mamp` はターミナルを閉じると停止するため、常駐化する場合はmacOSのlaunchd、Linuxならsystemdで管理します。Pythonは `.venv/bin/python app.py` を起動し、`.env` またはサービスの環境変数に `PORT=5001` と `GOOGLE_CLIENT_ID` を設定します。Linuxへ移す場合はMAMP用パスをその環境に置き換えてください。今回サービス登録・DNS変更・GitHub送信は自動実行していません。
 
 ## 9. 回帰テスト
@@ -274,9 +276,12 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 .venv/bin/python tests/environment-config.py
 PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/publication-security.py
 PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/public-files.py
+PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/sqlite-concurrency.py
+.venv/bin/python tests/tempo-accuracy.py
+.venv/bin/python tests/clap-scoring.py
 ```
 
-`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` はローカルポートでPHPと一時Apacheを起動し、HTTP配信制限を検証します。Apacheの既定パスはMAMPです。別環境では `APACHE_BIN` とテスト内のモジュール設定を調整してください。
+`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` はローカルポートでPHPと一時Apacheを起動し、HTTP配信制限を検証します。Apacheの既定パスはMAMPです。別環境では `APACHE_BIN` とテスト内のモジュール設定を調整してください。`sqlite-concurrency.py` は、MAMP（PHP）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
 
 ## 参考資料
 

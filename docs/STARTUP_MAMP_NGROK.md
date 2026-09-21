@@ -19,7 +19,7 @@
    │ ② https://gainfully-macaroni-swivel.ngrok-free.dev/  （外部公開）
    ▼
 MAMP Apache (:8888, DocumentRoot = /Users/<username>/Tunedrop)
-   ├── index.html / app.js / style.css / config.js ... 静的配信
+   ├── index.html / frontend/ (app.js・style.css・config.js …) 静的配信
    ├── api.php  … SQLite(database.sqlite) を直接読み書きするデータAPI
    │      └── 認証だけは下の Python サーバーへ HTTP 転送（プロキシ）
    └── /api/*   … ProxyPass で Python サーバーへ転送（httpd.conf 設定済み）
@@ -53,6 +53,11 @@ grep -E '^DocumentRoot|^Listen' /Applications/MAMP/conf/apache/httpd.conf
 
 # Python ライブラリ（Flask / flask-cors / PyJWT / Waitress）
 python3 -c 'import flask, flask_cors, jwt, waitress; print("Python依存関係 OK")'
+
+# 音源解析 (実測BPM・雰囲気) を使うかどうか。start.sh は .venv の Python を使う。
+.venv/bin/python vibe_analyzer.py --engine
+#  → librosa: true / clap: true なら実測BPMと mood 判定が有効
+#  → false のときは AI 推定BPM のまま (ツールチップに「BPM推定」と表示される)
 
 # ngrok がインストール済みで認証トークンが設定されているか
 ngrok version
@@ -120,7 +125,7 @@ PORT=5001 ./start.sh --mamp
 **別のターミナル**で MAMP のポート `8888` をトンネルします。
 
 ```bash
-# 予約済みの固定ドメインを使う（config.js に記載のURLと同じ）
+# 予約済みの固定ドメインを使う（frontend/config.js に記載のURLと同じ）
 ngrok http --url=gainfully-macaroni-swivel.ngrok-free.dev 8888
 
 # 固定ドメインを使わず毎回ランダムURLでよい場合
@@ -238,10 +243,10 @@ ngrok 無料プランの初回アクセス警告ページです。**「Visit Sit
 （以降はクッキーでスキップされます）。アプリのAPI通信は `fetch` 経由のため、この警告の影響を受けません。
 
 ### 画面は出るが「APIに接続できません」と表示される
-`api-client.js` は次の順で API を自動検出します。上から順に確認してください。
+`frontend/api-client.js` は次の順で API を自動検出します。上から順に確認してください。
 
 1. 現在のページと同じ場所の `api.php`
-2. `config.js` の `mampApiUrl`（既定: `http://localhost:8888/api.php`）
+2. `frontend/config.js` の `mampApiUrl`（既定: `http://localhost:8888/api.php`）
 3. `http://localhost:8888/api.php`
 
 ```bash
@@ -249,7 +254,95 @@ curl -s "http://localhost:8888/api.php?action=health"   # JSON が返るか
 grep -E '^DocumentRoot|^Listen' /Applications/MAMP/conf/apache/httpd.conf
 ```
 
-別ポート・別パスで MAMP を動かしている場合は `config.js` の `mampApiUrl` を合わせてください。
+別ポート・別パスで MAMP を動かしている場合は `frontend/config.js` の `mampApiUrl` を合わせてください。
+
+### 画面は出るのに、操作すると何も返らない／ずっと読み込み中のままになる（SQLite のロック）
+
+MAMP（PHP）と Python（`app.py`）は同じ `database.sqlite` を使うため、
+ロックの取り合いでリクエストが返らなくなることがあります。
+症状: `api.php?action=health` は即答するのに、`get_playlists` などが
+30秒ほど待って何も返らない（Apache の FastCGI idle timeout が 30秒）。
+
+```bash
+cd /Users/<username>/Tunedrop
+
+# ジャーナルモードとスキーマ版 (wal / 1 が正常)
+sqlite3 database.sqlite 'PRAGMA journal_mode; PRAGMA user_version;'
+
+# DBを掴んだままのプロセス (app.py / php-cgi が残っていないか)
+lsof database.sqlite
+
+# 実際に読めるか (locked と出るなら書き込みトランザクションが残っている)
+sqlite3 database.sqlite 'SELECT COUNT(*) FROM playlists;'
+
+# 何が遅いのか（/analysis や /radar の解析系は数秒かかることがあります）
+tail -50 /Applications/MAMP/logs/apache_error.log
+```
+
+対処:
+
+```bash
+# ① 認証・解析サーバーを再起動 (Ctrl+C で止めてから起動し直す)
+pkill -f 'app.py' && ./start.sh --mamp
+
+# ② それでも locked が続く場合は MAMP の Apache を再起動して
+#    ロックを持ったままの php-cgi を掃除する
+/Applications/MAMP/bin/stopApache.sh && /Applications/MAMP/bin/startApache.sh
+```
+
+本プロジェクト側の対策（実装済み）:
+
+- **WAL ジャーナル**: 読み取りと書き込みが互いをブロックしません（`PRAGMA journal_mode = WAL`）。
+  `app.py` の起動時と `api.php` の接続時に設定します。
+- **busy_timeout 5秒**: 書き込みが重なったときも待ち続けず、5秒で
+  `503 {"error":"データベースが混雑しています。…","retryable":true}` を返します
+  （30秒待たされてブラウザに何も返らない状態を防ぐ）。
+- **スキーマ版管理（`PRAGMA user_version`）**: テーブル作成や列追加は
+  スキーマが古いときだけ実行します。加えて旧データの掃除も
+  「直すべき行があるときだけ」書き込むため、通常のリクエストは読み取りだけで完了します。
+- **二重起動の防止**: `./start.sh --mamp` は既に認証・解析サーバーが動いていれば
+  起動せずに終了します（ポートとロックの取り合いを防ぐ）。
+- **解析呼び出しのタイムアウト**: ブックマーク追加時の AI 解析呼び出しに
+  8秒のタイムアウトを設定（既定の `default_socket_timeout` 60秒まで待たない）。
+
+### 同じ症状が出たら（再起動の順序）
+
+1. `Ctrl + C`（または `pkill -f 'app.py'`）で Python を停止
+2. 必要なら MAMP の Apache を再起動
+3. `./start.sh --mamp` で Python を起動（`💧 Tune drop Auth (Production WSGI) running on …` を確認）
+4. `curl -s "http://localhost:8888/api.php?action=get_playlists"` が即座に JSON を返すことを確認
+
+### BPM が実測にならない／値が不自然（半速・倍速・付点に見える）
+
+**まず `librosa` が入っているか確認します。** 未導入だと音源解析が丸ごとスキップされ、
+AI 推定BPM（カテゴリ既定値）のまま表示されます。
+
+```bash
+.venv/bin/python vibe_analyzer.py --engine     # librosa / clap の認識確認
+sqlite3 database.sqlite "select youtube_id, json_extract(data,'\$.tempo'),
+  json_extract(data,'\$.tempo_source'), json_extract(data,'\$.audio_error')
+  from analysis_cache limit 10;"               # audio_error に理由が残る
+```
+
+導入（`.venv` に）と再測定:
+
+```bash
+.venv/bin/pip install librosa soundfile
+.venv/bin/python reanalyze_songs.py            # 全曲を実測で再解析 (--only <ID> で1曲)
+```
+
+- 実測BPM は **打楽器成分のオンセット + 周期（自己相関）+ CLAP のテンポ感**で候補
+  （半速/倍速/4倍・付点/3連 3:2）から選び、±5% の中で微調整します。
+- 判定方法は `tempo_method`（`beat_track` / `octave` / `reference`）に残り、
+  ツールチップに「BPM実測(オクターブ補正)」等として表示されます。
+- 既存の実測値は `analysis_cache.TEMPO_ALGO_VERSION` を上げると「↻ 全曲解析」で測り直されます。
+- **注意**: コードを編集したら `app.py` を再起動してください。古いプロセスが動いたままだと、
+  旧アルゴリズムの結果（`tempo_algo` が古い値）で新しい結果を上書きしてしまいます。
+  ```bash
+  pkill -f 'app.py' && ./start.sh --mamp
+  ```
+- YouTube 側の SABR / PO Token 制限で音源を取得できない曲は AI 推定BPM のままです
+  （`audio_error` に `audio download failed: … SABR …` が記録されます）。
 
 ### 「認証サーバーに接続できません。app.py が起動しているか確認してください。」
 `./start.sh --mamp` が起動していないか、`.auth_port` の記録が古い状態です。
@@ -286,7 +379,7 @@ pkill -f 'ngrok http'
 
 ### 固定ドメインのURLを変更したい
 ngrok ダッシュボードで新しいドメインを予約し、`--url=` の値を差し替えます。
-あわせて `config.js` のコメント、Google Cloud Console の承認済み生成元、このドキュメントの記載も更新してください。
+あわせて `frontend/config.js` のコメント、Google Cloud Console の承認済み生成元、このドキュメントの記載も更新してください。
 
 ### ポート `5000` が使えないと言われる
 macOS の AirPlay などが使用中です。`app.py` は `5050 → 5001 → 5555 → 8081 → 8085` の順に自動で
@@ -310,12 +403,66 @@ MAMP の実行ユーザーが `Tunedrop/` フォルダと `database.sqlite` に�
 
 | ファイル | 役割 | 変更する場面 |
 |---|---|---|
-| `/Applications/MAMP/conf/apache/httpd.conf` | `DocumentRoot`、`Listen 8888`、`ProxyPass /api → 127.0.0.1:5001`、`AllowOverride All` | 公開フォルダやポートを変えるとき |
-| `config.js` | `mampApiUrl`（APIの場所）、`googleClientId` | APIのポート/パスを変えるとき、Google クライアントID変更時 |
+| `/Applications/MAMP/conf/apache/httpd.conf` | `DocumentRoot`、`Listen 8888`、`AllowOverride All` | 公開フォルダやポートを変えるとき |
+| `frontend/config.js` | `mampApiUrl`（APIの場所）、`googleClientId` | APIのポート/パスを変えるとき、Google クライアントID変更時 |
 | `.auth_port` | `app.py` が自動書き出しする認証サーバーの待受ポート | 手で編集しない（自動更新） |
 | `.htaccess` | MAMP/FastCGI 用に `Authorization` ヘッダを PHP へ引き渡す | 通常は編集不要 |
 | `start.sh` | `./start.sh`（PHPビルトイン + Python）／`./start.sh --mamp`（Pythonのみ） | 起動方法を変えるとき |
-| `api.php` / `app.py` | データAPI（PHP）／認証・解析API（Python） | アプリの機能改修時 |
+| `api.php` / `app.py` | データAPI（PHP）／認証・解析API（Python）。`TUNEDROP_BUSY_TIMEOUT_MS` / `TUNEDROP_DB_TIMEOUT` でロック待ち時間を変更可 | アプリの機能改修時 |
+
+> **`httpd.conf` の `ProxyPass /api → http://127.0.0.1:5001` について**
+> 旧 nginx 構成の名残です。`app.py` は空きポートを自動で選ぶため（`.auth_port` に記録）、
+> この固定ポートへのプロキシは使われていません。アプリの認証は `api.php?action=auth` が
+> 内部でループバック転送します。`/api/*` を直接叩くと 503 になるので、
+> 不要なら削除して構いません（アプリの動作には影響しません）。
+
+### 補足: この構成で行った修正（2026-09-21）
+
+MAMP + ngrok で **画面は表示されるのに操作すると応答が返らない**問題を修正しました。
+
+原因は、MAMP（PHP）と Python（`app.py`）が同じ SQLite を共有しているのに、
+ロールバックジャーナルのまま・ロック待ちが長いままだったことです。
+
+- 旧 `api.php` は **リクエストごと** にテーブル作成・索引作成・旧データの掃除（書き込み）を実行し、
+  ロックを都度取得していました。解析バッチ（`app.py`）の書き込みと重なると、
+  PDO のロック待ちが Apache の FastCGI idle timeout（30秒）を超え、
+  「incomplete headers (0 bytes)」でブラウザに何も返らない状態になっていました。
+- ブックマーク追加時の `/analysis/async/<id>`（AI 推定）呼び出しにタイムアウトが無く、
+  php.ini の `default_socket_timeout`（60秒）まで PHP ワーカーが塞がっていました。
+
+対策（実装）:
+
+- **`api.php`**: `open_tunedrop_db()` で `journal_mode = WAL` / `synchronous = NORMAL` /
+  `busy_timeout = 5000` を設定。書き込み系のスキーマ処理は `PRAGMA user_version`
+  （`TUNEDROP_SCHEMA_VERSION`）で必要なときだけ実行し、旧データの掃除も
+  「直すべき行があるときだけ」書き込むように変更。ロック時は 503 と `retryable: true` を返します。
+- **`app.py`**: `DB_BUSY_TIMEOUT_SECONDS`（既定5秒、`TUNEDROP_DB_TIMEOUT` で変更）と
+  `PRAGMA busy_timeout`、起動時の WAL 有効化。解析結果の保存などで例外が出ても
+  接続を必ず閉じるよう修正（閉じ忘れるとロックを保持したままになり、サイト全体が固まる）。
+- **`analysis_cache.py` / `reanalyze_songs.py`**: 接続に `busy_timeout` を明示。
+- **`start.sh`**: 既に認証・解析サーバーが動いていれば起動しない（二重起動でポートとロックを取り合わない）。
+- **回帰テスト**: `tests/sqlite-concurrency.py`
+  （読み取りは待たされない・書き込みは短時間で復帰可能なエラーを返す・閲覧でDBが書き換わらない）。
+
+### 補足: 実測BPM の精度改善（2026-09-21）
+
+「ヨルニテ」などで **実測BPM が不自然**になる問題を修正しました。
+原因は二つありました。
+
+1. `librosa` が `.venv` に入っておらず、音源解析がスキップされていた
+   (結果として AI 推定BPM 120 のままになっていた)
+2. ビートトラッカーの **付点・3連 (3:2)** の誤りを補正できなかった
+   (実際 175 BPM の曲を 117.5 = 175×2/3 として保存していた)
+
+対応:
+
+- `vibe_analyzer.py`: 候補倍率に 3:2 / 2:3 を追加、**オンセット包絡の自己相関**
+  (周期の証拠)を採点に加え、各候補を ±5% の幅で微調整 (`refine_tempo`)。
+- `vibe_analyzer.py`: CLAP の**テンポ感**プロンプト（英語の slow / mid / upbeat / fast）を
+  採点に加える（`TUNEDROP_CLAP_TEMPO_WEIGHT`、未導入なら無効）。
+- `vibe_analyzer.py`: AI 推定BPM (参照)を採用する条件を厳化（別のテンポ系列かつほぼ同点のときだけ）。
+- `analysis_cache.py`: `TEMPO_ALGO_VERSION = 3` に上げ、旧アルゴリズムの実測値を再測定対象にした。
+- 検証例: 「ヨルニテ」 117.5 → **174.4**（実際 175）、「KING」 161.5 → **166.3**（実際 166）。
 
 ### 補足: この構成で行った修正（2026-09-20）
 

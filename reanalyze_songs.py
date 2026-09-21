@@ -29,8 +29,10 @@ DEFAULT_DB = ROOT / "database.sqlite"
 
 def fetch_bookmarks(db_path):
     """bookmarks を playlist の category と結合して取得 (重複IDは除去)。"""
-    conn = sqlite3.connect(db_path)
+    # 解析サーバー (app.py) や MAMP(PHP) と同時に動くためロック待ちを明示する
+    conn = sqlite3.connect(db_path, timeout=5)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000;")
     rows = conn.execute("""
         SELECT b.youtube_id, b.title, b.channel, p.category
         FROM bookmarks b
@@ -106,7 +108,7 @@ def main():
             cached = ac.read(str(db_path), bm["youtube_id"]) or {}
             disp = dict(res)
             for key in ("tempo", "tempo_source", "tempo_raw", "tempo_confidence",
-                        "mood", "vibe_tags", "measured", "audio_engine"):
+                        "tempo_method", "mood", "vibe_tags", "measured", "audio_engine"):
                 if cached.get(key) is not None:
                     disp[key] = cached[key]
             tempo = disp.get("tempo") or 0
@@ -118,6 +120,9 @@ def main():
             extra = ""
             if measured and raw and abs(float(raw) - float(tempo)) > 0.05:
                 extra = f" (実測 {raw} をオクターブ補正)"
+            method = disp.get("tempo_method") or ""
+            if method and method != "beat_track":
+                extra += f" [{method}]"
             if audio_engine:
                 extra += f" audio={audio_engine}"
             err = res.get("audio_error")

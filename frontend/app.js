@@ -1580,7 +1580,12 @@ function radarEngineLabel(engine) {
 function radarBpmLabel(features) {
     const f = features || {};
     const src = f.bpm_source || (['essentia', 'audio', 'librosa', 'clap'].includes(f.engine) ? 'audio' : null);
-    if (['essentia', 'audio', 'librosa', 'clap'].includes(src)) return 'BPM実測';
+    if (['essentia', 'audio', 'librosa', 'clap'].includes(src)) {
+        // オクターブ (半速/倍速) を補正した曲は、その根拠も表示する
+        if (f.bpm_method === 'octave') return 'BPM実測(オクターブ補正)';
+        if (f.bpm_method === 'reference') return 'BPM実測(参照BPM補正)';
+        return 'BPM実測';
+    }
     if (f.tempo && f.tempo > 0) return 'BPM推定';
     return '';
 }

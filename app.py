@@ -10,6 +10,7 @@ import sqlite3
 import datetime
 import time
 import json
+import re
 import threading
 import urllib.request
 import urllib.parse
@@ -31,6 +32,10 @@ DB_PATH = os.environ.get('TUNEDROP_DB', os.path.join(os.path.dirname(os.path.abs
 SECRET_KEY = load_secret()
 JWT_EXPIRATION_HOURS = 24
 
+# SQLite のロック待ち上限 (秒)。MAMP(PHP) も同じ DB を書き換えるため、
+# 待ち続けて FastCGI の idle timeout (30秒) を超えないよう短くしておく。
+DB_BUSY_TIMEOUT_SECONDS = float(os.environ.get('TUNEDROP_DB_TIMEOUT', '5'))
+
 # Google OAuth 2.0 (Google Identity Services)
 # Google Cloud Console で「OAuth 2.0 クライアントID (ウェブアプリケーション)」を作成し、
 # 承認済みの JavaScript 生成元とリダイレクト URI を設定してください。
@@ -38,15 +43,35 @@ GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    """SQLite 接続。PHP (MAMP/api.php) と同時に書き込んでもハングしないよう
+    busy_timeout を短く設定する (待ち切れないときは例外で即座に返す)。"""
+    conn = sqlite3.connect(DB_PATH, timeout=DB_BUSY_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute(f"PRAGMA busy_timeout = {int(DB_BUSY_TIMEOUT_SECONDS * 1000)};")
     return conn
+
+
+def enable_wal_mode(conn):
+    """WAL ジャーナルに切り替える。
+
+    ロールバックジャーナル方式だと、解析バッチの書き込み中に MAMP(PHP) の
+    読み取りが待たされ、Apache の FastCGI idle timeout (30秒) に切られて
+    サイト全体が「起動しない」状態になる。WAL は読み書きが互いをブロックしない。
+    モードは DB ファイルに記憶されるため、以降の接続では実質 no-op。
+    """
+    try:
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+    except sqlite3.DatabaseError:
+        # WAL にできないファイルシステム (ネットワーク越し等) でも動作は続ける
+        pass
 
 
 def init_db_if_needed():
     """Ensure database and tables exist."""
     conn = get_db()
+    enable_wal_mode(conn)
     with conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -145,9 +170,6 @@ def migrate_system_playlists(conn):
         pass
 
 
-GUEST_USERNAME = 'guest'
-
-
 def migrate_unique_bookmarks(conn):
     """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
 
@@ -157,12 +179,16 @@ def migrate_unique_bookmarks(conn):
     表示側で youtube_id ごとに1件にまとめる（API側の get_my_bookmarks を参照）。
     """
     # 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
-    conn.execute(
-        """
-        DELETE FROM bookmarks
-         WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
-        """
-    )
+    duplicated = conn.execute(
+        "SELECT 1 FROM bookmarks GROUP BY playlist_id, youtube_id HAVING COUNT(*) > 1 LIMIT 1"
+    ).fetchone()
+    if duplicated:
+        conn.execute(
+            """
+            DELETE FROM bookmarks
+             WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
+            """
+        )
     try:
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique "
@@ -174,112 +200,7 @@ def migrate_unique_bookmarks(conn):
     # 旧仕様 (ゲスト全リストで1曲1件) のトリガーが残っていたら撤去する。
     # 現仕様は「違うリストなら同じ曲OK」のため、ゲスト用トリガーは使わない。
     conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert")
-
-
-def migrate_unique_bookmarks(conn):
-    """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
-
-    過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
-    違うリストへの同じ曲の登録は許可する（ゲストも含む）。
-    「すべてのブックマーク」「お気に入り曲」など複数リストをまとめて表示する画面では、
-    表示側で youtube_id ごとに1件にまとめる（API側の get_my_bookmarks を参照）。
-    """
-    # 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
-    conn.execute(
-        """
-        DELETE FROM bookmarks
-         WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
-        """
-    )
-    try:
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique "
-            "ON bookmarks(playlist_id, youtube_id)"
-        )
-    except sqlite3.IntegrityError:
-        pass
-    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert")
     conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update")
-
-    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update")
-
-
-def migrate_unique_bookmarks(conn):
-    """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
-
-    過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
-    ゲスト ('guest' ユーザー) は全リスト横断で同じ曲を1つだけ持てるため、最も古い行だけ残す。
-    ログイン中の一般ユーザーは別リストへの同じ曲の登録を引き続き許可する。
-    """
-    # 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
-    conn.execute(
-        """
-        DELETE FROM bookmarks
-         WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
-        """
-    )
-    # ゲストは全リストで同じ曲を1つだけ持てる: 他リストの重複は最も古い行だけ残す
-    conn.execute(
-        """
-        DELETE FROM bookmarks
-         WHERE id NOT IN (
-           SELECT MIN(b.id) FROM bookmarks b
-           JOIN playlists p ON p.id = b.playlist_id
-           JOIN users u ON u.id = p.user_id AND u.username = ?
-           GROUP BY b.youtube_id
-         )
-         AND playlist_id IN (
-           SELECT p.id FROM playlists p
-           JOIN users u ON u.id = p.user_id AND u.username = ?
-         )
-        """,
-        (GUEST_USERNAME, GUEST_USERNAME),
-    )
-    try:
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique "
-            "ON bookmarks(playlist_id, youtube_id)"
-        )
-    except sqlite3.IntegrityError:
-        # 同時書き込みで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
-        pass
-    # ゲスト横断の重複をDBレベルでも防ぐ (一般ユーザーの別リスト登録には影響しない)
-    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert")
-    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update")
-    conn.execute(
-        """
-        CREATE TRIGGER bookmarks_guest_video_unique_insert
-         BEFORE INSERT ON bookmarks
-         WHEN EXISTS (
-           SELECT 1 FROM bookmarks b
-           JOIN playlists p ON p.id = b.playlist_id
-           JOIN users u ON u.id = p.user_id AND u.username = 'guest'
-           JOIN playlists np ON np.id = NEW.playlist_id
-           JOIN users nu ON nu.id = np.user_id AND nu.username = 'guest'
-           WHERE b.youtube_id = NEW.youtube_id AND b.playlist_id != NEW.playlist_id
-         )
-         BEGIN
-           SELECT RAISE(ABORT, 'guest_duplicate_video');
-         END
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER bookmarks_guest_video_unique_update
-         BEFORE UPDATE OF playlist_id, youtube_id ON bookmarks
-         WHEN EXISTS (
-           SELECT 1 FROM bookmarks b
-           JOIN playlists p ON p.id = b.playlist_id
-           JOIN users u ON u.id = p.user_id AND u.username = 'guest'
-           JOIN playlists np ON np.id = NEW.playlist_id
-           JOIN users nu ON nu.id = np.user_id AND nu.username = 'guest'
-           WHERE b.youtube_id = NEW.youtube_id AND b.id != NEW.id
-         )
-         BEGIN
-           SELECT RAISE(ABORT, 'guest_duplicate_video');
-         END
-        """
-    )
 
 
 def new_display_name(cursor):
@@ -597,16 +518,19 @@ def health():
 
 def _analysis_cache_entry(video_id):
     """analysis_cache から解析結果 (dict or None) を返す。"""
+    conn = None
     try:
         conn = get_db()
         row = conn.execute(
             "SELECT data FROM analysis_cache WHERE youtube_id=?", (video_id,)).fetchone()
-        conn.close()
         if row:
             import json
             return json.loads(row["data"])
     except Exception:
         pass
+    finally:
+        if conn is not None:
+            conn.close()
     return None
 
 
@@ -617,7 +541,12 @@ def _save_analysis_cache(video_id, result, merge=False):
     その際 analysis_cache.protect_measured() を通すため、音源解析済みの行は
     AI 推定 (gemini / rules) のフィールドで実測 BPM や CLAP のムードを失わない。
     (AI 推定と実測値が同じ行に共存できる)
+
+    接続は finally で必ず閉じる。例外で開いたままになると、コミットされていない
+    書き込みトランザクションがロックを保持し続け、PHP (MAMP) 側が SQLite の
+    ロック待ちで固まってしまう (サイト全体が応答しなくなる)。
     """
+    conn = None
     try:
         import analysis_cache
         conn = get_db()
@@ -639,9 +568,15 @@ def _save_analysis_cache(video_id, result, merge=False):
             "VALUES (?, ?, ?)",
             (video_id, json.dumps(data, ensure_ascii=False), int(time.time())))
         conn.commit()
-        conn.close()
     except Exception:
-        pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 
@@ -657,25 +592,14 @@ def _num(v, default=0.0):
 
 
 def align_tempo(measured, reference):
-    """実測 BPM のオクターブ誤り (半速/倍速) を AI 推定値に寄せて補正する。
+    """実測 BPM のオクターブ補正 (実装は vibe_analyzer に一本化)。
 
-    ビートトラッカーは 82.9 BPM の曲をそのまま返すことがある (例: KING は実際 165.8)。
-    measured の 1/2, 1, 2, 4 倍のうち reference (AI 推定 BPM) に最も近い値を選ぶ。
-    reference が無効な場合は measured をそのまま返す。
+    以前は同じロジックを app.py にも重複して持っていたため、片方だけ直すと
+    解析結果と保存値で挙動が食い違う恐れがあった。ここは互換用の入口として
+    vibe_analyzer 側を呼ぶだけにする。
     """
-    m = _num(measured)
-    ref = _num(reference)
-    if m <= 0 or ref <= 0:
-        return m
-    best, best_diff = m, abs(m - ref)
-    for factor in (0.5, 2.0, 4.0, 0.25):
-        cand = m * factor
-        if not (55.0 <= cand <= 210.0):
-            continue
-        diff = abs(cand - ref)
-        if diff < best_diff:
-            best, best_diff = cand, diff
-    return best
+    from vibe_analyzer import align_tempo as _align_tempo
+    return _align_tempo(measured, reference)
 
 
 def ai_analyze_bookmark(video_id, title, channel, category):
@@ -695,6 +619,7 @@ def _apply_audio_result(res, va, source="audio"):
     実測 BPM が得られなかった場合は何もせず False を返す。
     """
     from ai_analyzer import FEATURE_KEYS
+    import analysis_cache
     bpm = _num(va.get("tempo"))
     if bpm <= 0:
         return False
@@ -702,6 +627,10 @@ def _apply_audio_result(res, va, source="audio"):
     res["tempo_raw"] = va.get("tempo_raw") or round(bpm, 1)
     res["tempo_source"] = source
     res["tempo_confidence"] = va.get("tempo_confidence", 0)
+    # どの証拠でテンポを決めたか (UI/デバッグ用) とアルゴリズム版を残す
+    (res["tempo_method"], res["tempo_candidates"], res["tempo_algo"]) = (
+        va.get("tempo_method"), va.get("tempo_candidates"),
+        va.get("tempo_algo", analysis_cache.TEMPO_ALGO_VERSION))
     res["measured"] = True
     res["audio_engine"] = va.get("engine")
     res["duration"] = va.get("duration")
@@ -783,16 +712,18 @@ def _db_bookmarks(include_cache=True):
     """
     from ai_analyzer import detect_vocaloid
     conn = get_db()
-    rows = conn.execute("""
-        SELECT b.youtube_id, b.title, b.channel,
-               p.category, p.name AS playlist_name, p.is_public, p.user_id,
-               COALESCE(u.display_name, u.username) AS author
-        FROM bookmarks b
-        JOIN playlists p ON p.id = b.playlist_id
-        JOIN users u ON u.id = p.user_id
-        ORDER BY b.added_at DESC, b.id DESC
-    """).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute("""
+            SELECT b.youtube_id, b.title, b.channel,
+                   p.category, p.name AS playlist_name, p.is_public, p.user_id,
+                   COALESCE(u.display_name, u.username) AS author
+            FROM bookmarks b
+            JOIN playlists p ON p.id = b.playlist_id
+            JOIN users u ON u.id = p.user_id
+            ORDER BY b.added_at DESC, b.id DESC
+        """).fetchall()
+    finally:
+        conn.close()
 
     out = []
     for r in rows:
@@ -811,6 +742,8 @@ def _db_bookmarks(include_cache=True):
             "beats": 0,
             "engine": None,
             "bpm_source": None,
+            "bpm_method": None,
+            "bpm_algo": None,
             "vibe_tags": [],
             "audio_engine": None,
             "mood": None,
@@ -826,6 +759,8 @@ def _db_bookmarks(include_cache=True):
                 item["beats"] = len(d.get("beats") or [])
                 item["engine"] = d.get("engine")
                 item["bpm_source"] = d.get("tempo_source") or ("audio" if d.get("measured") else None)
+                item["bpm_method"] = d.get("tempo_method")
+                item["bpm_algo"] = d.get("tempo_algo")
                 item["vibe_tags"] = d.get("vibe_tags") or []
                 item["audio_engine"] = d.get("audio_engine")
                 item["mood"] = d.get("mood")
@@ -849,17 +784,20 @@ def analysis_async(video_id):
 
     # 曲情報を取得
     bm = None
+    conn = None
     try:
         conn = get_db()
         row = conn.execute(
             "SELECT title, channel, category FROM bookmarks b "
             "JOIN playlists p ON p.id = b.playlist_id "
             "WHERE b.youtube_id=?", (video_id,)).fetchone()
-        conn.close()
         if row:
             bm = dict(row)
     except Exception:
         pass
+    finally:
+        if conn is not None:
+            conn.close()
     if not bm:
         return jsonify({'status': 'queued', 'note': 'bookmark not found'}), 202
 
@@ -891,6 +829,82 @@ def ai_analyze(video_id):
     return jsonify(res), 200
 
 
+def _normalize(emb):
+    import numpy as np
+    arr = np.asarray(emb, dtype="float64")
+    if arr.ndim != 2 or arr.shape[0] == 0:
+        return []
+    mn = arr.min(axis=0)
+    mx = arr.max(axis=0)
+    rng = mx - mn
+    rng[rng == 0] = 1.0
+    norm = (arr - mn) / rng
+    norm = norm * 0.9 + 0.05   # 5% 余白を付ける
+    return np.clip(norm, 0.0, 1.0).tolist()
+
+
+def _pca2d(X):
+    import numpy as np
+    X = X - X.mean(axis=0)
+    try:
+        _, _, vt = np.linalg.svd(X, full_matrices=False)
+        return X @ vt[:2].T
+    except Exception:
+        return X[:, :2]
+
+
+def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
+    """(coords, method) を返す。coords は各曲の [x, y] ([0,1])。"""
+    import numpy as np
+    feats = []
+    for f in features:
+        f = list(f or [])
+        if f:
+            feats.append(f)
+    n = len(feats)
+    if n == 0:
+        return [], "none"
+    if n == 1:
+        return [[0.5, 0.5]], "none"
+    if n == 2:
+        return [[0.0, 0.0], [1.0, 1.0]], "none"
+
+    X = np.asarray(feats, dtype="float64")
+    std = X.std(axis=0)
+    keep = std > 1e-12
+    if not keep.any():
+        # 全次元が定数 → 均等円配置にフォールバック
+        ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        return np.column_stack([0.5 + 0.4 * np.cos(ang),
+                                0.5 + 0.4 * np.sin(ang)]).tolist(), "circle"
+
+    X = X[:, keep]
+    std = X.std(axis=0)
+    std[std == 0] = 1.0
+    Z = (X - X.mean(axis=0)) / std
+
+    nn = max(2, min(n_neighbors, n - 1))
+    method = "umap"
+    try:
+        import umap  # noqa: F401
+        reducer = umap.UMAP(
+            n_components=2, n_neighbors=nn, min_dist=min_dist,
+            metric="euclidean", random_state=random_state, n_epochs=200,
+        )
+        emb = reducer.fit_transform(Z)
+        if np.asarray(emb).shape[0] != n:
+            raise RuntimeError("bad embedding shape")
+    except Exception:
+        method = "pca"
+        emb = _pca2d(Z)
+
+    coords = _normalize(emb)
+    if len(coords) != n:   # 最終保険
+        coords = [[0.5, 0.5] for _ in range(n)]
+        method = "none"
+    return coords, method
+
+
 @app.route('/radar/map', methods=['GET'])
 def radar_map():
     """全ブックマークの特徴ベクトルを UMAP で 2次元へ射影する。
@@ -900,7 +914,6 @@ def radar_map():
       user_id=N  → 対象ユーザーを絞る (未指定は全ユーザー)
     """
     from audio_download import VIDEO_ID_RE
-    from radar_map import embed
 
     public_only = request.args.get('public') == '1'
     user_id = _num(request.args.get('user_id'), 0)
@@ -950,6 +963,7 @@ def radar_map():
                 "mood": it["mood"],
                 "engine": it["engine"] or "unavailable",
                 "bpm_source": it.get("bpm_source"),
+                "bpm_method": it.get("bpm_method"),
                 "vibe_tags": it.get("vibe_tags") or [],
                 "audio_engine": it.get("audio_engine"),
                 "x": round(coords_for_item[0], 4) if coords_for_item else None,
@@ -1000,8 +1014,12 @@ def _run_reanalyze_batch(targets, use_audio, force):
         st['current'] = vid
         # 最適化: 全曲再解析 (force=1) でも、実測BPMが既にある曲は音源DLを省略し、
         # AI推定のみを再実行する (曲数が多い場合の処理時間を大幅に短縮)。
-        audio_for_song = use_audio and not (
-            force and (it.get('bpm_source') in analysis_cache.MEASURED_SOURCES))
+        # ただしテンポ推定アルゴリズムが更新された行 (bpm_algo が古い) は、
+        # 精度向上を反映させるため音源を取得し直して測り直す。
+        already_measured = (
+            it.get('bpm_source') in analysis_cache.MEASURED_SOURCES
+            and it.get('bpm_algo') == analysis_cache.TEMPO_ALGO_VERSION)
+        audio_for_song = use_audio and not (force and already_measured)
         try:
             res = reanalyze_bookmark(vid, it['title'], it['channel'],
                                      it['category'], use_audio=audio_for_song)
@@ -1011,6 +1029,7 @@ def _run_reanalyze_batch(targets, use_audio, force):
                 'tempo': res.get('tempo'),
                 'tempo_raw': res.get('tempo_raw'),
                 'tempo_source': res.get('tempo_source'),
+                'tempo_method': res.get('tempo_method'),
                 'engine': res.get('engine'),
                 'audio_engine': res.get('audio_engine'),
                 'vibe_tags': res.get('vibe_tags'),
@@ -1090,9 +1109,110 @@ def radar_analyze_status():
     return jsonify({'success': True, 'state': st}), 200
 
 
+# APIキーは環境変数から取得。Python起動時に非公開の .env を読み込みます。
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "").strip()
+YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def is_video_id(value: str) -> bool:
+    return bool(YOUTUBE_ID_RE.match(value or ""))
+
+
+def _http_get_json(url: str, timeout: int = 8):
+    req = urllib.request.Request(url, headers={"User-Agent": "TuneDrop/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as res:
+        return json.load(res)
+
+
+def oembed_meta(video_id: str) -> dict:
+    """Fallback metadata without API key (oEmbed + noembed)."""
+    watch_url = f"https://www.youtube.com/watch?v={video_id}"
+    for endpoint in [
+        "https://www.youtube.com/oembed?url=" + urllib.parse.quote(watch_url, safe=""),
+        "https://noembed.com/embed?url=" + urllib.parse.quote(watch_url, safe=""),
+    ]:
+        try:
+            data = _http_get_json(endpoint)
+            if data and data.get("title"):
+                return {
+                    "youtube_id": video_id,
+                    "title": data.get("title", ""),
+                    "channel": data.get("author_name", "Unknown Artist"),
+                    "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+                    "source": "oembed",
+                }
+        except Exception:
+            continue
+    return {
+        "youtube_id": video_id,
+        "title": video_id,
+        "channel": "Unknown Artist",
+        "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+        "source": "fallback",
+    }
+
+
+def get_video_meta(video_id: str) -> dict:
+    if not is_video_id(video_id):
+        raise ValueError("Invalid YouTube video ID")
+    if YOUTUBE_API_KEY:
+        try:
+            url = (
+                "https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id="
+                + video_id + "&key=" + YOUTUBE_API_KEY
+            )
+            data = _http_get_json(url)
+            items = data.get("items", [])
+            if items:
+                sn = items[0].get("snippet", {})
+                stats = items[0].get("statistics", {})
+                thumbs = (sn.get("thumbnails") or {})
+                thumb = (thumbs.get("medium") or thumbs.get("high") or thumbs.get("default") or {}).get("url")
+                return {
+                    "youtube_id": video_id,
+                    "title": sn.get("title", ""),
+                    "channel": sn.get("channelTitle", ""),
+                    "description": sn.get("publishedAt", ""),
+                    "thumbnail": thumb or f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+                    "view_count": stats.get("viewCount"),
+                    "source": "youtube-data-api",
+                }
+        except Exception:
+            pass
+    return oembed_meta(video_id)
+
+
+def search_videos(query: str, max_results: int = 10) -> dict:
+    query = (query or "").strip()
+    if not query:
+        raise ValueError("query is required")
+    max_results = max(1, min(25, int(max_results or 10)))
+    if YOUTUBE_API_KEY:
+        try:
+            url = (
+                "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults="
+                + str(max_results) + "&q=" + urllib.parse.quote(query) + "&key=" + YOUTUBE_API_KEY
+            )
+            data = _http_get_json(url)
+            items = []
+            for it in data.get("items", []):
+                vid = ((it.get("id") or {}).get("videoId")) or ""
+                sn = it.get("snippet", {})
+                if is_video_id(vid):
+                    items.append({
+                        "youtube_id": vid,
+                        "title": sn.get("title", ""),
+                        "channel": sn.get("channelTitle", ""),
+                        "thumbnail": f"https://img.youtube.com/vi/{vid}/hqdefault.jpg",
+                    })
+            return {"source": "youtube-data-api", "items": items}
+        except Exception:
+            pass
+    return {"source": "disabled", "items": [], "hint": "YOUTUBE_API_KEY が未設定のため検索は無効です。URL/IDでの追加をご利用ください。"}
+
+
 @app.route('/youtube/meta', methods=['GET'])
 def youtube_meta():
-    from youtube_helper import get_video_meta
     video_id = (request.args.get('id') or request.args.get('youtube_id') or '').strip()
     try:
         return jsonify(get_video_meta(video_id))
@@ -1102,7 +1222,6 @@ def youtube_meta():
 
 @app.route('/youtube/search', methods=['GET'])
 def youtube_search():
-    from youtube_helper import search_videos
     query = request.args.get('q', '')
     limit = request.args.get('limit', '10')
     try:
@@ -1134,11 +1253,7 @@ def analysis_engines():
         engines['clap_status'] = clap_status()
     except Exception:
         pass
-    try:
-        import youtube_helper
-        engines['youtube_api'] = bool(youtube_helper.YOUTUBE_API_KEY)
-    except Exception:
-        pass
+    engines['youtube_api'] = bool(YOUTUBE_API_KEY)
     return jsonify(engines), 200
 
 
@@ -1179,8 +1294,8 @@ if __name__ == '__main__':
         print(f"Notice: Could not write .auth_port file: {e}")
 
     print(f"==================================================")
-    print(f"💧 Tune drop Auth (Production WSGI) running on http://localhost:{port}")
-    print(f"==================================================")
+    print(f"💧 Tune drop Auth (Production WSGI) running on http://localhost:{port}", flush=True)
+    print(f"==================================================", flush=True)
     try:
         from waitress import serve
         serve(app, host='127.0.0.1', port=port, _quiet=True)

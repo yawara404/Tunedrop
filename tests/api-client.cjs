@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(`${__dirname}/../api-client.js`, 'utf8');
+const source = fs.readFileSync(`${__dirname}/../frontend/api-client.js`, 'utf8');
 
 async function scenario(page, replies, expected, options = {}) {
     const calls = [];

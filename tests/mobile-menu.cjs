@@ -151,7 +151,7 @@ const context = vm.createContext({
     tunedropFetch: async () => ({ ok: true, json: async () => [] }),
 });
 
-vm.runInContext(fs.readFileSync(`${__dirname}/../app.js`, 'utf8'), context);
+vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8'), context);
 const run = code => vm.runInContext(code, context);
 
 // ----------------------------------------------------------

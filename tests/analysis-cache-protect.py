@@ -93,6 +93,29 @@ out2 = ac.audio_fields({"feature_vector": [0.9, 0, 0, 0, 0, 0, 0, 0]}, res7)
 check("既存 AI vector[0] を実測 tempo で差し替え", out2["feature_vector"][0] == 0.493,
       out2.get("feature_vector"))
 
+print("[8] tempo_algo / tempo_method / tempo_candidates は実測フィールドとして保護される")
+res8 = {"tempo": 128.0, "engine": "librosa", "tempo_method": "octave",
+        "tempo_candidates": [{"bpm": 64.0, "score": 0.1}], "tempo_algo": 2,
+        "feature_vector": [0.64] * 8, "beats": [], "chorus": [], "chords": []}
+out = ac.audio_fields({}, res8)
+check("tempo_method を保存", out.get("tempo_method") == "octave", out.get("tempo_method"))
+check("tempo_candidates を保存", out.get("tempo_candidates") == [{"bpm": 64.0, "score": 0.1}],
+      out.get("tempo_candidates"))
+check("tempo_algo を保存", out.get("tempo_algo") == 2, out.get("tempo_algo"))
+check("tempo_algo 未指定なら現行版",
+      ac.audio_fields({}, {"tempo": 100.0})["tempo_algo"] == ac.TEMPO_ALGO_VERSION)
+m = ac.write_merged(db, "ddddddddddd", out)
+check("tempo_algo がキャッシュに残る", m.get("tempo_algo") == 2, m.get("tempo_algo"))
+
+ai8 = {"tempo": 120.0, "tempo_source": "gemini", "engine": "gemini",
+       "tempo_method": "rules", "tempo_algo": 99, "tempo_candidates": ["x"]}
+m = ac.write_merged(db, "ddddddddddd", ai8)
+check("AI pass は tempo_algo を壊さない", m.get("tempo_algo") == 2, m.get("tempo_algo"))
+check("AI pass は tempo_method を壊さない", m.get("tempo_method") == "octave",
+      m.get("tempo_method"))
+check("AI pass は tempo_candidates を壊さない",
+      m.get("tempo_candidates") == [{"bpm": 64.0, "score": 0.1}], m.get("tempo_candidates"))
+
 os.remove(db)
 print("-" * 60)
 if failures:

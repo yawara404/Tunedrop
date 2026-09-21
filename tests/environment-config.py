@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory() as temporary:
     work = Path(temporary)
     project = work / 'project'
     project.mkdir()
-    for name in ['runtime_config.py', 'app.py', 'youtube_helper.py', 'ai_analyzer.py', 'audio_download.py']:
+    for name in ['runtime_config.py', 'app.py', 'ai_analyzer.py', 'audio_download.py']:
         shutil.copy(ROOT / name, project / name)
     sentinel = work / 'must-not-exist'
     (project / '.env').write_text(
@@ -30,18 +30,17 @@ with tempfile.TemporaryDirectory() as temporary:
         subprocess.run([sys.executable, '-c', code], cwd=work,
                        env={**env, **(extra or {})}, check=True)
     # Import each helper first so it cannot rely on app.py having loaded .env.
-    for module, key, value in [('youtube_helper','YOUTUBE_API_KEY','fixture-youtube'),
-                               ('ai_analyzer','GEMINI_API_KEY','fixture-gemini')]:
-        run(f'import {module}; assert {module}.{key} == {value!r}')
+    run('import ai_analyzer; assert ai_analyzer.GEMINI_API_KEY == "fixture-gemini"')
     run('import audio_download, os; assert os.environ["YTDLP_PO_TOKEN"] == "fixture-token"')
     run('import app; assert app.GOOGLE_CLIENT_ID == "fixture-client"; '
-        'assert app.get_free_port() == 5055; assert app.DB_PATH.endswith("fixture.sqlite")')
+        'assert app.get_free_port() == 5055; assert app.DB_PATH.endswith("fixture.sqlite"); '
+        'assert app.YOUTUBE_API_KEY == "fixture-youtube"')
     run('import app; assert app.GOOGLE_CLIENT_ID == "process-client"; assert app.get_free_port() == 6001',
         {'GOOGLE_CLIENT_ID': 'process-client', 'PORT': '6001'})
     custom = work / 'custom.env'
     custom.write_text('GOOGLE_CLIENT_ID=custom-client\n')
     run('import app; assert app.GOOGLE_CLIENT_ID == "custom-client"', {'TUNEDROP_ENV_FILE': str(custom)})
-    run('import youtube_helper; assert youtube_helper.YOUTUBE_API_KEY == ""',
+    run('import app; assert app.YOUTUBE_API_KEY == ""',
         {'TUNEDROP_ENV_FILE': str(work/'absent.env')})
     # The standalone PHP launcher's exec inherits dotenv without shell expansion.
     subprocess.run([sys.executable, str(project/'runtime_config.py'), sys.executable, '-c',

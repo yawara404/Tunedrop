@@ -8,20 +8,37 @@ import json
 import math
 import sqlite3
 import time
+from contextlib import closing
 
 CACHE_TTL = 86400 * 7
+# PHP (MAMP/api.php) と同時に書き込むため、ロック待ちは短くしておく。
+# 長く待つと FastCGI の idle timeout (30秒) を超えてリクエストが切れる。
+BUSY_TIMEOUT_MS = 5000
 # 「実測 BPM」とみなす tempo_source の値
 # ("essentia" は旧エンジンで測った既存行のための互換値)
 MEASURED_SOURCES = ("audio", "librosa", "clap", "essentia")
+# 実測 BPM を算出したアルゴリズムの版 (vibe_analyzer.TEMPO_ALGO_VERSION と同値)。
+# 版が上がったら既存の実測 BPM も測り直す (app.py の再解析バッチが判定に使う)。
+# v2: 打楽器成分のオンセット + オクターブ候補の証拠採点
+# v3: 付点/3連候補 (3:2 / 2:3) ・周期 (自己相関) の証拠 ・BPM の微調整 ・CLAP のテンポ感
+TEMPO_ALGO_VERSION = 3
 # AI 推定由来の tempo_source / engine の値
 AI_TEMPO_SOURCES = ("gemini", "rules")
 # 音源解析済み (audio_engine あり) の行で AI 上書きから守る実測フィールド
 MEASURED_KEYS = (
     "tempo", "tempo_source", "tempo_raw", "tempo_confidence",
+    "tempo_method", "tempo_candidates", "tempo_algo",
     "energy", "danceability", "valence", "acousticness",
     "instrumentalness", "speechiness", "liveness",
     "mood", "vibe_tags", "vibe_scores", "vibe_clap", "feature_vector",
 )
+
+
+def connect(db_path, timeout_seconds=5):
+    """ロック待ち時間を明示した SQLite 接続を返す。"""
+    db = sqlite3.connect(db_path, timeout=timeout_seconds)
+    db.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};")
+    return db
 
 
 def num(v, default=0.0):
@@ -44,7 +61,7 @@ def ensure_table(db):
 def read(db_path, video_id, ttl=None):
     """キャッシュを dict で返す。ttl 指定時は古いエントリを無視する。"""
     try:
-        with sqlite3.connect(db_path, timeout=10) as db:
+        with closing(connect(db_path, timeout_seconds=10)) as db:
             row = db.execute(
                 "SELECT data, updated_at FROM analysis_cache WHERE youtube_id=?",
                 (video_id,)).fetchone()
@@ -87,7 +104,7 @@ def write_merged(db_path, video_id, fields):
     measured は tempo_source から自動判定する。
     """
     try:
-        with sqlite3.connect(db_path, timeout=15) as db:
+        with closing(connect(db_path, timeout_seconds=15)) as db:
             ensure_table(db)
             row = db.execute("SELECT data FROM analysis_cache WHERE youtube_id=?",
                              (video_id,)).fetchone()
@@ -106,6 +123,8 @@ def write_merged(db_path, video_id, fields):
                        "data=excluded.data, updated_at=excluded.updated_at",
                        (video_id, json.dumps(merged, ensure_ascii=False),
                         int(time.time())))
+            # closing() は接続を閉じるだけでコミットしないため明示的にコミットする
+            db.commit()
         return merged
     except Exception:
         return None
@@ -128,13 +147,16 @@ def audio_fields(existing, result, tempo_source="audio"):
         "measured": True,
     }
     for key in ("vibe_scores", "vibe_tags", "tempo_confidence", "tempo_raw",
-                "vibe_clap"):
+                "tempo_method", "tempo_candidates", "vibe_clap"):
         if result.get(key) is not None:
             out[key] = result[key]
     tempo = num(result.get("tempo"))
     if tempo > 0:
         out["tempo"] = round(tempo, 1)
         out["tempo_source"] = tempo_source
+        # どの版のアルゴリズムで測ったかを記録する (版が古い行は再測定の対象になる)
+        out["tempo_algo"] = int(num(result.get("tempo_algo"), TEMPO_ALGO_VERSION)
+                                or TEMPO_ALGO_VERSION)
         fv = existing.get("feature_vector")
         if isinstance(fv, list) and fv:
             # feature_vector[0] は tempo 正規化値 (分母 200, 0..1 clamp)

@@ -25,16 +25,18 @@ def check(command, cwd, port):
             except OSError:
                 time.sleep(.05)
         base = f'http://127.0.0.1:{port}'
-        for path in ['/', '/app.js', '/frontend/manager-lists.js', '/vendor/vue.esm-browser.prod.js',
+        for path in ['/', '/frontend/app.js', '/frontend/style.css', '/frontend/manager-lists.js',
+                     '/vendor/vue.esm-browser.prod.js',
                      '/database.sqlite', '/database.sqlite-wal', '/.jwt_secret', '/.admin_token',
                      '/.git/config', '/app.py', '/setup.sql', '/README.md', '/tests/test.js',
-                     '/_backup_pre_radar/api.php', '/%2ejwt_secret', '/router.php', '/missing.css']:
+                     '/_backup_pre_radar/api.php', '/%2ejwt_secret', '/router.php', '/missing.css',
+                     '/app.js', '/style.css', '/config.js']:
             try:
                 with urllib.request.urlopen(base+path) as response:
                     status = response.status
             except urllib.error.HTTPError as error:
                 status = error.code
-            expected = 200 if path in ['/', '/app.js', '/frontend/manager-lists.js', '/vendor/vue.esm-browser.prod.js'] else 403
+            expected = 200 if path in ['/', '/frontend/app.js', '/frontend/style.css', '/frontend/manager-lists.js', '/vendor/vue.esm-browser.prod.js'] else 403
             assert status == expected, (command[0], path, status, expected)
     finally:
         process.terminate()
@@ -52,7 +54,8 @@ with tempfile.TemporaryDirectory() as temporary:
     web.mkdir()
     for name in ['.htaccess', 'router.php']:
         shutil.copy(ROOT/name, web/name)
-    for name in ['index.html','app.js','frontend/manager-lists.js','vendor/vue.esm-browser.prod.js',
+    for name in ['index.html','frontend/app.js','frontend/style.css','frontend/manager-lists.js',
+                 'vendor/vue.esm-browser.prod.js',
                  'database.sqlite','.jwt_secret','.admin_token','app.py','setup.sql','README.md',
                  'tests/test.js','_backup_pre_radar/api.php','.git/config','database.sqlite-wal']:
         path=web/name

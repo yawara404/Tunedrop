@@ -6,6 +6,19 @@ google-auth>=2.29,<3
 requests>=2.31,<3
 python-dotenv>=1.0,<2
 
-# Radar map (radar_map.py): numpy is required. UMAP is optional (falls back to PCA).
+# Radar map (app.py embed()): numpy is required. UMAP is optional (falls back to PCA).
 numpy>=1.26
+
+# 音源解析 (vibe_analyzer.py) は任意。入れると実測BPM・雰囲気・mood が使えるようになる。
+#   librosa + soundfile        … 実測BPM/ビート/雰囲気の必須依存 (pip install librosa soundfile)
+#   torch / laion-clap ほか    … mood とテンポ感の判定 (任意・重い)
+# 注意: laion-clap は「numpy<2」を要求するメタデータを持つが numpy 2 でも動作する。
+#       numpy を下げると librosa/scipy が壊れるため --no-deps で入れること:
+#   pip install --no-deps laion-clap
+#   pip install torch torchvision torchlibrosa transformers ftfy
+#   pip install regex pyyaml wcwidth progressbar2 webdataset wget h5py pandas
+# 注意: pandas / webdataset / braceexpand は laion-clap が import 時に読み込むため削除できない
+#       (pandas は librosa でも使う)。外すと import laion_clap が失敗して CLAP が無効になる。
+#       .venv の大半 (1.8GB) は CLAP の重み 630k-audioset-best.pt である。
+# yt-dlp + ffmpeg も必要 (音源の取得と WAV 変換)。
 
