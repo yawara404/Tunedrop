@@ -2844,14 +2844,14 @@ body.player-in-sidebar .youtube-popup.is-active {
     .content-area {
         width: 100%;
         min-width: 0;
-        padding: 16px 12px 132px !important;
+        padding: 16px 12px 120px !important;
     }
 
     /* 再生中: 下部の動画ポップアップ(bottom:104px + 高さ200px)が覆う分を
        スクロールして操作できるよう、隠れる高さ分の余白を確保する。
        (動画上端 = viewport 下端から 304px。Radar 画面は上部配置なので除外) */
     body:has(.youtube-popup.is-active) .content-area:not(.radar-content-area) {
-        padding-bottom: 324px !important;
+        padding-bottom: 312px !important;
     }
 
     .section-title {
@@ -2922,7 +2922,7 @@ body.player-in-sidebar .youtube-popup.is-active {
     /* Keep the YouTube frame at its required 355x200px size. */
     .youtube-popup {
         top: auto !important;
-        bottom: 86px !important;
+        bottom: 60px !important;
         left: 50% !important;
         width: 355px !important;
         max-width: calc(100vw - 20px) !important;
@@ -2957,21 +2957,21 @@ body.player-in-sidebar .youtube-popup.is-active {
     }
 
     .bottom-player {
-        height: 64px !important;
+        height: 56px !important;
         background: rgba(24, 24, 24, 0.96) !important;
         border-top: 1px solid #333 !important;
         box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.28) !important;
     }
 
     .progress-bar-container {
-        bottom: 64px !important;
+        bottom: 56px !important;
         height: 3px !important;
     }
 
     .track-details {
-        bottom: 64px !important;
-        height: 30px !important;
-        padding: 0 12px !important;
+        bottom: 56px !important;
+        height: 26px !important;
+        padding: 0 10px !important;
         gap: 6px !important;
         background: rgba(18, 18, 18, 0.94) !important;
     }
@@ -2979,8 +2979,8 @@ body.player-in-sidebar .youtube-popup.is-active {
     .player-content {
         position: static !important;
         width: 100% !important;
-        height: 61px !important;
-        padding: 0 10px !important;
+        height: 53px !important;
+        padding: 0 8px !important;
         display: flex !important;
     }
 
@@ -3001,15 +3001,15 @@ body.player-in-sidebar .youtube-popup.is-active {
 
     .player-controls .ctrl-btn:first-child,
     .player-controls .ctrl-btn:last-child {
-        width: 36px !important;
-        height: 36px !important;
-        padding: 6px !important;
+        width: 34px !important;
+        height: 34px !important;
+        padding: 5px !important;
         justify-self: auto !important;
     }
 
     .play-btn {
-        width: 42px !important;
-        height: 42px !important;
+        width: 40px !important;
+        height: 40px !important;
         margin-top: 0 !important;
     }
 
@@ -3289,7 +3289,7 @@ body.player-in-sidebar .youtube-popup.is-active {
 
 @media (max-width: 600px) {
     body.player-in-sidebar .content-area.radar-content-area {
-        margin-bottom: 76px;
+        margin-bottom: 64px;
     }
 
     .radar-content-area .section-title {
@@ -3520,13 +3520,13 @@ body.player-in-sidebar .youtube-popup.is-active {
 @media (max-width: 600px) {
     #view-playlist-detail .playlist-detail-content {
         min-height: 0;
-        margin-bottom: 94px !important;
+        margin-bottom: 82px !important;
         padding: 8px 12px 56px !important;
         overscroll-behavior-y: contain;
     }
 
     body:has(.youtube-popup.is-active) #view-playlist-detail .playlist-detail-content {
-        margin-bottom: 282px !important;
+        margin-bottom: 270px !important;
     }
 
     #view-playlist-detail .back-btn {
@@ -3677,8 +3677,8 @@ body.player-in-sidebar .youtube-popup.is-active {
 
 @media (max-width: 600px) {
     .bottom-player .player-controls {
-        padding: 0 48px !important;
-        gap: clamp(10px, 4vw, 22px) !important;
+        padding: 0 40px !important;
+        gap: clamp(8px, 3vw, 16px) !important;
     }
 
     .bottom-player .player-controls>button {
@@ -3824,7 +3824,7 @@ body.player-in-sidebar .youtube-popup.is-active {
 @media (max-width: 600px) {
     .profile-container {
         margin: 12px auto;
-        padding: 0 12px 110px;
+        padding: 0 12px 98px;
     }
 
     .profile-header {
@@ -3871,6 +3871,6 @@ body.player-in-sidebar .youtube-popup.is-active {
     }
 
     body:has(.youtube-popup.is-active) .profile-container {
-        padding-bottom: 290px;
+        padding-bottom: 278px;
     }
 }
