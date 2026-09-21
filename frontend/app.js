@@ -2234,7 +2234,7 @@ function playRadarNeighbors(youtubeId, count) {
     const base = vibeFiltered.find(t => t.youtube_id === youtubeId)
         || vibeMapData.find(t => t.youtube_id === youtubeId);
     if (!base) return;
-    const near = radarNeighbors(youtubeId, Math.max(0, (count || 8) - 1));
+    const near = radarNeighbors(youtubeId, Math.max(0, count || 8));
     const { queue } = radarQueueFromTracks([base, ...near], base.youtube_id);
     closeMobileMenu();
     playTrackFromQueue(0, queue);
