@@ -1,10 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env zsh
 # ./start.sh: PHP + Python / ./start.sh --mamp: Pythonのみ（Web配信はMAMP）
-# bash / zsh のどちらでも実行可能 (./start.sh / zsh start.sh)
+# zsh用 (./start.sh / zsh start.sh。bashでも動作可)
 set -e
-# zshではglobが一致しないと「no matches found」で止まるためnull_globにする (bashではスキップされる)
-setopt null_glob 2>/dev/null || true
-DIR="$(cd "$(dirname "${BASH_SOURCE:-$0}")" && pwd)"
+# glob不一致を空展開にする (zsh: nullglob / bash: nullglob)
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    setopt nullglob
+else
+    shopt -s nullglob 2>/dev/null || true
+fi
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    DIR="${0:A:h}"
+else
+    DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+fi
 cd "$DIR"
 MODE="${1:-standalone}"
 if [[ "$MODE" != standalone && "$MODE" != --mamp ]]; then
