@@ -148,9 +148,9 @@ function activeViewId() {
     return active ? active.id : null;
 }
 
-test('Manager へ遷移するとハッシュが #tunedrop になる', () => {
+test('Manager へ遷移するとハッシュが #manager になる', () => {
     run(`navigateView('manager')`);
-    assert.equal(locationStub.hash, '#tunedrop');
+    assert.equal(locationStub.hash, '#manager');
     run('applyHashView()');   // ブラウザの hashchange 発火を模擬
     assert.equal(activeViewId(), 'view-manager');
 });
@@ -166,7 +166,7 @@ test('ロゴ (goToHome) で Radar から Manager + ホーム選択に戻る', as
     run('applyHashView()');   // ブラウザの hashchange 発火を模擬
     assert.equal(activeViewId(), 'view-radar');
     await run('goToHome()');
-    assert.equal(locationStub.hash, '#tunedrop');
+    assert.equal(locationStub.hash, '#manager');
     run('applyHashView()');   // ブラウザの hashchange 発火を模擬
     assert.equal(activeViewId(), 'view-manager');
     assert.equal(context.window.__selectedPlaylist, 'home');
