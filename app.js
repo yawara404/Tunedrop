@@ -1389,6 +1389,7 @@ async function addTrack() {
         });
         const result = await response.json();
         if (result.success) { document.getElementById('youtube-url').value = ''; loadMyBookmarks(currentPlaylistId); await loadPlaylists(); }
+        else alert(result.error || "曲を追加できませんでした。");
     } catch (error) { console.error("通信エラー:", error); }
 }
 
@@ -1431,7 +1432,7 @@ async function submitMoveTrack() {
             body: JSON.stringify({ id: selectedTrackIdForMove, target_playlist_id: targetPlaylistId })
         });
         const result = await response.json();
-        if (result.success) { closeMoveModal(); loadMyBookmarks(currentPlaylistId); await loadPlaylists(); } else alert("移動に失敗しました。");
+        if (result.success) { closeMoveModal(); loadMyBookmarks(currentPlaylistId); await loadPlaylists(); } else alert(result.error || "移動に失敗しました。");
     } catch (err) { alert("通信エラーが発生しました。"); }
 }
 

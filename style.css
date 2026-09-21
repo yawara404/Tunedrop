@@ -660,8 +660,14 @@ body.player-in-sidebar .youtube-popup.is-active {
     transition: transform 0.15s, filter 0.15s;
 }
 
-.share-random-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
-.share-random-btn:active { transform: translateY(0) scale(0.96); }
+.share-random-btn:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+}
+
+.share-random-btn:active {
+    transform: translateY(0) scale(0.96);
+}
 
 .share-track-count {
     margin-left: auto;
@@ -690,7 +696,11 @@ body.player-in-sidebar .youtube-popup.is-active {
     animation: shareSpin 0.8s linear infinite;
 }
 
-@keyframes shareSpin { to { transform: rotate(360deg); } }
+@keyframes shareSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
 
 .share-empty {
     grid-column: 1 / -1;
@@ -705,11 +715,21 @@ body.player-in-sidebar .youtube-popup.is-active {
     animation: shareBounce 1.6s ease-in-out infinite;
 }
 
-.share-empty-sub { font-size: 13px; margin-top: 6px; }
+.share-empty-sub {
+    font-size: 13px;
+    margin-top: 6px;
+}
 
 @keyframes shareBounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-8px); }
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-8px);
+    }
 }
 
 .share-card {
@@ -717,8 +737,15 @@ body.player-in-sidebar .youtube-popup.is-active {
 }
 
 @keyframes shareCardIn {
-    from { opacity: 0; transform: translateY(14px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
 
 /* ==========================================================
@@ -2163,7 +2190,7 @@ body.player-bar-hidden .track-details {
     /* Keep the YouTube frame at its required 355x200px size. */
     .youtube-popup {
         top: auto !important;
-        bottom: 104px !important;
+        bottom: 86px !important;
         left: 50% !important;
         width: 355px !important;
         height: 200px !important;
@@ -2422,13 +2449,17 @@ body.player-bar-hidden .track-details {
 }
 
 @keyframes text-overflow-left-loop {
-    0%, 10% {
+
+    0%,
+    10% {
         transform: translateX(0);
     }
 
-    80%, 100% {
+    80%,
+    100% {
         transform: translateX(var(--text-slide-distance));
     }
+
     /* The next iteration resets directly to the start, without sliding back. */
 }
 
@@ -2573,6 +2604,7 @@ body.player-bar-hidden .track-details {
         margin-bottom: 0;
     }
 }
+
 /* Share playlist details: menus stay inside the viewport and above track rows. */
 #view-playlist-detail .playlist-detail-header {
     overflow: visible;
@@ -2600,8 +2632,13 @@ body.player-bar-hidden .track-details {
     min-height: 44px;
 }
 
-.detail-info { min-width: 0; }
-#detail-title { overflow-wrap: anywhere; }
+.detail-info {
+    min-width: 0;
+}
+
+#detail-title {
+    overflow-wrap: anywhere;
+}
 
 @media (max-width: 600px) {
     #view-playlist-detail .playlist-detail-content {
@@ -2639,7 +2676,10 @@ body.player-bar-hidden .track-details {
         border-radius: 8px;
     }
 
-    #view-playlist-detail .detail-info { display: contents; }
+    #view-playlist-detail .detail-info {
+        display: contents;
+    }
+
     #view-playlist-detail #detail-title {
         font-size: 18px;
         line-height: 1.4;
@@ -2691,19 +2731,30 @@ body.player-bar-hidden .track-details {
     }
 
     /* モバイルでは番号だけ隠し、つまみ (並び替え) はタッチ操作のため残す */
-    #view-playlist-detail .track-index { display: none; }
+    #view-playlist-detail .track-index {
+        display: none;
+    }
 
     #view-playlist-detail .track-thumb {
         width: 72px;
         flex-shrink: 0;
     }
 
-    #view-playlist-detail .track-info { min-width: 0; }
-    #view-playlist-detail .track-info .title { font-size: 14px; }
-    #view-playlist-detail .track-info .artist { font-size: 12px; }
+    #view-playlist-detail .track-info {
+        min-width: 0;
+    }
+
+    #view-playlist-detail .track-info .title {
+        font-size: 14px;
+    }
+
+    #view-playlist-detail .track-info .artist {
+        font-size: 12px;
+    }
 }
 
 @media (max-width: 1024px) {
+
     /* Keep all player layers beneath the mobile drawer (z-index: 200). */
     body.mobile-menu-open .bottom-player,
     body.mobile-menu-open .youtube-popup,
@@ -2723,7 +2774,9 @@ body.player-bar-hidden .track-details {
         margin: 0;
     }
 
-    .bottom-player .player-actions .time-display { display: none; }
+    .bottom-player .player-actions .time-display {
+        display: none;
+    }
 
     #btn-player-fav {
         display: inline-flex;
@@ -2735,8 +2788,14 @@ body.player-bar-hidden .track-details {
         background: rgba(255, 255, 255, 0.07);
     }
 
-    #btn-player-fav:disabled { opacity: 0.4; cursor: default; }
-    #btn-player-fav:focus-visible { outline: 2px solid var(--accent-color); }
+    #btn-player-fav:disabled {
+        opacity: 0.4;
+        cursor: default;
+    }
+
+    #btn-player-fav:focus-visible {
+        outline: 2px solid var(--accent-color);
+    }
 }
 
 @media (max-width: 600px) {
@@ -2744,17 +2803,32 @@ body.player-bar-hidden .track-details {
         padding: 0 48px !important;
         gap: clamp(10px, 4vw, 22px) !important;
     }
-    .bottom-player .player-controls > button { flex-shrink: 0; }
+
+    .bottom-player .player-controls>button {
+        flex-shrink: 0;
+    }
 }
 
-#view-profile { overflow-y: auto; }
-.profile-info { min-width: 0; }
-#profile-name { overflow-wrap: anywhere; }
+#view-profile {
+    overflow-y: auto;
+}
+
+.profile-info {
+    min-width: 0;
+}
+
+#profile-name {
+    overflow-wrap: anywhere;
+}
+
 /* 未ログイン時はプロフィールの中身 (カード・統計) を出さず、案内だけ表示する */
 .profile-header[hidden],
 .profile-stats[hidden],
 .profile-guest-notice[hidden],
-.profile-edit[hidden] { display: none; }
+.profile-edit[hidden] {
+    display: none;
+}
+
 .profile-guest-notice {
     padding: 24px;
     background: var(--panel-bg);
@@ -2763,8 +2837,12 @@ body.player-bar-hidden .track-details {
     font-size: 14px;
     line-height: 1.8;
 }
+
 /* ログアウトボタンはカード右端に寄せる */
-.profile-header .action-pill { margin-left: auto; }
+.profile-header .action-pill {
+    margin-left: auto;
+}
+
 /* プロフィールの操作ボタン (ピル型) */
 .action-pill {
     display: inline-flex;
@@ -2784,28 +2862,53 @@ body.player-bar-hidden .track-details {
     cursor: pointer;
     transition: background 0.2s, border-color 0.2s, color 0.2s, filter 0.2s;
 }
-.action-pill:hover { filter: brightness(1.08); }
-.action-pill:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
-.action-pill:disabled { opacity: 0.5; cursor: default; filter: none; }
+
+.action-pill:hover {
+    filter: brightness(1.08);
+}
+
+.action-pill:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.action-pill:disabled {
+    opacity: 0.5;
+    cursor: default;
+    filter: none;
+}
+
 /* 副次アクション (ログアウトなど) は輪郭のみの控えめな見た目にする */
 .action-pill.secondary {
     background: transparent;
     color: var(--text-main);
     border-color: #4a4a4a;
 }
+
 .action-pill.secondary:hover {
     border-color: var(--accent-color);
     color: var(--accent-color);
     filter: none;
 }
+
 .profile-edit {
     padding: 20px;
     margin-bottom: 20px;
     background: var(--panel-bg);
     border-radius: 12px;
 }
-.profile-edit label { display: block; margin-bottom: 8px; font-weight: 600; }
-.profile-edit-row { display: flex; gap: 10px; }
+
+.profile-edit label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.profile-edit-row {
+    display: flex;
+    gap: 10px;
+}
+
 .profile-edit input {
     flex: 1;
     min-width: 0;
@@ -2817,23 +2920,80 @@ body.player-bar-hidden .track-details {
     color: var(--text-main);
     font-size: 16px;
 }
-.profile-edit button { min-height: 44px; flex-shrink: 0; }
-.profile-edit button:disabled { opacity: 0.5; }
-.profile-edit p { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--text-sub); }
-@media (max-width: 1024px) {
-    .profile-container { margin: 16px auto; padding-bottom: 280px; }
+
+.profile-edit button {
+    min-height: 44px;
+    flex-shrink: 0;
 }
+
+.profile-edit button:disabled {
+    opacity: 0.5;
+}
+
+.profile-edit p {
+    margin-top: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-sub);
+}
+
+@media (max-width: 1024px) {
+    .profile-container {
+        margin: 16px auto;
+        padding-bottom: 280px;
+    }
+}
+
 @media (max-width: 600px) {
-    .profile-container { margin: 12px auto; padding: 0 12px 110px; }
-    .profile-header { padding: 16px; gap: 12px; flex-wrap: wrap; }
-    .profile-header .avatar { width: 56px; height: 56px; flex-shrink: 0; }
+    .profile-container {
+        margin: 12px auto;
+        padding: 0 12px 110px;
+    }
+
+    .profile-header {
+        padding: 16px;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .profile-header .avatar {
+        width: 56px;
+        height: 56px;
+        flex-shrink: 0;
+    }
+
     /* 幅が足りない場合でも収まるよう、つまみの位置を揃えて全幅ボタンにする */
-    .profile-header .action-pill { width: 100%; margin-left: 0; }
-    .profile-edit-row { flex-wrap: wrap; }
-    .profile-edit-row .action-pill { width: 100%; }
-    .profile-stats { gap: 8px; }
-    .profile-stats .stat-box { padding: 16px 6px; min-width: 0; }
-    .profile-stats .stat-box h3 { font-size: 22px; }
-    .profile-stats .stat-box p { font-size: 13px; }
-    body:has(.youtube-popup.is-active) .profile-container { padding-bottom: 290px; }
+    .profile-header .action-pill {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .profile-edit-row {
+        flex-wrap: wrap;
+    }
+
+    .profile-edit-row .action-pill {
+        width: 100%;
+    }
+
+    .profile-stats {
+        gap: 8px;
+    }
+
+    .profile-stats .stat-box {
+        padding: 16px 6px;
+        min-width: 0;
+    }
+
+    .profile-stats .stat-box h3 {
+        font-size: 22px;
+    }
+
+    .profile-stats .stat-box p {
+        font-size: 13px;
+    }
+
+    body:has(.youtube-popup.is-active) .profile-container {
+        padding-bottom: 290px;
+    }
 }

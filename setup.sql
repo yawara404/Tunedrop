@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     FOREIGN KEY(playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
 );
 
+-- 同じリスト内に同じ曲を二重登録できないようにする (別リストへの登録は許可)
+CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique
+    ON bookmarks(playlist_id, youtube_id);
+
 -- 解析結果のキャッシュ (AI推定 Gemini + 音源実測 librosa/CLAP)
 CREATE TABLE IF NOT EXISTS analysis_cache (
     youtube_id TEXT PRIMARY KEY,

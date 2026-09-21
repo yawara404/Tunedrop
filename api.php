@@ -196,6 +196,22 @@ function migrate_system_playlists(PDO $db): void {
     );
 }
 
+/** 同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
+ *  過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
+ *  別リストへの同じ曲の登録は引き続き許可する。 */
+function migrate_unique_bookmarks(PDO $db): void {
+    // 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
+    $db->exec(
+        "DELETE FROM bookmarks
+          WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)"
+    );
+    try {
+        $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique ON bookmarks(playlist_id, youtube_id)");
+    } catch (PDOException $error) {
+        // 同時リクエストで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
+    }
+}
+
 /** サイト初期データのサンプル楽曲入りデフォルトライブラリを作成する (app.py の insert_default_library と同一内容)。
     「未整理」「公開用お気に入り」のどちらを開いてもサンプル2曲が見えるように、両方に配置する。 */
 function insert_default_library_php(PDO $db, int $user_id): int {
@@ -348,6 +364,8 @@ try {
 
     // 全ユーザー共通の固定タブ (未整理 / 公開用お気に入り) の識別列を用意する
     migrate_system_playlists($db);
+    // 同じリスト内で同じ曲が二重登録されないようにする (掃除 + ユニーク索引)
+    migrate_unique_bookmarks($db);
 
     $action = $_GET['action'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'];
@@ -492,6 +510,14 @@ try {
                     }
                 }
 
+                // 同じリスト内に同じ曲が既にある場合は追加しない (曲の二重登録を防ぐ)
+                $dupeCheck = $db->prepare("SELECT 1 FROM bookmarks WHERE playlist_id = ? AND youtube_id = ?");
+                $dupeCheck->execute([$playlist_id, $youtube_id]);
+                if ($dupeCheck->fetchColumn()) {
+                    echo json_encode(['success' => false, 'error' => 'この曲は既にこのリストに登録されています。'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+
                 // タイトル/アーティスト未指定なら oEmbed → noembed の順で自動解決
                 if ($title === '' || $title === 'Unknown Title') {
                     $watch = 'https://www.youtube.com/watch?v=' . $youtube_id;
@@ -515,8 +541,14 @@ try {
                 if ($title === '') $title = 'YouTube Track (' . $youtube_id . ')';
                 if ($channel === '') $channel = 'Unknown Artist';
 
-                $stmt = $db->prepare("INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, added_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))");
-                $stmt->execute([$playlist_id, $youtube_id, $title, $channel]);
+                try {
+                    $stmt = $db->prepare("INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, added_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))");
+                    $stmt->execute([$playlist_id, $youtube_id, $title, $channel]);
+                } catch (PDOException $error) {
+                    // 同時リクエストで先に同一リストへ追加されていた場合 (ユニーク索引違反) も重複を作らず通知する
+                    echo json_encode(['success' => false, 'error' => 'この曲は既にこのリストに登録されています。'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
                 $updateCoverStmt = $db->prepare("UPDATE playlists SET cover_id = ? WHERE id = ? AND cover_id IS NULL AND user_id = ?");
                 $updateCoverStmt->execute([$youtube_id, $playlist_id, $user_id]);
 
@@ -551,8 +583,27 @@ try {
                     echo json_encode(['success' => false, 'error' => '移動先プレイリストが見つかりません'], JSON_UNESCAPED_UNICODE);
                     break;
                 }
-                $stmt = $db->prepare("UPDATE bookmarks SET added_at = CASE WHEN playlist_id != ? THEN strftime('%Y-%m-%d %H:%M:%f', 'now') ELSE added_at END, playlist_id = ? WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
-                $stmt->execute([$input['target_playlist_id'], $input['target_playlist_id'], $input['id'], $user_id]);
+                // 移動先のリストに同じ曲が既にある場合は移動できない (同じリスト内の重複を防ぐ)。
+                // 自分自身が今あるリストへの移動 (実質キャンセル) はこれまでどおり許可する。
+                $dupeCheck = $db->prepare(
+                    "SELECT 1 FROM bookmarks
+                      WHERE playlist_id = ?
+                        AND youtube_id = (SELECT youtube_id FROM bookmarks WHERE id = ?)
+                        AND playlist_id != (SELECT playlist_id FROM bookmarks WHERE id = ?)"
+                );
+                $dupeCheck->execute([$input['target_playlist_id'], $input['id'], $input['id']]);
+                if ($dupeCheck->fetchColumn()) {
+                    echo json_encode(['success' => false, 'error' => '移動先のリストに同じ曲が既にあります'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+                try {
+                    $stmt = $db->prepare("UPDATE bookmarks SET added_at = CASE WHEN playlist_id != ? THEN strftime('%Y-%m-%d %H:%M:%f', 'now') ELSE added_at END, playlist_id = ? WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
+                    $stmt->execute([$input['target_playlist_id'], $input['target_playlist_id'], $input['id'], $user_id]);
+                } catch (PDOException $error) {
+                    // 同時リクエストで移動先に同一曲が入った場合も重複を作らない
+                    echo json_encode(['success' => false, 'error' => '移動先のリストに同じ曲が既にあります'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
                 echo json_encode(['success' => true]);
             } else {
                 echo json_encode(['success' => false, 'error' => 'Invalid input']);

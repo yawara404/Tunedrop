@@ -96,6 +96,8 @@ def init_db_if_needed():
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_display_name_unique ON users(display_name)")
         # 全ユーザー共通の固定タブ (未整理 / 公開用お気に入り) を識別する system_key 列
         migrate_system_playlists(conn)
+        # 同じリスト内で同じ曲が二重登録されないようにする (掃除 + ユニーク索引)
+        migrate_unique_bookmarks(conn)
     conn.close()
 
 
@@ -140,6 +142,29 @@ def migrate_system_playlists(conn):
         )
     except sqlite3.OperationalError:
         # public_favorites が無いDB (api.php 未実行) では何もしない
+        pass
+
+
+def migrate_unique_bookmarks(conn):
+    """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
+
+    過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
+    別リストへの同じ曲の登録は引き続き許可する。
+    """
+    # 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
+    conn.execute(
+        """
+        DELETE FROM bookmarks
+         WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
+        """
+    )
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique "
+            "ON bookmarks(playlist_id, youtube_id)"
+        )
+    except sqlite3.IntegrityError:
+        # 同時書き込みで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
         pass
 
 
