@@ -152,6 +152,62 @@ def migrate_unique_bookmarks(conn):
     """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
 
     過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
+    違うリストへの同じ曲の登録は許可する（ゲストも含む）。
+    「すべてのブックマーク」「お気に入り曲」など複数リストをまとめて表示する画面では、
+    表示側で youtube_id ごとに1件にまとめる（API側の get_my_bookmarks を参照）。
+    """
+    # 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
+    conn.execute(
+        """
+        DELETE FROM bookmarks
+         WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
+        """
+    )
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique "
+            "ON bookmarks(playlist_id, youtube_id)"
+        )
+    except sqlite3.IntegrityError:
+        # 同時書き込みで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
+        pass
+    # 旧仕様 (ゲスト全リストで1曲1件) のトリガーが残っていたら撤去する。
+    # 現仕様は「違うリストなら同じ曲OK」のため、ゲスト用トリガーは使わない。
+    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert")
+
+
+def migrate_unique_bookmarks(conn):
+    """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
+
+    過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
+    違うリストへの同じ曲の登録は許可する（ゲストも含む）。
+    「すべてのブックマーク」「お気に入り曲」など複数リストをまとめて表示する画面では、
+    表示側で youtube_id ごとに1件にまとめる（API側の get_my_bookmarks を参照）。
+    """
+    # 各 (playlist_id, youtube_id) の組で最も古い行だけを残して重複を取り除く
+    conn.execute(
+        """
+        DELETE FROM bookmarks
+         WHERE id NOT IN (SELECT MIN(id) FROM bookmarks GROUP BY playlist_id, youtube_id)
+        """
+    )
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique "
+            "ON bookmarks(playlist_id, youtube_id)"
+        )
+    except sqlite3.IntegrityError:
+        pass
+    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert")
+    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update")
+
+    conn.execute("DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update")
+
+
+def migrate_unique_bookmarks(conn):
+    """同じリスト内で同じ曲 (youtube_id) が二重登録されないようにする。
+
+    過去に作られた同一リスト内の重複行を掃除した上で、DBレベルで保証するユニーク索引を張る。
     ゲスト ('guest' ユーザー) は全リスト横断で同じ曲を1つだけ持てるため、最も古い行だけ残す。
     ログイン中の一般ユーザーは別リストへの同じ曲の登録を引き続き許可する。
     """

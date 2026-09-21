@@ -36,6 +36,16 @@ CREATE TABLE IF NOT EXISTS bookmarks (
 CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique
     ON bookmarks(playlist_id, youtube_id);
 
+-- 同じリスト内に同じ曲を二重登録できないようにする (一般ユーザーの別リスト登録は許可)
+CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique
+    ON bookmarks(playlist_id, youtube_id);
+
+-- 旧仕様 (ゲスト全リストで1曲1件) のトリガーが残っていたら撤去する。
+-- 現仕様は「違うリストなら同じ曲OK」のため、ゲスト用トリガーは使わない。
+DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert;
+DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update;
+
+
 -- ゲスト ('guest' ユーザー) は全リストで同じ曲を1つだけ持てる (一般ユーザーには影響しない)
 DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_insert;
 DROP TRIGGER IF EXISTS bookmarks_guest_video_unique_update;

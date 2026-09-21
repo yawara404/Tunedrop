@@ -1001,16 +1001,13 @@ async function toggleTrackFavorite(id, event) {
         });
         const data = await res.json();
         if (data.success) {
-            const t1 = currentTracks.find(t => t.id == id || t.youtube_id == id);
-            const t2 = currentDetailTracks.find(t => t.id == id || t.youtube_id == id);
-            const tPlayer = (currentQueue[currentTrackIndex] && (currentQueue[currentTrackIndex].id == id || currentQueue[currentTrackIndex].youtube_id == id)) ? currentQueue[currentTrackIndex] : null;
-
+            const videoId = data.youtube_id;
             const newStatus = data.is_favorite;
-
-            if (t1) t1.is_favorite = newStatus;
-            if (t2) t2.is_favorite = newStatus;
-            if (tPlayer) {
-                tPlayer.is_favorite = newStatus;
+            // 同じ曲の別リストのカードや再生キューにも反映する。
+            for (const track of [...currentTracks, ...currentDetailTracks, ...currentQueue]) {
+                if (track.youtube_id === videoId) track.is_favorite = newStatus;
+            }
+            if (currentQueue[currentTrackIndex]?.youtube_id === videoId) {
                 updatePlayerFavButton(newStatus);
             }
 
