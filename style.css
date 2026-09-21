@@ -1,0 +1,2839 @@
+:root {
+    --bg-color: #121212;
+    --sidebar-bg: #1e1e1e;
+    --panel-bg: #2a2a2a;
+    --text-main: #f0f0f0;
+    --text-sub: #a0a0a0;
+    --accent-color: #d4e157;
+    --player-bg: #181818;
+    --desktop-player-height: 64px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ==========================================================
+   Material Symbols アイコンフォント共通スタイル
+   ========================================================== */
+.material-symbols-rounded {
+    font-family: 'Material Symbols Rounded';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 20px;
+    line-height: 1;
+    display: inline-block;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    vertical-align: middle;
+    -webkit-font-smoothing: antialiased;
+}
+
+.material-symbols-rounded.is-filled {
+    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.nav-icon {
+    margin-right: 7px;
+    font-size: 20px;
+}
+
+.nav-li-icon {
+    margin-right: 8px;
+    font-size: 18px;
+    color: var(--text-sub);
+}
+
+.playlist-nav li.active .nav-li-icon {
+    color: var(--text-main);
+}
+
+.menu-toggle-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-main);
+    font-size: 24px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    margin-right: 15px;
+    transition: color 0.2s;
+}
+
+.menu-toggle-btn:hover {
+    color: var(--accent-color);
+}
+
+.top-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: var(--sidebar-bg);
+    border-bottom: 1px solid #333;
+    height: 50px;
+    flex-shrink: 0;
+}
+
+.logo {
+    font-weight: bold;
+    font-size: 18px;
+    color: var(--accent-color);
+    letter-spacing: 1px;
+}
+
+.top-nav button:not(.menu-toggle-btn) {
+    background: none;
+    border: none;
+    color: var(--text-sub);
+    font-size: 14px;
+    margin: 0 15px;
+    cursor: pointer;
+    transition: color 0.2s;
+    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.top-nav button:not(.menu-toggle-btn):hover,
+.top-nav button:not(.menu-toggle-btn).active {
+    color: var(--accent-color);
+}
+
+.app-container {
+    flex: 1;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+}
+
+.view-section {
+    display: none;
+    width: 100%;
+    height: 100%;
+}
+
+.view-section.active {
+    display: flex;
+}
+
+.sidebar {
+    width: 250px;
+    background-color: var(--sidebar-bg);
+    padding: 20px;
+    border-right: 1px solid #333;
+    overflow-y: auto;
+    min-height: 0;
+    height: 100%;
+    scrollbar-width: thin;
+    scrollbar-color: #444 transparent;
+}
+
+.sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+.add-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #333;
+    color: #fff;
+    border: 1px dashed #666;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 20px;
+    transition: background 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.add-btn:hover {
+    background-color: #444;
+}
+
+.playlist-nav {
+    list-style: none;
+}
+
+.playlist-nav li {
+    padding: 10px;
+    color: var(--text-sub);
+    cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 5px;
+    font-size: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.playlist-nav li .list-name-wrap {
+    overflow: hidden;
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+.playlist-nav li .list-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 100%;
+}
+
+
+
+/* ドラッグ&ドロップ (並び替え) */
+.nav-drag-icon {
+    font-size: 18px;
+    color: var(--text-sub);
+    cursor: grab;
+    flex-shrink: 0;
+    margin-right: 6px;
+}
+
+.nav-drag-icon.drag-static {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.playlist-nav li.draggable-pl {
+    cursor: grab;
+}
+
+.playlist-nav li.dragging {
+    opacity: 0.4;
+}
+
+.playlist-nav li.drag-over {
+    box-shadow: inset 0 2px 0 var(--accent-color);
+    background-color: #333;
+}
+
+.drag-handle {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 10;
+    color: var(--text-sub);
+    cursor: grab;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+/* カード内のつまみは文章と重ならないよう情報行の中に配置する
+   (共有カードなど .info を使う別レイアウトに影響しないよう with-handle に限定) */
+.card .info.with-handle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.card .info-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.card .drag-handle {
+    position: static;
+    margin: 0;
+    bottom: auto;
+    left: auto;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-sub);
+    cursor: grab;
+    /* つまみをドラッグしてもページがスクロールしないようにする (タッチ端末向け) */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.card .drag-handle:active {
+    background: rgba(212, 225, 87, 0.25);
+    color: var(--accent-color);
+}
+
+/* タッチ操作の端末ではつまみを大きめにして押しやすくする */
+@media (hover: none), (pointer: coarse) {
+    .card .drag-handle {
+        width: 38px;
+        height: 38px;
+        font-size: 22px;
+    }
+
+    .playlist-nav li .nav-drag-icon {
+        font-size: 22px;
+        padding: 6px 4px;
+        margin-right: 2px;
+        touch-action: none;
+    }
+
+    /* プレイリスト詳細の曲リストのつまみをタッチしやすい大きさにする */
+    #view-playlist-detail .drag-handle-inline {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        margin-right: 2px;
+    }
+}
+
+.drag-handle-inline {
+    position: static;
+    background: none;
+    color: var(--text-sub);
+    width: auto;
+    height: auto;
+    flex-shrink: 0;
+    margin-right: 6px;
+    font-size: 20px;
+    /* つまみをドラッグしてもページがスクロールしないようにする (タッチ端末向け) */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.draggable-track {
+    cursor: grab;
+}
+
+.draggable-track.dragging {
+    opacity: 0.4;
+}
+
+.draggable-track.drag-over {
+    box-shadow: 0 0 0 2px var(--accent-color);
+}
+
+/* タッチ並び替えの浮遊コピー (マウスのドラッグゴースト相当) */
+.drag-ghost {
+    position: fixed !important;
+    z-index: 9999 !important;
+    pointer-events: none !important;
+    margin: 0 !important;
+    opacity: 0.95 !important;
+    background: rgba(24, 24, 24, 0.94) !important;
+    color: var(--text-main);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 2px var(--accent-color) !important;
+    will-change: transform;
+    transition: none !important;
+}
+
+.playlist-nav li.active,
+.playlist-nav li:hover {
+    background-color: #333;
+    color: var(--text-main);
+}
+
+.radar-sidebar {
+    width: 395px;
+    background-color: var(--sidebar-bg);
+    padding: 24px 20px 20px 20px;
+    border-right: 1px solid #333;
+}
+
+.radar-map-wrap {
+    height: 250px;
+    background: #000;
+    border: 1px solid #444;
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.radar-map-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.radar-map-label {
+    position: absolute;
+    bottom: 6px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    color: #888;
+    letter-spacing: 0.5px;
+}
+
+/* ==========================================================
+   Radar画面: 動画プレイヤーを左サイドバー上に収める
+   ========================================================== */
+.radar-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.sidebar-player-slot {
+    position: relative;
+    width: 100%;
+    height: 200px;
+    background: #000;
+    border: 1px solid #444;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.sidebar-player-slot-label {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    font-size: 11px;
+    color: var(--text-sub);
+    letter-spacing: 0.5px;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 3px 8px;
+    border-radius: 10px;
+    pointer-events: none;
+    z-index: 3;
+}
+
+.sidebar-radar-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Radar表示中のみ: 浮遊プレイヤーをサイドバーのスロット位置へ固定（サイズは変えない） */
+body.player-in-sidebar .youtube-popup:not(.is-active) {
+    display: none !important;
+}
+
+body.player-in-sidebar .youtube-popup.is-active {
+    bottom: auto !important;
+    right: auto !important;
+    top: 75px !important;
+    /* top-nav(50px) + border(1px) + サイドバーpadding-top(24px) */
+    left: 20px !important;
+    /* サイドバーの padding に合わせる */
+    width: 355px !important;
+    height: 200px !important;
+    max-width: calc(100vw - 40px) !important;
+    transform: translateY(0) !important;
+}
+
+.vibe-track-card {
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.vibe-track-card:hover {
+    background: var(--panel-bg);
+}
+
+.vibe-feature-line {
+    font-size: 11px;
+    color: var(--text-sub);
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.vibe-feature-line b {
+    color: var(--accent-color);
+    font-weight: 600;
+}
+
+.draw-btn {
+    width: 100%;
+    padding: 12px;
+    background-color: #ff4757;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.draw-btn .material-symbols-rounded {
+    font-size: 20px;
+}
+
+/* ==========================================================
+   雰囲気 Radar Map (kiite radar風 UMAP マップ)
+   ========================================================== */
+.radar-content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 16px 20px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* ==========================================================
+   Radar画面: スクロールバー (デスクトップ)
+   細身・半透明のオーバーレイ風で、hover時のみアクセント色に
+   ========================================================== */
+.radar-content-area {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.radar-content-area ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.radar-content-area ::-webkit-scrollbar-track,
+.radar-content-area ::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+.radar-content-area ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+}
+
+.radar-content-area ::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 225, 87, 0.5);
+}
+
+/* 下部の楽曲ストリップ: カードと重ならないよう、より細く控えめに */
+.vibe-track-strip {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.vibe-track-strip::-webkit-scrollbar {
+    height: 6px;
+}
+
+.vibe-track-strip::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 0 8px;
+}
+
+.vibe-track-strip::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+}
+
+.vibe-track-strip:hover::-webkit-scrollbar-thumb,
+.vibe-track-strip::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 225, 87, 0.5);
+}
+
+/* Radar左サイドバー: コンテンツが溢れても同仕様に揃える */
+.radar-sidebar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.radar-sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.radar-sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.radar-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+}
+
+.radar-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 225, 87, 0.5);
+}
+
+.radar-map-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+/* ==========================================================
+   Share 画面 (みんなの公開プレイリスト)
+   ========================================================== */
+.share-content-area {
+    padding: 16px 20px;
+    overflow-y: auto;
+}
+
+.share-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.share-card .artist {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.share-author-icon {
+    font-size: 14px;
+    color: var(--text-sub);
+}
+
+.share-random-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 8px 14px;
+    background: var(--accent-color);
+    color: #000;
+    border: none;
+    border-radius: 999px;
+    font-weight: bold;
+    font-size: 13px;
+    cursor: pointer;
+    transition: transform 0.15s, filter 0.15s;
+}
+
+.share-random-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.share-random-btn:active { transform: translateY(0) scale(0.96); }
+
+.share-track-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--accent-color);
+    white-space: nowrap;
+}
+
+.share-loading {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 48px 16px;
+    color: var(--text-sub);
+}
+
+.share-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(212, 225, 87, 0.25);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: shareSpin 0.8s linear infinite;
+}
+
+@keyframes shareSpin { to { transform: rotate(360deg); } }
+
+.share-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 48px 16px;
+    color: var(--text-sub);
+}
+
+.share-empty-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    animation: shareBounce 1.6s ease-in-out infinite;
+}
+
+.share-empty-sub { font-size: 13px; margin-top: 6px; }
+
+@keyframes shareBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+
+.share-card {
+    animation: shareCardIn 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes shareCardIn {
+    from { opacity: 0; transform: translateY(14px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ==========================================================
+   公開トグルスイッチ (Shareに公開する)
+   ========================================================== */
+.share-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.share-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.share-switch-track {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    border-radius: 12px;
+    background: #555;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.share-switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.share-switch input:checked+.share-switch-track {
+    background: var(--accent-color);
+}
+
+.share-switch input:checked+.share-switch-track .share-switch-thumb {
+    transform: translateX(20px);
+}
+
+.share-switch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-main);
+    font-weight: 500;
+}
+
+.share-switch-icon {
+    font-size: 18px;
+    color: var(--text-sub);
+    transition: color 0.2s;
+}
+
+.share-switch input:checked~.share-switch-label .share-switch-icon {
+    color: var(--accent-color);
+}
+
+.radar-map-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ctrl-chip {
+    background: var(--panel-bg);
+    color: var(--text-main);
+    border: 1px solid #444;
+    border-radius: 16px;
+    padding: 6px 13px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.ctrl-chip:hover {
+    background: #383838;
+    border-color: var(--accent-color);
+}
+
+.ctrl-select {
+    background: var(--panel-bg);
+    color: var(--text-main);
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    outline: none;
+}
+
+.ctrl-search {
+    background: var(--panel-bg);
+    color: var(--text-main);
+    border: 1px solid #444;
+    border-radius: 16px;
+    padding: 7px 14px;
+    font-size: 13px;
+    outline: none;
+    width: 220px;
+}
+
+.ctrl-search:focus,
+.ctrl-select:focus {
+    border-color: var(--accent-color);
+}
+
+.radar-map-container {
+    position: relative;
+    flex: 1;
+    min-height: 360px;
+    background: #050508;
+    border: 1px solid #333;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.radar-map-canvas {
+    display: block;
+    cursor: grab;
+}
+
+.radar-map-legend {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: rgba(10, 10, 14, 0.75);
+    padding: 6px 12px;
+    border-radius: 14px;
+    backdrop-filter: blur(4px);
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-sub);
+}
+
+.legend-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.radar-map-hud {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    font-size: 12px;
+    color: var(--text-sub);
+    background: rgba(10, 10, 14, 0.7);
+    padding: 5px 12px;
+    border-radius: 14px;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+}
+
+.radar-map-tooltip {
+    position: absolute;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    background: rgba(20, 20, 28, 0.95);
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 30;
+    max-width: 260px;
+}
+
+.radar-map-tooltip b {
+    font-size: 13px;
+    color: #fff;
+}
+
+.radar-map-tooltip span {
+    color: var(--text-sub);
+}
+
+.vibe-track-strip {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 14px 2px 4px;
+    flex-shrink: 0;
+}
+
+.strip-card {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    min-width: 250px;
+    max-width: 280px;
+    background: var(--player-bg);
+    border: 1px solid #333;
+    border-left-width: 3px;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    flex-shrink: 0;
+}
+
+.strip-card:hover {
+    background: var(--panel-bg);
+}
+
+.strip-card.selected {
+    border-color: var(--accent-color);
+    background: #26262c;
+}
+
+.strip-thumb {
+    width: 72px;
+    aspect-ratio: 16/9;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #222;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.strip-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.strip-info {
+    min-width: 0;
+}
+
+.strip-title {
+    font-weight: bold;
+    font-size: 13px;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.strip-artist {
+    font-size: 12px;
+    color: var(--text-sub);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.strip-meta {
+    font-size: 11px;
+    color: var(--text-sub);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.strip-meta b {
+    color: var(--accent-color);
+}
+
+.draw-btn:hover {
+    opacity: 0.8;
+}
+
+.content-area {
+    flex: 1;
+    padding: 20px 30px;
+    overflow-y: auto;
+    padding-bottom: 120px;
+}
+
+.action-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.action-bar input {
+    flex: 1;
+    padding: 12px;
+    background: var(--panel-bg);
+    border: 1px solid #444;
+    color: white;
+    border-radius: 6px;
+}
+
+.action-bar button {
+    padding: 12px 24px;
+    background-color: var(--accent-color);
+    color: #000;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.section-title {
+    font-size: 22px;
+    font-weight: bold;
+    margin: 30px 0 15px 0;
+    color: var(--text-main);
+}
+
+.section-title:first-child {
+    margin-top: 0;
+}
+
+.section-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 20px 0 15px 0;
+}
+
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 24px;
+    margin-bottom: 40px;
+}
+
+.card {
+    background: var(--player-bg);
+    padding: 15px;
+    border-radius: 8px;
+    transition: background 0.3s;
+    cursor: pointer;
+    position: relative;
+}
+
+.card:hover {
+    background: var(--panel-bg);
+}
+
+.card-img-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 12px;
+    background: #222;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.card-img-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.card-hover-play {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    width: 45px;
+    height: 45px;
+    background: var(--accent-color);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+}
+
+.card:hover .card-hover-play {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.card-hover-play::after {
+    content: "";
+    display: block;
+    border-style: solid;
+    border-width: 7px 0 7px 12px;
+    border-color: transparent transparent transparent #000;
+    margin-left: 4px;
+}
+
+.card .info .title {
+    font-weight: bold;
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 6px;
+}
+
+.card .info .artist {
+    font-size: 13px;
+    color: var(--text-sub);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 3点メニュー・サイドバーメニュー */
+.track-menu-container {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+}
+
+.track-menu-btn {
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.track-menu-btn:hover {
+    background: rgba(0, 0, 0, 0.85);
+    color: var(--accent-color);
+}
+
+.track-dropdown-menu {
+    position: absolute;
+    top: 35px;
+    left: 0;
+    background: var(--panel-bg);
+    border: 1px solid #444;
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
+    display: none;
+    flex-direction: column;
+    width: 140px;
+    z-index: 20;
+    overflow: hidden;
+}
+
+.track-dropdown-menu button {
+    background: none;
+    border: none;
+    color: var(--text-main);
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 13px;
+    cursor: pointer;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.track-dropdown-menu button:hover {
+    background: #333;
+    color: var(--accent-color);
+}
+
+.sidebar-menu-container {
+    position: relative;
+    margin-left: auto;
+}
+
+.sidebar-menu-btn {
+    background: none;
+    border: none;
+    color: var(--text-sub);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 5px;
+    transition: color 0.2s;
+}
+
+.sidebar-menu-btn:hover {
+    color: var(--accent-color);
+}
+
+.sidebar-dropdown-menu {
+    position: absolute;
+    top: 25px;
+    right: 0;
+    background: var(--panel-bg);
+    border: 1px solid #444;
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
+    display: none;
+    flex-direction: column;
+    width: 140px;
+    z-index: 30;
+    overflow: hidden;
+}
+
+.sidebar-dropdown-menu button {
+    background: none;
+    border: none;
+    color: var(--text-main);
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 13px;
+    cursor: pointer;
+    width: 100%;
+    transition: background 0.2s, color 0.2s;
+}
+
+.sidebar-dropdown-menu button:hover {
+    background: #333;
+    color: var(--accent-color);
+}
+
+.profile-container {
+    max-width: 800px;
+    margin: 40px auto;
+    width: 100%;
+    padding: 0 20px;
+}
+
+.profile-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--panel-bg);
+    padding: 30px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+.avatar {
+    width: 80px;
+    height: 80px;
+    background: var(--accent-color);
+    color: #000;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: bold;
+}
+
+.profile-info h2 {
+    margin-bottom: 5px;
+}
+
+.profile-info p {
+    color: var(--text-sub);
+}
+
+.profile-stats {
+    display: flex;
+    gap: 20px;
+}
+
+.stat-box {
+    flex: 1;
+    background: var(--panel-bg);
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+}
+
+.stat-box h3 {
+    font-size: 24px;
+    color: var(--accent-color);
+}
+
+.stat-box p {
+    font-size: 14px;
+    color: var(--text-sub);
+    margin-top: 5px;
+}
+
+.youtube-popup iframe,
+#youtube-player {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover;
+}
+
+.youtube-popup {
+    position: fixed;
+    bottom: 110px;
+    right: 20px;
+    width: 355px;
+    height: 200px;
+    background: #000;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+    z-index: 99;
+    overflow: hidden;
+    transform: translateY(150%);
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: none;
+}
+
+.player-bar-toggle {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.68);
+    color: #fff;
+    font-size: 20px;
+    line-height: 24px;
+    cursor: pointer;
+}
+
+.player-bar-toggle:hover,
+.player-bar-toggle:focus-visible {
+    background: var(--accent-color);
+    color: #000;
+}
+
+body.player-bar-hidden .bottom-player,
+body.player-bar-hidden .progress-bar-container,
+body.player-bar-hidden .track-details {
+    display: none !important;
+}
+
+.youtube-popup.is-active {
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.bottom-player {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 90px;
+    background-color: #000;
+    border-top: 1px solid #222;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+}
+
+.progress-bar-container {
+    width: 100%;
+    height: 4px;
+    background: #333;
+    cursor: pointer;
+    position: relative;
+    transition: height 0.1s;
+}
+
+.progress-bar-container:hover {
+    height: 6px;
+}
+
+.progress-bar {
+    width: 0%;
+    height: 100%;
+    background: var(--accent-color);
+    transition: width 0.1s linear;
+    pointer-events: none;
+}
+
+.player-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    height: 100%;
+    flex: 1;
+}
+
+.player-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 30%;
+}
+
+.player-info .thumbnail {
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    object-fit: cover;
+    background: #222;
+}
+
+.track-details {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.track-details .title {
+    font-weight: bold;
+    font-size: 14px;
+    color: #fff;
+}
+
+.track-details .artist {
+    font-size: 12px;
+    color: var(--text-sub);
+    margin-top: 4px;
+}
+
+.player-controls {
+    display: flex;
+    gap: 25px;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+}
+
+.ctrl-btn {
+    background: none;
+    border: none;
+    color: var(--text-sub);
+    font-size: 20px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.ctrl-btn:hover {
+    color: #fff;
+}
+
+.player-actions {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    width: 30%;
+    justify-content: flex-end;
+}
+
+.time-display {
+    font-size: 12px;
+    color: var(--text-sub);
+    font-family: monospace;
+}
+
+.action-btn {
+    background: none;
+    border: none;
+    color: var(--text-sub);
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.action-btn:hover {
+    color: #ff4757;
+}
+
+.play-btn {
+    background: #fff;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s, background 0.2s;
+}
+
+.play-btn:hover {
+    transform: scale(1.05);
+}
+
+.play-pause-icon {
+    box-sizing: border-box;
+    width: 14px;
+    height: 16px;
+    border-color: transparent transparent transparent #000;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border-style: solid;
+    border-width: 8px 0 8px 14px;
+    margin-left: 4px;
+}
+
+.play-btn.is-playing .play-pause-icon {
+    border-style: double;
+    border-width: 0px 0 0px 14px;
+    margin-left: 0;
+}
+
+.back-btn {
+    background: none;
+    border: none;
+    color: var(--text-sub);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    margin-bottom: 20px;
+    font-weight: bold;
+    transition: color 0.2s;
+}
+
+.back-btn:hover {
+    color: var(--text-main);
+}
+
+.playlist-detail-header {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    background: var(--panel-bg);
+}
+
+.detail-header-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    padding: 30px;
+    gap: 30px;
+}
+
+.detail-cover {
+    width: 260px;
+    aspect-ratio: 16/9;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    flex-shrink: 0;
+}
+
+.detail-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.detail-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
+.detail-info h2 {
+    font-size: 32px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: #fff;
+}
+
+.detail-info .meta {
+    color: var(--text-sub);
+    font-size: 14px;
+    margin-bottom: 24px;
+}
+
+.detail-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.btn-play-all {
+    background: #fff;
+    color: #000;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s;
+}
+
+.btn-play-all:hover {
+    background: #e0e0e0;
+}
+
+.btn-circle-action {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-circle-action:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.track-list-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 20px;
+    border-bottom: 1px solid #333;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.track-list-item:hover {
+    background: var(--panel-bg);
+}
+
+.track-list-item.playing {
+    background: #2a2a2a;
+    border-left: 4px solid var(--accent-color);
+}
+
+.track-index {
+    width: 30px;
+    text-align: center;
+    color: var(--text-sub);
+    font-weight: bold;
+}
+
+.track-thumb {
+    width: 120px;
+    aspect-ratio: 16/9;
+    background: #000;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.track-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.track-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.track-info .title {
+    font-size: 15px;
+    font-weight: bold;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-info .artist {
+    font-size: 13px;
+    color: var(--text-sub);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-actions {
+    color: var(--text-sub);
+    font-size: 18px;
+}
+
+.sidebar-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.sidebar-filters input,
+.sidebar-filters select {
+    width: 100%;
+    padding: 10px;
+    background: var(--panel-bg);
+    border: 1px solid #444;
+    color: white;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+}
+
+.sidebar-filters input:focus,
+.sidebar-filters select:focus {
+    border-color: var(--accent-color);
+}
+
+.cat-badge {
+    font-size: 10px;
+    background: #444;
+    padding: 2px 8px;
+    border-radius: 12px;
+    color: var(--accent-color);
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
+.card-cat-select {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    background: rgba(30, 30, 30, 0.85);
+    color: var(--accent-color);
+    border: 1px solid #555;
+    padding: 4px 20px 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    outline: none;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url('data:image/svg+xml;utf8,<svg fill="%23d4e157" height="12" viewBox="0 0 24 24" width="12" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>');
+    background-repeat: no-repeat;
+    background-position-x: 90%;
+    background-position-y: 50%;
+    transition: all 0.2s;
+}
+
+.card-cat-select:hover {
+    background-color: rgba(50, 50, 50, 0.95);
+    border-color: var(--accent-color);
+}
+
+.card-cat-select option {
+    background: #222;
+    color: #fff;
+}
+
+@media (max-width: 600px) {
+    .menu-toggle-btn {
+        display: inline-flex;
+    }
+
+    .sidebar,
+    .radar-sidebar {
+        display: none !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        max-height: 60vh !important;
+        border-right: none !important;
+        border-bottom: 1px solid #444 !important;
+        background-color: rgba(30, 30, 30, 0.95) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        z-index: 200 !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8) !important;
+    }
+
+    .sidebar.show-mobile,
+    .radar-sidebar.show-mobile {
+        display: block !important;
+    }
+
+    .view-section.active {
+        flex-direction: column;
+    }
+
+    .content-area {
+        padding-bottom: 280px !important;
+    }
+
+    .bottom-player {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 220px !important;
+        background-color: #222 !important;
+        border-top: none !important;
+        z-index: 1000 !important;
+        display: block !important;
+    }
+
+    .youtube-popup {
+        position: fixed !important;
+        bottom: 10px !important;
+        left: 10px !important;
+        width: 355px !important;
+        height: 200px !important;
+        background: #000 !important;
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4) !important;
+        z-index: 1001 !important;
+        transform: none !important;
+        transition: none !important;
+        display: none !important;
+    }
+
+    .youtube-popup.is-active {
+        display: block !important;
+    }
+
+    .progress-bar-container {
+        position: fixed !important;
+        bottom: 220px !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 4px !important;
+        background: rgba(255, 255, 255, 0.45) !important;
+        z-index: 1004 !important;
+    }
+
+    .player-info {
+        position: static !important;
+        width: 0 !important;
+    }
+
+    .player-info .thumbnail {
+        display: none !important;
+    }
+
+    .track-details {
+        position: fixed !important;
+        bottom: 224px !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 40px !important;
+        padding: 0 15px 4px 15px !important;
+        background: rgba(18, 18, 18, 0.85) !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 12px !important;
+        z-index: 1003 !important;
+        border-bottom: none !important;
+        margin: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    .track-details .title {
+        font-size: 13px !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        color: #fff !important;
+    }
+
+    .track-details .artist {
+        font-size: 11px !important;
+        color: #ccc !important;
+        margin: 0 !important;
+        white-space: nowrap !important;
+    }
+
+    .player-content {
+        position: absolute !important;
+        bottom: 0 !important;
+        left: 375px !important;
+        width: calc(100vw - 375px) !important;
+        height: 220px !important;
+        padding: 0 !important;
+        display: block !important;
+    }
+
+    .player-controls {
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-rows: auto auto !important;
+        grid-template-areas: "prev next" "play play" !important;
+        align-content: center !important;
+        justify-items: center !important;
+        row-gap: 24px !important;
+        padding: 0 !important;
+    }
+
+    .player-controls .ctrl-btn:first-child {
+        grid-area: prev !important;
+        justify-self: end !important;
+        padding-right: 15px !important;
+        font-size: 24px !important;
+        color: #ddd !important;
+    }
+
+    .player-controls .ctrl-btn:last-child {
+        grid-area: next !important;
+        justify-self: start !important;
+        padding-left: 15px !important;
+        font-size: 24px !important;
+        color: #ddd !important;
+    }
+
+    .play-btn {
+        grid-area: play !important;
+        background: #fff !important;
+        width: 52px !important;
+        height: 52px !important;
+        border-radius: 50% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+        margin-top: -10px !important;
+    }
+
+    .play-pause-icon {
+        border-color: transparent transparent transparent #000 !important;
+        border-style: solid !important;
+        border-width: 9px 0 9px 14px !important;
+        margin-left: 5px !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+
+    .play-btn.is-playing .play-pause-icon {
+        border-style: double !important;
+        border-width: 0px 0 0px 14px !important;
+        border-color: #000 !important;
+        margin-left: 0 !important;
+        height: 16px !important;
+    }
+
+    .player-actions {
+        display: none !important;
+    }
+}
+
+@media (max-width: 600px) {
+    .detail-header-content {
+        flex-direction: column;
+        align-items: center;
+        padding: 25px 20px;
+    }
+
+    .detail-cover {
+        width: 100%;
+        max-width: 320px;
+    }
+
+    .detail-info {
+        align-items: flex-start;
+        width: 100%;
+        max-width: 320px;
+    }
+
+    .detail-actions-row {
+        width: 100%;
+    }
+
+    .btn-play-all {
+        flex: 1;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 600px) {
+    body {
+        overflow-x: hidden;
+    }
+
+    .top-nav {
+        height: 52px;
+        padding: 8px 12px;
+    }
+
+    .menu-toggle-btn {
+        margin-right: 8px;
+    }
+
+    .top-nav nav {
+        display: none;
+    }
+
+    .top-nav nav.show-mobile {
+        position: absolute;
+        top: 52px;
+        left: 0;
+        right: 0;
+        z-index: 1200;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        height: 143px;
+        padding: 8px;
+        background: rgba(30, 30, 30, 0.98);
+        border-bottom: 1px solid #444;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+    }
+
+    body.mobile-menu-open .sidebar.show-mobile,
+    body.mobile-menu-open .radar-sidebar.show-mobile {
+        top: 143px !important;
+        bottom: 0 !important;
+        height: calc(100dvh - 195px) !important;
+        max-height: none !important;
+        border-top: none !important;
+        box-shadow: none !important;
+    }
+
+    .top-nav nav.show-mobile button {
+        justify-content: flex-start;
+        width: 100%;
+        min-height: 42px;
+        margin: 0;
+        padding: 10px 12px;
+        border-radius: 6px;
+    }
+
+    .top-nav .user-menu {
+        min-width: 0;
+    }
+
+    .top-nav .user-menu button {
+        margin: 0;
+        padding: 6px 0 6px 8px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+
+    .content-area {
+        width: 100%;
+        min-width: 0;
+        padding: 16px 12px 132px !important;
+    }
+
+    /* 再生中: 下部の動画ポップアップ(bottom:72px + 高さ200px)が覆う分を
+       スクロールして操作できるよう、隠れる高さ分の余白を確保する。
+       (動画上端 = viewport 下端から 272px。Radar 画面は上部配置なので除外) */
+    body:has(.youtube-popup.is-active) .content-area:not(.radar-content-area) {
+        padding-bottom: 292px !important;
+    }
+
+    .section-title {
+        font-size: 19px;
+        line-height: 1.25;
+    }
+
+    .section-header-row {
+        align-items: stretch;
+        margin-top: 4px;
+    }
+
+    .section-header-row .ctrl-select {
+        width: 100%;
+    }
+
+    .grid-container {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+    }
+
+    .card {
+        min-width: 0;
+        padding: 8px;
+        border-radius: 6px;
+    }
+
+    .card .info .title {
+        font-size: 12px;
+    }
+
+    .card .info .artist {
+        font-size: 10px;
+    }
+
+    .action-bar {
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    .action-bar input {
+        min-width: 0;
+        padding: 10px;
+    }
+
+    .action-bar button {
+        flex: 0 0 auto;
+        padding: 10px 14px;
+    }
+
+    .radar-map-toolbar,
+    .share-toolbar {
+        gap: 12px;
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .radar-map-controls {
+        width: 100%;
+    }
+
+    .ctrl-search {
+        width: 100%;
+        min-width: 0;
+    }
+
+    /* Keep the YouTube frame at its required 355x200px size. */
+    .youtube-popup {
+        top: auto !important;
+        bottom: 72px !important;
+        left: 50% !important;
+        width: 355px !important;
+        height: 200px !important;
+        transform: translateX(-50%) !important;
+        border-radius: 12px !important;
+        z-index: 1001 !important;
+        opacity: 1;
+        transition: opacity 0.18s ease !important;
+    }
+
+    /* Radar再生中は動画を上部の枠へ移動 (デスクトップのサイドバー固定配置を上書き) */
+    body.player-in-sidebar .youtube-popup.is-active {
+        top: 54px !important;
+        bottom: auto !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        max-width: calc(100vw - 24px) !important;
+    }
+
+    /* ハンバーガーメニュー表示中は動画プレイヤーをサイドバードロワー(z-index:200)の下層に置き、
+       メニュー項目の操作を妨げないようにする。メニューを閉じれば通常の z-index に戻る */
+    body.mobile-menu-open .youtube-popup {
+        z-index: 150 !important;
+    }
+
+    .youtube-popup:hover,
+    .youtube-popup:active,
+    .youtube-popup:focus-within {
+        opacity: 0.72;
+    }
+
+    .bottom-player {
+        height: 64px !important;
+        background: rgba(24, 24, 24, 0.96) !important;
+        border-top: 1px solid #333 !important;
+        box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.28) !important;
+    }
+
+    .progress-bar-container {
+        bottom: 64px !important;
+        height: 3px !important;
+    }
+
+    .track-details {
+        bottom: 64px !important;
+        height: 30px !important;
+        padding: 0 12px !important;
+        gap: 6px !important;
+        background: rgba(18, 18, 18, 0.94) !important;
+    }
+
+    .player-content {
+        position: static !important;
+        width: 100% !important;
+        height: 61px !important;
+        padding: 0 10px !important;
+        display: flex !important;
+    }
+
+    .player-info {
+        display: none !important;
+    }
+
+    .player-controls {
+        position: static !important;
+        width: 100% !important;
+        height: 100% !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        gap: 22px !important;
+        padding: 0 !important;
+    }
+
+    .player-controls .ctrl-btn:first-child,
+    .player-controls .ctrl-btn:last-child {
+        width: 36px !important;
+        height: 36px !important;
+        padding: 6px !important;
+        justify-self: auto !important;
+    }
+
+    .play-btn {
+        width: 42px !important;
+        height: 42px !important;
+        margin-top: 0 !important;
+    }
+
+    .player-actions {
+        display: none !important;
+    }
+}
+
+@media (max-width: 380px) {
+    .logo {
+        font-size: 16px;
+    }
+
+    .content-area {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .grid-container {
+        gap: 8px;
+    }
+
+    .card {
+        padding: 6px;
+    }
+
+    .action-bar button {
+        padding-left: 11px;
+        padding-right: 11px;
+    }
+}
+
+/* The fixed Radar player keeps its position; only the map workspace scrolls. */
+.radar-map-canvas {
+    touch-action: none;
+    user-select: none;
+}
+
+.radar-map-legend {
+    pointer-events: none;
+}
+
+@media (max-width: 600px) {
+    body.player-in-sidebar .content-area.radar-content-area {
+        margin-top: 0;
+        transition: margin-top 280ms ease;
+        margin-bottom: 264px;
+        padding: 6px 12px 12px !important;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
+    }
+
+    body.player-in-sidebar:has(.youtube-popup.is-active) .content-area.radar-content-area {
+        margin-top: 206px;
+    }
+
+    .radar-content-area .radar-map-toolbar {
+        flex-shrink: 0;
+        gap: 4px;
+        margin-bottom: 6px;
+    }
+
+    .radar-content-area .radar-map-controls {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 4px;
+        width: 100%;
+    }
+
+    #radar-title-search {
+        grid-column: 1 / 8;
+        width: 100%;
+    }
+
+    #radar-category-filter {
+        grid-column: 8 / -1;
+    }
+
+    .radar-content-area .ctrl-search,
+    .radar-content-area .ctrl-select {
+        min-width: 0;
+        font-size: 16px;
+        padding: 4px 8px;
+    }
+
+    .radar-content-area .ctrl-chip,
+    .radar-content-area .ctrl-select,
+    .radar-content-area .ctrl-search {
+        min-height: 36px;
+    }
+
+    .radar-content-area .ctrl-chip {
+        grid-column: span 2;
+        padding: 4px;
+    }
+
+    #btn-radar-random {
+        grid-column: span 6;
+    }
+
+    .radar-content-area .radar-map-container {
+        flex: 1 0 240px;
+        height: auto;
+        min-height: 240px;
+    }
+
+    .radar-content-area .radar-map-legend {
+        bottom: 6px;
+        left: 6px;
+        right: 6px;
+        gap: 4px 10px;
+        padding: 5px 8px;
+    }
+
+    .radar-content-area .vibe-track-strip {
+        overflow-y: hidden;
+        padding: 8px 2px 4px;
+    }
+
+    body.player-in-sidebar.player-bar-hidden .content-area.radar-content-area {
+        margin-bottom: 0;
+    }
+}
+
+@media (max-width: 600px) {
+    body.player-in-sidebar .content-area.radar-content-area {
+        margin-bottom: 76px;
+    }
+
+    .radar-content-area .section-title {
+        display: none;
+    }
+
+    body.player-in-sidebar:has(.youtube-popup.is-active) .content-area.radar-content-area {
+        margin-top: 206px;
+    }
+}
+
+/* On short landscape screens, use the space beside the unchanged video. */
+@media (prefers-reduced-motion: reduce) {
+    body.player-in-sidebar .content-area.radar-content-area {
+        transition: none;
+    }
+}
+
+
+/* Overflowing labels retain their original text and slide within their own box. */
+.auto-marquee {
+    overflow: hidden !important;
+    text-overflow: clip !important;
+}
+
+.auto-marquee>.auto-marquee-text {
+    display: inline-block;
+    width: max-content;
+    max-width: none;
+    white-space: nowrap;
+    vertical-align: bottom;
+    animation: text-overflow-left-loop var(--text-slide-duration) linear infinite;
+    animation-play-state: paused;
+}
+
+.auto-marquee.is-marquee-visible>.auto-marquee-text {
+    animation-play-state: running;
+}
+
+.auto-marquee:active>.auto-marquee-text {
+    animation-play-state: paused;
+}
+
+@keyframes text-overflow-left-loop {
+    0%, 10% {
+        transform: translateX(0);
+    }
+
+    80%, 100% {
+        transform: translateX(var(--text-slide-distance));
+    }
+    /* The next iteration resets directly to the start, without sliding back. */
+}
+
+@media (max-width: 600px) {
+
+    .track-details .title,
+    .track-details .artist {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1 1 0;
+    }
+
+    .track-details .title {
+        flex-grow: 2;
+    }
+
+    .playlist-nav li .list-name {
+        min-width: 0;
+        flex-shrink: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auto-marquee>.auto-marquee-text {
+        animation: none;
+    }
+
+    .card .info .title,
+    .card .info .artist,
+    .strip-title,
+    .strip-artist,
+    .strip-meta,
+    .track-info .title,
+    .track-info .artist,
+    .playlist-nav li .list-name {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+}
+
+
+@media (max-width: 600px) {
+    .radar-sidebar .sidebar-player-slot {
+        display: none;
+    }
+}
+
+/* Match the compact mobile controls while retaining desktop track information. */
+@media (min-width: 1025px) {
+    .app-container {
+        margin-bottom: var(--desktop-player-height);
+        min-height: 0;
+    }
+
+    .content-area {
+        padding-bottom: 20px;
+    }
+
+    .bottom-player {
+        height: var(--desktop-player-height);
+        background: rgba(24, 24, 24, 0.96);
+        border-top: 1px solid #333;
+    }
+
+    .bottom-player .progress-bar-container {
+        height: 3px;
+        flex: 0 0 3px;
+    }
+
+    .bottom-player .progress-bar-container::before {
+        content: '';
+        position: absolute;
+        inset: -5px 0;
+    }
+
+    .player-content {
+        height: auto;
+        min-height: 0;
+        padding: 0 16px;
+    }
+
+    .player-info {
+        min-width: 0;
+        gap: 10px;
+    }
+
+    .player-info .thumbnail {
+        width: 44px;
+        height: 44px;
+        flex-shrink: 0;
+    }
+
+    .track-details {
+        min-width: 0;
+    }
+
+    .track-details .title,
+    .track-details .artist {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .player-controls {
+        gap: 22px;
+    }
+
+    .player-controls .ctrl-btn,
+    .player-actions .action-btn {
+        width: 36px;
+        height: 36px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .player-controls .play-btn {
+        width: 42px;
+        height: 42px;
+        flex-shrink: 0;
+    }
+
+    .player-actions {
+        gap: 12px;
+    }
+
+    .youtube-popup {
+        bottom: calc(var(--desktop-player-height) + 12px);
+    }
+
+    /* 再生中は右下の動画プレイヤーにコンテンツが隠れないようスクロール余白を確保する
+       (モバイル版と同じ考え方。Radar画面は動画を上部に出すため除外) */
+    body:has(.youtube-popup.is-active) .content-area:not(.radar-content-area) {
+        padding-bottom: 240px !important;
+    }
+
+    body:has(.youtube-popup.is-active) .profile-container {
+        padding-bottom: 240px;
+    }
+
+    body.player-bar-hidden .app-container {
+        margin-bottom: 0;
+    }
+}
+/* Share playlist details: menus stay inside the viewport and above track rows. */
+#view-playlist-detail .playlist-detail-header {
+    overflow: visible;
+    z-index: 25;
+}
+
+.detail-menu {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.detail-menu .track-dropdown-menu {
+    left: auto;
+    right: 0;
+    top: calc(100% + 4px);
+    width: 190px;
+}
+
+.detail-menu .track-menu-btn {
+    width: 44px;
+    height: 44px;
+}
+
+.detail-menu .track-dropdown-menu button {
+    min-height: 44px;
+}
+
+.detail-info { min-width: 0; }
+#detail-title { overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+    #view-playlist-detail .playlist-detail-content {
+        min-height: 0;
+        margin-bottom: 94px !important;
+        padding: 8px 12px 56px !important;
+        overscroll-behavior-y: contain;
+    }
+
+    body:has(.youtube-popup.is-active) #view-playlist-detail .playlist-detail-content {
+        margin-bottom: 282px !important;
+    }
+
+    #view-playlist-detail .back-btn {
+        min-height: 40px;
+        margin-bottom: 8px;
+    }
+
+    #view-playlist-detail .playlist-detail-header {
+        border-radius: 12px;
+        margin-bottom: 12px;
+    }
+
+    #view-playlist-detail .detail-header-content {
+        display: grid;
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 8px 12px;
+        padding: 12px;
+        align-items: center;
+    }
+
+    #view-playlist-detail .detail-cover {
+        width: 96px;
+        grid-row: 1 / 3;
+        border-radius: 8px;
+    }
+
+    #view-playlist-detail .detail-info { display: contents; }
+    #view-playlist-detail #detail-title {
+        font-size: 18px;
+        line-height: 1.4;
+        margin: 0;
+        align-self: end;
+    }
+
+    #view-playlist-detail .detail-info .meta {
+        font-size: 12px;
+        margin: 0;
+        align-self: start;
+    }
+
+    #view-playlist-detail .detail-actions-row {
+        grid-column: 1 / -1;
+        flex-wrap: nowrap;
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    #view-playlist-detail .btn-play-all {
+        padding: 8px;
+        min-height: 44px;
+        font-size: 13px;
+        gap: 4px;
+    }
+
+    #view-playlist-detail .btn-circle-action {
+        width: 44px;
+        height: 44px;
+        flex-shrink: 0;
+    }
+
+    #view-playlist-detail .detail-list-toolbar {
+        justify-content: space-between;
+        margin-bottom: 6px !important;
+    }
+
+    #view-playlist-detail .detail-list-toolbar select {
+        min-height: 40px;
+        font-size: 16px;
+        max-width: 65%;
+    }
+
+    #view-playlist-detail .track-list-item {
+        gap: 8px;
+        padding: 10px 0;
+        min-width: 0;
+    }
+
+    /* モバイルでは番号だけ隠し、つまみ (並び替え) はタッチ操作のため残す */
+    #view-playlist-detail .track-index { display: none; }
+
+    #view-playlist-detail .track-thumb {
+        width: 72px;
+        flex-shrink: 0;
+    }
+
+    #view-playlist-detail .track-info { min-width: 0; }
+    #view-playlist-detail .track-info .title { font-size: 14px; }
+    #view-playlist-detail .track-info .artist { font-size: 12px; }
+}
+
+@media (max-width: 1024px) {
+    /* Keep all player layers beneath the mobile drawer (z-index: 200). */
+    body.mobile-menu-open .bottom-player,
+    body.mobile-menu-open .youtube-popup,
+    body.mobile-menu-open .progress-bar-container,
+    body.mobile-menu-open .track-details {
+        z-index: 150 !important;
+        pointer-events: none;
+    }
+
+    .bottom-player .player-actions {
+        display: flex !important;
+        position: absolute;
+        right: max(10px, env(safe-area-inset-right));
+        bottom: 10px;
+        width: 44px;
+        height: 44px;
+        margin: 0;
+    }
+
+    .bottom-player .player-actions .time-display { display: none; }
+
+    #btn-player-fav {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.07);
+    }
+
+    #btn-player-fav:disabled { opacity: 0.4; cursor: default; }
+    #btn-player-fav:focus-visible { outline: 2px solid var(--accent-color); }
+}
+
+@media (max-width: 600px) {
+    .bottom-player .player-controls {
+        padding: 0 48px !important;
+        gap: clamp(10px, 4vw, 22px) !important;
+    }
+    .bottom-player .player-controls > button { flex-shrink: 0; }
+}
+
+#view-profile { overflow-y: auto; }
+.profile-info { min-width: 0; }
+#profile-name { overflow-wrap: anywhere; }
+/* 未ログイン時はプロフィールの中身 (カード・統計) を出さず、案内だけ表示する */
+.profile-header[hidden],
+.profile-stats[hidden],
+.profile-guest-notice[hidden],
+.profile-edit[hidden] { display: none; }
+.profile-guest-notice {
+    padding: 24px;
+    background: var(--panel-bg);
+    border-radius: 12px;
+    color: var(--text-sub);
+    font-size: 14px;
+    line-height: 1.8;
+}
+/* ログアウトボタンはカード右端に寄せる */
+.profile-header .action-pill { margin-left: auto; }
+/* プロフィールの操作ボタン (ピル型) */
+.action-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 10px 22px;
+    background: var(--accent-color);
+    color: #000;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, filter 0.2s;
+}
+.action-pill:hover { filter: brightness(1.08); }
+.action-pill:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.action-pill:disabled { opacity: 0.5; cursor: default; filter: none; }
+/* 副次アクション (ログアウトなど) は輪郭のみの控えめな見た目にする */
+.action-pill.secondary {
+    background: transparent;
+    color: var(--text-main);
+    border-color: #4a4a4a;
+}
+.action-pill.secondary:hover {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+    filter: none;
+}
+.profile-edit {
+    padding: 20px;
+    margin-bottom: 20px;
+    background: var(--panel-bg);
+    border-radius: 12px;
+}
+.profile-edit label { display: block; margin-bottom: 8px; font-weight: 600; }
+.profile-edit-row { display: flex; gap: 10px; }
+.profile-edit input {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid #555;
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-main);
+    font-size: 16px;
+}
+.profile-edit button { min-height: 44px; flex-shrink: 0; }
+.profile-edit button:disabled { opacity: 0.5; }
+.profile-edit p { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--text-sub); }
+@media (max-width: 1024px) {
+    .profile-container { margin: 16px auto; padding-bottom: 280px; }
+}
+@media (max-width: 600px) {
+    .profile-container { margin: 12px auto; padding: 0 12px 110px; }
+    .profile-header { padding: 16px; gap: 12px; flex-wrap: wrap; }
+    .profile-header .avatar { width: 56px; height: 56px; flex-shrink: 0; }
+    /* 幅が足りない場合でも収まるよう、つまみの位置を揃えて全幅ボタンにする */
+    .profile-header .action-pill { width: 100%; margin-left: 0; }
+    .profile-edit-row { flex-wrap: wrap; }
+    .profile-edit-row .action-pill { width: 100%; }
+    .profile-stats { gap: 8px; }
+    .profile-stats .stat-box { padding: 16px 6px; min-width: 0; }
+    .profile-stats .stat-box h3 { font-size: 22px; }
+    .profile-stats .stat-box p { font-size: 13px; }
+    body:has(.youtube-popup.is-active) .profile-container { padding-bottom: 290px; }
+}

@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tune drop - Music Bookmark & Radar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=desktop-scroll-1">
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer onload="initGoogleAuth()"></script>
+</head>
+
+<body>
+    <header class="top-nav">
+        <div style="display: flex; align-items: center;">
+            <button id="menu-toggle-btn" class="menu-toggle-btn" aria-expanded="false" aria-label="メニューを開く"
+                onclick="toggleSidebar()"><span class="material-symbols-rounded">menu</span></button>
+            <div class="logo" onclick="goToHome()" style="cursor: pointer;">Tune drop</div>
+        </div>
+        <nav>
+            <button onclick="navigateView('manager')" id="nav-manager" class="active"><span
+                    class="nav-icon material-symbols-rounded">library_music</span>Manager</button>
+            <button onclick="navigateView('radar')" id="nav-radar"><span
+                    class="nav-icon material-symbols-rounded">radar</span>Radar</button>
+            <button onclick="navigateView('share')" id="nav-share"><span
+                    class="nav-icon material-symbols-rounded">public</span>Share</button>
+        </nav>
+        <div class="user-menu">
+            <button onclick="showLoginModal()" id="nav-login">ログイン / 登録</button>
+            <button onclick="navigateView('profile')" id="nav-profile" style="display:none;"><span
+                    class="nav-icon material-symbols-rounded">person</span>Profile</button>
+        </div>
+    </header>
+
+    <main class="app-container">
+        <div id="view-manager" class="view-section active">
+            <aside class="sidebar">
+                <button class="add-btn" onclick="openCreatePlaylistModal()"><span
+                        class="material-symbols-rounded">add</span> 新規リスト作成</button>
+                <div class="sidebar-filters">
+                    <input type="text" id="manager-search" placeholder="リスト名で検索..." oninput="filterManagerPlaylists()">
+                    <select id="manager-category" onchange="filterManagerPlaylists()">
+                        <option value="">All</option>
+                        <option value="Vocaloid">Vocaloid</option>
+                        <option value="J-POP">J-POP</option>
+                        <option value="Anime">Anime</option>
+                        <option value="Lo-Fi">Lo-Fi</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <ul class="playlist-nav" id="playlist-nav"></ul>
+            </aside>
+            <section class="content-area">
+                <div id="manager-home-area">
+                    <div class="section-header-row">
+                        <h2 class="section-title" id="home-section-title" style="margin:0;">マイ・プレイリスト</h2>
+                        <select id="playlist-sort-select" class="ctrl-select" onchange="onPlaylistSortChange()">
+                            <option value="custom" selected>カスタム順</option>
+                            <option value="newest">新規順</option>
+                            <option value="oldest">古い順</option>
+                            <option value="name">名前順</option>
+                        </select>
+                    </div>
+                    <div class="grid-container" id="my-playlists-grid"></div>
+                </div>
+                <div id="manager-track-area" style="display: none;">
+                    <div class="action-bar">
+                        <input type="text" id="youtube-url" placeholder="YouTube URLを追加 (例: https://youtu.be/...)">
+                        <button onclick="addTrack()">追加</button>
+                    </div>
+                    <div class="action-bar search-bar" style="margin-top: -10px;">
+                        <input type="text" id="track-search" placeholder="🔍 このリスト内から曲名・アーティストを検索..."
+                            oninput="filterTracks()">
+                    </div>
+                    <div class="section-header-row track-section-header">
+                        <h2 class="section-title" id="current-list-title" style="margin:0;">すべてのブックマーク</h2>
+                        <select id="manager-track-sort-select" class="ctrl-select"
+                            onchange="onManagerTrackSortChange()">
+                            <option value="custom" selected>カスタム順</option>
+                            <option value="newest">新規順</option>
+                            <option value="oldest">古い順</option>
+                            <option value="name">名前順</option>
+                        </select>
+                    </div>
+                    <div class="grid-container" id="my-bookmarks"></div>
+                </div>
+            </section>
+        </div>
+
+        <div id="view-radar" class="view-section">
+            <aside class="radar-sidebar">
+                <div class="sidebar-player-slot" id="sidebar-player-slot">
+                    <span class="sidebar-player-slot-label">🎵 曲を選ぶとここで再生</span>
+                </div>
+                <div class="sidebar-radar-actions">
+                    <div class="filters"><button class="draw-btn" id="btn-vibe-radar"
+                            style="background:#333; color:#fff;" onclick="loadVibeRadar()"
+                            title="未解析の楽曲を音源実測で解析し、雰囲気マップへ反映します">🔍
+                            雰囲気検索</button></div>
+                    <div class="filters"><button class="draw-btn" id="btn-radar-analyze-all"
+                            title="全曲を Gemini AI + 音源実測で再解析します（処理が重いため確認があります）">⟳
+                            全曲解析</button></div>
+                </div>
+            </aside>
+            <section class="content-area radar-content-area">
+                <div class="radar-map-toolbar">
+                    <h2 class="section-title" style="margin:0;">雰囲気 楽曲マップ</h2>
+                    <div class="radar-map-controls">
+                        <input type="text" id="radar-title-search" class="ctrl-search"
+                            placeholder="🔍 曲名・アーティストで絞り込み..." oninput="applyRadarFilter()">
+                        <select id="radar-category-filter" class="ctrl-select" onchange="applyRadarFilter()">
+                            <option value="">All</option>
+                            <option value="Vocaloid">Vocaloid</option>
+                            <option value="J-POP">J-POP</option>
+                            <option value="Anime">Anime</option>
+                            <option value="Lo-Fi">Lo-Fi</option>
+                            <option value="Other">Other</option>
+                        </select>
+                        <button class="ctrl-chip" id="btn-radar-random" onclick="playRadarRandomThree()"
+                            title="表示中のマップからランダムに最大3曲を発掘して再生">📡 Radar</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-in" title="ズームイン">＋</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-out" title="ズームアウト">－</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-reset" title="リセット">⤾</button>
+                    </div>
+                </div>
+                <div class="radar-map-container" id="radar-map-container">
+                    <canvas id="radar-map-canvas" class="radar-map-canvas"></canvas>
+                    <div class="radar-map-legend" id="radar-map-legend"></div>
+                    <div class="radar-map-hud" id="radar-map-hud">解析中…</div>
+                    <div class="radar-map-tooltip" id="radar-map-tooltip"></div>
+                </div>
+                <div class="vibe-track-strip" id="vibe-track-strip"></div>
+            </section>
+        </div>
+
+        <div id="view-share" class="view-section">
+            <section class="content-area share-content-area">
+                <div class="share-toolbar">
+                    <h2 class="section-title" style="margin:0;">みんなのプレイリスト</h2>
+                    <div class="radar-map-controls">
+                        <input type="text" id="share-search" class="ctrl-search" placeholder="🔍 プレイリスト名・ユーザー名で検索..."
+                            oninput="renderSharePlaylists()">
+                        <select id="share-category" class="ctrl-select" onchange="renderSharePlaylists()">
+                            <option value="">All</option>
+                            <option value="Vocaloid">Vocaloid</option>
+                            <option value="J-POP">J-POP</option>
+                            <option value="Anime">Anime</option>
+                            <option value="Lo-Fi">Lo-Fi</option>
+                            <option value="Other">Other</option>
+                        </select>
+                        <button type="button" id="btn-share-random" class="share-random-btn" onclick="openRandomSharePlaylist()" title="ランダムに1つ選ぶ">🎲 おまかせ</button>
+                    </div>
+                </div>
+                <div class="grid-container share-grid" id="share-playlists-grid"></div>
+            </section>
+        </div>
+
+        <div id="view-playlist-detail" class="view-section">
+            <section class="content-area playlist-detail-content" style="width: 100%; max-width: 1000px; margin: 0 auto;">
+                <button class="back-btn" onclick="navigateView('share')"><span
+                        class="material-symbols-rounded">arrow_back</span>Shareへ戻る</button>
+                <div class="playlist-detail-header">
+                    <div class="detail-header-content">
+                        <div class="detail-cover" id="detail-cover"></div>
+                        <div class="detail-info">
+                            <h2 id="detail-title">Playlist Title</h2>
+                            <p class="meta" id="detail-meta">User Name / 0 Tracks</p>
+                            <div class="detail-actions-row">
+                                <button class="btn-play-all" onclick="playAllRadarTracks()"><span
+                                        class="material-symbols-rounded">play_arrow</span> すべて再生</button>
+                                <button class="btn-circle-action" id="btn-share" title="シェア"><span
+                                        class="material-symbols-rounded">share</span></button>
+                                <button class="btn-circle-action" id="btn-export-urls" title="URLをまとめる"><span
+                                        class="material-symbols-rounded">description</span></button>
+                                <div class="detail-menu" onclick="event.stopPropagation()">
+                                    <button type="button" class="btn-circle-action track-menu-btn" onclick="toggleTrackMenu(event, this)" aria-label="プレイリストのメニュー" aria-expanded="false"><span class="material-symbols-rounded">more_vert</span></button>
+                                    <div class="track-dropdown-menu">
+                                        <button type="button" id="btn-fav-playlist"><span class="material-symbols-rounded" id="btn-fav-playlist-icon">favorite</span><span id="playlist-favorite-label">お気に入り追加</span></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-list-toolbar" style="display: flex; align-items:center; gap: 10px; margin-bottom: 20px;">
+                    <span
+                        style="background: #f0f0f0; color: #000; padding: 6px 16px; border-radius: 8px; font-size: 13px; font-weight: bold;">すべて</span>
+                    <select id="track-sort-select" class="ctrl-select" onchange="onTrackSortChange()">
+                        <option value="custom" selected>カスタム順</option>
+                        <option value="newest">新規順</option>
+                        <option value="oldest">古い順</option>
+                        <option value="name">名前順</option>
+                    </select>
+                </div>
+                <div class="track-list" id="detail-track-list"></div>
+            </section>
+        </div>
+
+        <div id="view-profile" class="view-section">
+            <div class="profile-container">
+                <div class="profile-header" id="profile-header" hidden>
+                    <div class="avatar" id="profile-avatar">U</div>
+                    <div class="profile-info">
+                        <h2 id="profile-name">User Name</h2>
+                        <p id="profile-meta">プロフィール</p>
+                    </div>
+                    <button class="action-pill secondary" id="profile-logout" type="button" onclick="logout()">ログアウト</button>
+                </div>
+                <p class="profile-guest-notice" id="profile-guest-notice" hidden>
+                    プロフィールを表示するにはログインが必要です。<br>
+                    右上の「ログイン / 登録」からログインしてください。
+                </p>
+                <form id="profile-form" class="profile-edit" onsubmit="saveProfile(event)" hidden>
+                    <label for="profile-username">ユーザー名</label>
+                    <div class="profile-edit-row">
+                        <input id="profile-username" type="text" minlength="3" maxlength="30" required autocomplete="nickname" aria-describedby="profile-name-help">
+                        <button id="profile-save" class="action-pill" type="submit">保存</button>
+                    </div>
+                    <p id="profile-name-help">3〜30文字。変更してもログインIDは変わりません。</p>
+                    <p id="profile-status" role="status" aria-live="polite"></p>
+                </form>
+                <div class="profile-stats" id="profile-stats" hidden>
+                    <div class="stat-box">
+                        <h3 id="profile-track-count">—</h3>
+                        <p>保存曲</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3 id="profile-list-count">—</h3>
+                        <p>プレイリスト</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3 id="profile-favorite-count">—</h3>
+                        <p>お気に入り</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="youtube-popup" id="youtube-popup">
+        <button class="player-bar-toggle" id="player-close-btn" type="button" onclick="closeYoutubePlayer()"
+            title="プレイヤーを閉じる" aria-label="プレイヤーを閉じる">×</button>
+        <div id="youtube-player"></div>
+    </div>
+
+    <footer class="bottom-player">
+        <div class="progress-bar-container" id="progress-container" onclick="seekTrack(event)">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="player-content">
+            <div class="player-info">
+                <img id="player-thumb" src="" alt="thumbnail" class="thumbnail" style="display:none;">
+                <div class="track-details">
+                    <span class="title" id="player-title">未選択</span>
+                    <span class="artist" id="player-artist">-</span>
+                </div>
+            </div>
+            <div class="player-controls">
+                <button class="ctrl-btn" onclick="skipTrack(-1)"><span
+                        class="material-symbols-rounded">skip_previous</span></button>
+                <button class="play-btn" id="play-pause-btn" onclick="togglePlay()">
+                    <div class="play-pause-icon"></div>
+                </button>
+                <button class="ctrl-btn" onclick="skipTrack(1)"><span
+                        class="material-symbols-rounded">skip_next</span></button>
+            </div>
+            <div class="player-actions">
+                <span class="time-display" id="time-display">0:00 / 0:00</span>
+                <button class="action-btn" id="btn-player-fav" type="button" aria-label="お気に入り追加" aria-pressed="false" disabled onclick="togglePlayerFavorite()"><span
+                        class="material-symbols-rounded" id="btn-player-fav-icon">favorite</span></button>
+            </div>
+        </div>
+    </footer>
+
+    <div id="create-playlist-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
+        <div
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+            <h3 style="margin-bottom:20px; font-size:18px;">新しいプレイリスト</h3>
+            <div style="margin-bottom: 20px;">
+                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">タイトル</label>
+                <input type="text" id="new-playlist-title" placeholder="プレイリスト名を入力..."
+                    style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カテゴリ</label>
+                <select id="new-playlist-category"
+                    style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
+                    <option value="Other">Other</option>
+                    <option value="Vocaloid">Vocaloid</option>
+                    <option value="J-POP">J-POP</option>
+                    <option value="Anime">Anime</option>
+                    <option value="Lo-Fi">Lo-Fi</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 30px;">
+                <label class="share-switch">
+                    <input type="checkbox" id="new-playlist-public">
+                    <span class="share-switch-track"><span class="share-switch-thumb"></span></span>
+                    <span class="share-switch-label"><span
+                            class="material-symbols-rounded share-switch-icon">public</span> Shareに公開する</span>
+                </label>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:15px;">
+                <button onclick="closeCreatePlaylistModal()"
+                    style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">キャンセル</button>
+                <button onclick="submitNewPlaylist()"
+                    style="padding:10px 20px; background:var(--accent-color); color:#000; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">作成</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-playlist-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
+        <div
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+            <h3 style="margin-bottom:20px; font-size:18px;">プレイリストを編集</h3>
+            <input type="hidden" id="edit-playlist-id">
+            <div style="margin-bottom: 20px;">
+                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">タイトル</label>
+                <input type="text" id="edit-playlist-title" placeholder="プレイリスト名を入力..."
+                    style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カテゴリ</label>
+                <select id="edit-playlist-category"
+                    style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
+                    <option value="Other">Other</option>
+                    <option value="Vocaloid">Vocaloid</option>
+                    <option value="J-POP">J-POP</option>
+                    <option value="Anime">Anime</option>
+                    <option value="Lo-Fi">Lo-Fi</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カバー画像
+                    (リスト内の曲から選択)</label>
+                <select id="edit-playlist-cover"
+                    style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
+                    <option value="">設定しない / 今のまま</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 30px;">
+                <label class="share-switch">
+                    <input type="checkbox" id="edit-playlist-public">
+                    <span class="share-switch-track"><span class="share-switch-thumb"></span></span>
+                    <span class="share-switch-label"><span
+                            class="material-symbols-rounded share-switch-icon">public</span> Shareに公開する</span>
+                </label>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:15px;">
+                <button onclick="closeEditPlaylistModal()"
+                    style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">キャンセル</button>
+                <button onclick="submitEditPlaylist()"
+                    style="padding:10px 20px; background:var(--accent-color); color:#000; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="move-track-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
+        <div
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+            <h3 style="margin-bottom:20px; font-size:18px;">プレイリストへ移動</h3>
+            <div style="margin-bottom: 20px;">
+                <label
+                    style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">移動先のリストを選択</label>
+                <select id="move-target-playlist-select"
+                    style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;"></select>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:15px;">
+                <button onclick="closeMoveModal()"
+                    style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">キャンセル</button>
+                <button onclick="submitMoveTrack()"
+                    style="padding:10px 20px; background:var(--accent-color); color:#000; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">移動する</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="export-preview-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
+        <div
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:600px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+            <h3 style="margin-bottom:20px; font-size:18px;">Export Playlist</h3>
+            <textarea id="export-textarea"
+                style="width:100%; height:300px; padding:15px; background:#121212; border:1px solid #444; color:#fff; border-radius:6px; outline:none; font-family:monospace; font-size:12px; resize:none; margin-bottom:20px; white-space: pre; overflow-wrap: normal; overflow-x: auto;"></textarea>
+
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <!-- 左下：YouTube一括再生ボタン -->
+                <button id="btn-open-youtube-bulk"
+                    style="padding:10px 20px; background:#ff0000; color:#fff; border:none; border-radius:20px; cursor:pointer; font-weight:bold; transition: opacity 0.2s;"
+                    onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">▶ YouTubeで一括再生</button>
+
+                <!-- 右下：閉じる＆コピーボタン -->
+                <div style="display:flex; gap:15px;">
+                    <button onclick="closeExportModal()"
+                        style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">閉じる</button>
+                    <button id="btn-copy-export" onclick="copyExportText()"
+                        style="padding:10px 20px; background:var(--accent-color); color:#000; border:none; border-radius:20px; cursor:pointer; font-weight:bold; transition: background 0.2s, color 0.2s;">Copy
+                        to clipboard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="login-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
+        <div
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; text-align:center;">
+            <h2 style="margin-bottom:20px; color:var(--accent-color);">Tune drop</h2>
+            <input type="text" id="auth-username" placeholder="ログインID（メールアドレスなど）"
+                style="width:100%; padding:12px; margin-bottom:15px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px;">
+            <input type="password" id="auth-password" placeholder="パスワード"
+                style="width:100%; padding:12px; margin-bottom:20px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px;">
+            <button onclick="loginWithEmail()"
+                style="width:100%; padding:12px; background:var(--accent-color); color:#000; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-bottom:10px;">ログイン</button>
+            <button onclick="registerWithEmail()"
+                style="width:100%; padding:12px; background:transparent; color:var(--text-main); border:1px solid #555; border-radius:6px; cursor:pointer; margin-bottom:20px;">新規登録</button>
+            <hr style="border:0; border-top:1px solid #444; margin-bottom:20px;">
+            <div id="g_id_signin" class="google-signin-box" style="display:flex; justify-content:center; min-height:40px;"></div>
+            <p id="google-origin-hint" style="display:none; margin-top:10px; font-size:11px; line-height:1.6; word-break:break-all;"></p>
+            <button onclick="closeLoginModal()"
+                style="margin-top:20px; background:none; border:none; color:var(--text-sub); cursor:pointer;">閉じる</button>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="api-client.js"></script>
+    <script src="app.js?v=random-playlist-1"></script>
+    <script type="module" src="frontend/manager-lists.js?v=share-fun-1"></script>
+    <script src="text-marquee.js?v=left-loop-2"></script>
+</body>
+
+</html>

@@ -1,0 +1,31 @@
+# Runtime data and secrets
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.admin_token
+.jwt_secret
+.auth_port
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.cloudflared/
+.venv/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+_backup*/
+backups/
+.vscode/
+# Admin panel: local-only, not published on GitHub
+/admin.php
+/admin.js
+/admin.css
+/admin.sh
+/tests/admin-page.py
+/tests/admin-render.cjs
+# Detailed manual: local-only, not published on GitHub
+/README.local.md

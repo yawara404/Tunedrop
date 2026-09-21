@@ -1,0 +1,11 @@
+Flask>=3,<4
+flask-cors>=4,<7
+PyJWT>=2.8,<3
+waitress>=3,<4
+google-auth>=2.29,<3
+requests>=2.31,<3
+python-dotenv>=1.0,<2
+
+# Radar map (radar_map.py): numpy is required. UMAP is optional (falls back to PCA).
+numpy>=1.26
+

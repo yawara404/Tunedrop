@@ -1,0 +1,23 @@
+# ==========================================================
+# TuneDrop: MAMP (Apache + FastCGI PHP) 用の補正
+# ==========================================================
+# MAMPのApacheはPHPをFastCGI (php_sapi_name = cgi-fcgi) で実行するため、
+# ブラウザが送った Authorization ヘッダが $_SERVER に現れない。
+# その結果 api.php が JWT を読めず、ログイン中でもゲスト扱いになってしまう。
+# ここで Authorization ヘッダを環境変数 HTTP_AUTHORIZATION にコピーして
+# api.php (current_user_id / 認証プロキシ) から参照できるようにする。
+#
+# 前提: mod_setenvif が有効 (MAMPの既定 httpd.conf で LoadModule 済み) かつ
+#       DocumentRoot の Directory に AllowOverride All が設定されていること。
+# PHPビルトインサーバー (./start.sh) と Live Server は .htaccess を無視するが、
+# そちらは元から Authorization ヘッダを正常に受け取れるため影響はない。
+<IfModule setenvif_module>
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# Only the application entry points and known browser assets are public.
+Options -Indexes -MultiViews
+DirectoryIndex index.html
+# mod_authz_core is standard in Apache 2.4; mod_rewrite is not required.
+# Support both the project DocumentRoot and MAMP's /Tunedrop/ layout.
+Require expr "%{REQUEST_URI} =~ m#^/(?:Tunedrop/)?(?:index\.html|api\.php|admin\.php|(?:app|api-client|config|text-marquee|admin)\.js|(?:style|admin)\.css|frontend/manager-lists\.js|vendor/vue\.esm-browser\.prod\.js)?$#"
