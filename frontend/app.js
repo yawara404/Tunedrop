@@ -2485,6 +2485,10 @@ function bindRadarPointer() {
     const canvas = document.getElementById('radar-map-canvas');
     const tooltip = document.getElementById('radar-map-tooltip');
     if (!container || !canvas) return;
+    // drawRadarMap のたびに呼ばれるため、ここで多重登録すると
+    // 古いジェスチャー状態が残って競合し、操作中にチカつく。二度目以降は何もしない。
+    if (canvas.dataset.radarPointerBound) return;
+    canvas.dataset.radarPointerBound = '1';
 
     function currentPlot() {
         // 直近の描画結果を使い回す (同一データ・同一ビューの間は再計算しない)。
