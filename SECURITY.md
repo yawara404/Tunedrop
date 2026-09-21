@@ -1,21 +1,43 @@
-# Security Policy
+# セキュリティポリシー
 
-## Supported Versions
+## サポート対象バージョン
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Tune drop はバージョン番号を持たず、`main` ブランチの最新コミットのみを
+サポート対象としています。
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| 対象 | サポート状況 |
+| --- | --- |
+| `main` ブランチの最新コミット | :white_check_mark: サポート対象 |
+| 過去のコミット・スナップショット | :x: 対象外 |
 
-## Reporting a Vulnerability
+## 脆弱性の報告方法
 
-Use this section to tell people how to report a vulnerability.
+脆弱性を発見した場合は、**公開のIssueには詳細を書かないでください。**
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+1. GitHubリポジトリの **Security タブ → Report a vulnerability**
+   （プライベート脆弱性報告）から報告するのが推奨です。
+2. 機能しない場合は、リポジトリオーナーへ GitHub 経由で直接ご連絡ください。
+
+### 報告に含める情報
+
+- 問題の概要と、再現手順（または概念実証コード）
+- 影響を受けるファイル・エンドポイント
+- 想定される影響度
+
+### 対応の方針
+
+- 受領は **2営業日以内** を目安にご連絡します
+- 修正は非公開の環境で準備し、**修正版を `main` へ反映した後**に内容を開示します
+- 重要度の判断・修正の可否は、報告内容を検証した上で決定します
+
+## 対象範囲
+
+- 対象: 本リポジトリのコード（PHP / Python / フロントエンド JavaScript / 設定ファイル）
+- 対象外: 依存する外部サービス自体の問題（YouTube / Google Identity Services / Gemini API など。各プロバイダの報告窓口をご利用ください）
+
+## セルフホスト運用者へ
+
+Tune drop は自己のサーバー上で運用することを想定しています。公開サーバーとして
+運用する場合の HTTPS・トークン管理・アクセス制限などの設定は、運用者ご自身の
+責任で十分に行ってください。
+
