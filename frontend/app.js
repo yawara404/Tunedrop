@@ -3366,14 +3366,22 @@ function onYouTubePlayerReady() {
     }
 }
 
+let ytErrorStreak = 0;   // 連続再生エラー数 (全滅時の無限ループ防止用)
+
 function onYouTubePlayerError(event) {
     console.error('YouTube player error:', event.data);
+    // 再生できない動画 (埋め込み不可・削除済み等) は飛ばして次の曲へ。
+    // キュー全曲が再生不可のときは止める (無限に回さない)。
+    ytErrorStreak += 1;
+    if (ytErrorStreak > currentQueue.length) { ytErrorStreak = 0; return; }
+    skipTrack(1);
 }
 
 function onPlayerStateChange(event) {
     const playBtn = document.getElementById('play-pause-btn');
     if (event.data === YT.PlayerState.PLAYING) {
         isPlaying = true;
+        ytErrorStreak = 0;   // 正常再生できたらエラー連続数をリセット
         playBtn.classList.add('is-playing');
         progressInterval = setInterval(updateProgressBar, 500);
     } else {
