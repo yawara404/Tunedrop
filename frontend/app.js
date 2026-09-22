@@ -1569,6 +1569,7 @@ let radarPan = { x: 0, y: 0 };   // 正規化空間(0..1)でのパン量
 let radarDragging = false;
 let radarMoved = false;
 let radarSelectedId = null;
+let radarNeighborIds = null;   // 周辺9曲ボタンで下の一覧を絞り込んだときの youtube_id 群 (解除するまで維持)
 let radarPlotCache = null;   // 直近 drawRadarMap の当たり判定用プロット (mousemove毎の再計算を避ける)
 let radarDrawQueued = false; // ドラッグ/ホイール中の再描画まとめ用
 
@@ -1815,6 +1816,7 @@ function clearRadarFilters() {
     if (sort) sort.value = 'default';
     radarStripLimit = 30;
     radarSelectedId = null;
+    radarNeighborIds = null;   // 周辺絞り込みも解除
     hideRadarOverlap();
     applyRadarFilter(true);
     resetRadarView();
@@ -1902,6 +1904,7 @@ function resetRadarView() {
 
 function applyRadarFilter(preserveView) {
     ensureRadarFilterOptions();
+    radarNeighborIds = null;   // 条件を変えたら周辺絞り込みは解除
     const query = (document.getElementById('radar-title-search')?.value || '').toLowerCase();
     const category = document.getElementById('radar-category-filter')?.value || '';
     const vibe = document.getElementById('radar-vibe-filter')?.value || '';
@@ -2229,13 +2232,22 @@ function radarQueueFromTracks(tracks, startId) {
     return { queue: list, index: idx >= 0 ? idx : 0 };
 }
 
-// 選択曲＋周辺の近い曲を連続再生
+// 下の一覧に表示する曲 (周辺絞り込み中はその9曲だけ)。
+function vibeDisplayTracks() {
+    if (!radarNeighborIds) return vibeFiltered;
+    const ids = new Set(radarNeighborIds);
+    return vibeFiltered.filter(t => ids.has(t.youtube_id));
+}
+
+// 選択曲＋周辺の近い曲を連続再生 (下の一覧もその曲だけに絞り込む)
 function playRadarNeighbors(youtubeId, count) {
     const base = vibeFiltered.find(t => t.youtube_id === youtubeId)
         || vibeMapData.find(t => t.youtube_id === youtubeId);
     if (!base) return;
     const near = radarNeighbors(youtubeId, Math.max(0, count || 8));
     const { queue } = radarQueueFromTracks([base, ...near], base.youtube_id);
+    radarNeighborIds = [base, ...near].map(t => t.youtube_id);
+    renderVibeTracks(vibeDisplayTracks(), false);
     closeMobileMenu();
     playTrackFromQueue(0, queue);
 }
@@ -2244,6 +2256,7 @@ function playRadarNeighbors(youtubeId, count) {
 function selectRadarTrack(youtubeId, opts) {
     const o = opts || {};
     radarSelectedId = youtubeId || null;
+    radarNeighborIds = null;   // 別の曲を選び直したら周辺絞り込みを解除
     hideRadarOverlap();
     drawRadarMap(vibeFiltered);
     renderVibeTracks(vibeFiltered);
@@ -2407,7 +2420,8 @@ function renderVibeTracks(tracks, scrollToSelected) {
         const hasFilter = (document.getElementById('radar-title-search')?.value || '')
             || (document.getElementById('radar-category-filter')?.value || '')
             || (document.getElementById('radar-vibe-filter')?.value || '')
-            || (document.getElementById('radar-tempo-filter')?.value || '');
+            || (document.getElementById('radar-tempo-filter')?.value || '')
+            || radarNeighborIds;
         const hint = hasFilter
             ? `条件に合う曲がありません。<button type="button" class="radar-strip-clear" onclick="clearRadarFilters()">条件をクリア</button>`
             : '表示できる楽曲がありません。';
@@ -3276,7 +3290,7 @@ function playTrackFromQueue(index, queue) {
         radarSelectedId = track.youtube_id;
         if (document.getElementById('view-radar').classList.contains('active')) {
             drawRadarMap(vibeFiltered);
-            renderVibeTracks(vibeFiltered, false);
+            renderVibeTracks(vibeDisplayTracks(), false);
             updateRadarSelectedPanel();
         }
     }
