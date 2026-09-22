@@ -2958,6 +2958,8 @@ function playRadarRandomThree() {
     }));
     // 再生が始まったらメニューを閉じてマップ/コンテンツを見せる
     closeMobileMenu();
+    radarNeighborIds = queue.map(t => t.youtube_id);
+    renderVibeTracks(vibeDisplayTracks(), false);
     playTrackFromQueue(0, queue);
     // 1曲目の位置が分かるようマップを寄せる (ズームは維持)
     if (queue[0]) focusRadarTrack(queue[0].youtube_id);
