@@ -84,14 +84,37 @@ body {
 }
 
 .top-nav {
-    display: flex;
-    justify-content: space-between;
+    /* 中央のナビ (Manager | Radar | Share) がヘッダー中央に来るよう3カラムにする。
+       flex + space-between だと左右の幅差で中央が左にずれる。 */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     padding: 10px 20px;
     background-color: var(--sidebar-bg);
     border-bottom: 1px solid #333;
     height: 50px;
     flex-shrink: 0;
+}
+
+.top-nav nav {
+    /* ナビ内も3カラムにして Radar を左右対称の中心に置く
+       (Manager と Share の幅が違っても Radar がずれない) */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    justify-self: center;
+}
+
+.top-nav nav #nav-manager {
+    justify-self: end;
+}
+
+.top-nav nav #nav-share {
+    justify-self: start;
+}
+
+.top-nav .user-menu {
+    justify-self: end;
 }
 
 .logo {
@@ -4309,4 +4332,44 @@ body.player-in-sidebar .youtube-popup.is-active {
 
 .update-banner[hidden] {
     display: none;
+}
+
+/* ==========================================================
+   モバイル: ナビ (Manager/Radar/Share) はハンバーガー内に入るため、
+   グリッド中央寄せをやめて左右端合わせに戻す
+   (グリッドの 1fr 固定だと右側が収まらずロゴが折り返す)
+   ========================================================== */
+@media (max-width: 600px) {
+    .top-nav {
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+    }
+
+    .top-nav .user-menu {
+        flex-shrink: 0;
+    }
+
+    .top-nav .logo {
+        white-space: nowrap;
+    }
+}
+
+/* 中〜狭幅: 左右の要素が折り返して2行にならないよう余白を詰める */
+@media (max-width: 900px) and (min-width: 601px) {
+    .top-nav button:not(.menu-toggle-btn) {
+        margin: 0 7px;
+    }
+
+    .top-nav nav button:first-child {
+        margin-left: 0;
+    }
+
+    .top-nav nav button:last-child {
+        margin-right: 0;
+    }
+
+    .top-nav .user-menu button {
+        margin: 0 0 0 10px;
+    }
 }
