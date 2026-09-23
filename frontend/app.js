@@ -2758,7 +2758,10 @@ async function renderPlaylistDetail(playlistId, playlistName, coverId) {
             const setFav = (isFav, count) => {
                 if (favIcon) { favIcon.textContent = 'favorite'; favIcon.classList.toggle('is-filled', isFav); favIcon.style.color = isFav ? 'var(--accent-color)' : '#fff'; }
                 favBtn.classList.toggle('is-fav', isFav);
-                document.getElementById('playlist-favorite-label').textContent = isFav ? 'お気に入り解除' : 'お気に入り追加';
+                const label = isFav ? 'お気に入り解除' : 'お気に入り追加';
+                favBtn.title = label;
+                favBtn.setAttribute('aria-label', label);
+                favBtn.setAttribute('aria-pressed', String(isFav));
                 // Shareカードのお気に入りボタンと同じく件数を併記する
                 if (favCount) favCount.textContent = shareFavCount({ favorite_count: count });
             };

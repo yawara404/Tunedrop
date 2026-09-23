@@ -15,7 +15,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=add,arrow_back,close,delete,description,drag_indicator,drive_file_move,edit,favorite,heart_broken,home,library_music,lock,menu,more_vert,music_note,person,play_arrow,public,radar,share,skip_next,skip_previous&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="frontend/style.css?v=fold-3">
+    <link rel="stylesheet" href="frontend/style.css?v=fav-2">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
@@ -235,12 +235,7 @@
                                         class="material-symbols-rounded">share</span></button>
                                 <button class="btn-circle-action" id="btn-export-urls" title="URLをまとめる"><span
                                         class="material-symbols-rounded">description</span></button>
-                                <div class="detail-menu" onclick="event.stopPropagation()">
-                                    <button type="button" class="btn-circle-action track-menu-btn" onclick="toggleTrackMenu(event, this)" aria-label="プレイリストのメニュー" aria-expanded="false"><span class="material-symbols-rounded">more_vert</span></button>
-                                    <div class="track-dropdown-menu">
-                                        <button type="button" id="btn-fav-playlist"><span class="material-symbols-rounded" id="btn-fav-playlist-icon">favorite</span><span id="playlist-favorite-label">お気に入り追加</span><span class="detail-fav-count" id="playlist-favorite-count">0</span></button>
-                                    </div>
-                                </div>
+                                <button type="button" class="btn-fav-action" id="btn-fav-playlist" title="お気に入り追加" aria-label="お気に入り追加" aria-pressed="false"><span class="material-symbols-rounded" id="btn-fav-playlist-icon">favorite</span><span class="detail-fav-count" id="playlist-favorite-count">0</span></button>
                             </div>
                         </div>
                     </div>
@@ -490,7 +485,7 @@
     </div>
 
     <script src="frontend/config.js"></script>
-    <script src="frontend/app.js?v=fav-1"></script>
+    <script src="frontend/app.js?v=fav-2"></script>
 </body>
 
 </html>

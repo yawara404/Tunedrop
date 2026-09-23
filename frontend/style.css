@@ -2414,6 +2414,46 @@ body.player-in-sidebar .youtube-popup.is-active {
     background: rgba(255, 255, 255, 0.3);
 }
 
+/* プレイリスト詳細のお気に入り: Shareカードと同じくハート+件数を常時表示する */
+.btn-fav-action {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border: none;
+    height: 40px;
+    min-width: 40px;
+    padding: 0 14px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.btn-fav-action:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.btn-fav-action.is-fav {
+    background: rgba(212, 225, 87, 0.18);
+}
+
+.btn-fav-action.is-fav .material-symbols-rounded {
+    color: var(--accent-color);
+}
+
+.btn-fav-action .detail-fav-count {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.btn-fav-action.is-fav .detail-fav-count {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #000;
+}
+
 .track-list {
     display: flex;
     flex-direction: column;
@@ -3570,7 +3610,6 @@ body.player-in-sidebar .youtube-popup.is-active {
 
 /* プレイリスト詳細のお気に入り件数 (Shareカードのお気に入りバッジと同じ見た目) */
 .detail-fav-count {
-    margin-left: auto;
     min-width: 1.6em;
     padding: 1px 8px;
     border-radius: 999px;
@@ -3580,12 +3619,6 @@ body.player-in-sidebar .youtube-popup.is-active {
     font-weight: 800;
     text-align: center;
     color: var(--text-main);
-}
-
-#btn-fav-playlist.is-fav .detail-fav-count {
-    background: var(--accent-color);
-    border-color: var(--accent-color);
-    color: #000;
 }
 
 .detail-info {
@@ -3666,6 +3699,12 @@ body.player-in-sidebar .youtube-popup.is-active {
     #view-playlist-detail .btn-circle-action {
         width: 44px;
         height: 44px;
+        flex-shrink: 0;
+    }
+
+    #view-playlist-detail .btn-fav-action {
+        height: 44px;
+        padding: 0 12px;
         flex-shrink: 0;
     }
 
