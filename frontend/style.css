@@ -946,6 +946,13 @@ body.player-in-sidebar .youtube-popup.is-active {
     right: 8px;
 }
 
+/* .share-fav-btn の left を打ち消す (後方定義のため詳細度を上げる)。
+   これが無いと left/right 両方が効いて札の幅いっぱいに伸びてしまう。 */
+.share-recommend-card .share-fav-btn {
+    left: auto;
+    right: 8px;
+}
+
 /* ---- Share: ランキング・お気に入りで楽しく ---- */
 .share-ranking {
     background: var(--panel-bg);
@@ -3099,6 +3106,57 @@ body.player-in-sidebar .youtube-popup.is-active {
     .action-bar button {
         padding-left: 11px;
         padding-right: 11px;
+    }
+}
+
+/* ==========================================================
+   極小画面 (Galaxy Fold 閉じ 280px 等) 向けの補正
+   ----------------------------------------------------------
+   600px 以下の共通ルールより後に置くこと (同詳細度のため上書きされる)。
+   ========================================================== */
+@media (max-width: 380px) {
+    /* Share: 見出しの副題が潰れないよう折り返して全幅に落とす */
+    .share-recommend-title,
+    .share-ranking-title {
+        flex-wrap: wrap;
+        row-gap: 4px;
+    }
+
+    .share-recommend-sub,
+    .share-ranking-sub {
+        flex: 1 1 100%;
+    }
+
+    .share-recommend-reload {
+        margin-left: auto;
+    }
+
+    /* Share: 横スクロール札は画面幅ぴったりに1枚ずつ収める */
+    .share-recommend-card,
+    .share-podium-card {
+        min-width: 100%;
+        max-width: 100%;
+    }
+
+    /* Share: 表紙を小さくして曲名の省略を防ぐ */
+    .share-recommend-cover,
+    .share-podium-cover {
+        width: 64px;
+    }
+
+    /* Radar: 絞り込みは2列にして選択肢の文字切れを防ぐ */
+    .radar-content-area .radar-map-controls.radar-map-subcontrols .ctrl-select {
+        grid-column: span 6;
+    }
+
+    .radar-content-area #btn-radar-clear {
+        grid-column: span 12;
+    }
+
+    /* Radar: 下部の曲札も画面幅ぴったりに1枚ずつ収める */
+    .radar-content-area .vibe-track-strip .strip-card {
+        min-width: 100%;
+        max-width: 100%;
     }
 }
 
