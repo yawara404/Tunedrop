@@ -3590,7 +3590,60 @@ function formatTime(seconds) {
     return `${min}:${sec.toString().padStart(2, '0')}`;
 }
 
+// ==========================================================
+// 更新通知
+// ----------------------------------------------------------
+// JS/CSS は ?v= でキャッシュを切っているが、タブを開いたままの場合は
+// 古い画面が残り続ける (SPA内の画面移動では HTML/JS を取り直さない)。
+// タブに戻ってきたときに index.html の ?v= だけ確認し、変わっていたら
+// 再読み込みを促す。
+// ==========================================================
+const APP_ASSET_PATTERN = /(?:app\.js|style\.css)\?v=([\w.-]+)/g;
+
+function loadedAssetVersions() {
+    const versions = new Set();
+    document.querySelectorAll('script[src*="app.js"], link[href*="style.css"]').forEach(el => {
+        const value = el.getAttribute('src') || el.getAttribute('href') || '';
+        const match = value.match(/\?v=([\w.-]+)/);
+        if (match) versions.add(match[1]);
+    });
+    return versions;
+}
+
+async function checkForAppUpdate() {
+    const banner = document.getElementById('update-banner');
+    if (!banner || banner.hidden === false) return;
+    try {
+        const response = await fetch(new URL('index.html', window.location.href), { cache: 'no-store' });
+        if (!response.ok) return;
+        const html = await response.text();
+        const latest = new Set([...html.matchAll(APP_ASSET_PATTERN)].map(m => m[1]));
+        const current = loadedAssetVersions();
+        // 読み込み済みの版がすべて最新側に含まれていれば更新不要
+        if (!latest.size || [...current].every(version => latest.has(version))) return;
+        banner.hidden = false;
+    } catch (_) {
+        // オフライン等では何もしない (次回の表示時に再確認する)
+    }
+}
+
+let lastUpdateCheck = 0;
+function scheduleUpdateCheck() {
+    const now = Date.now();
+    if (now - lastUpdateCheck < 5 * 60 * 1000) return;   // 最短5分間隔
+    lastUpdateCheck = now;
+    checkForAppUpdate();
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleUpdateCheck();
+});
+
 document.addEventListener("DOMContentLoaded", () => {
+    const reload = document.getElementById('update-reload');
+    if (reload) reload.addEventListener('click', () => window.location.reload());
+    // 開きっぱなしのタブでも気づけるよう、起動から少し待って1回確認する
+    setTimeout(scheduleUpdateCheck, 30000);
     // head 内のスタブ経由で先行発火した外部スクリプトをここで回収する
     if (window.__ytApiReadyQueued) { window.__ytApiReadyQueued = false; onYouTubeIframeAPIReady(); }
     else if (window.YT?.Player && !player) onYouTubeIframeAPIReady();

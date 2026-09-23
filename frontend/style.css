@@ -4267,3 +4267,37 @@ body.player-in-sidebar .youtube-popup.is-active {
         font-size: 22px;
     }
 }
+
+/* 更新通知バナー (?v= が変わったときだけ表示) */
+.update-banner {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--accent-color);
+    color: #000;
+    font-size: 13px;
+    font-weight: 800;
+    padding: 10px 16px;
+    border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.update-banner button {
+    background: #000;
+    color: var(--accent-color);
+    border: none;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.update-banner[hidden] {
+    display: none;
+}
