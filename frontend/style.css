@@ -129,6 +129,7 @@ body {
     border: none;
     color: var(--text-sub);
     font-size: 14px;
+    line-height: 20px;   /* アイコンの高さと揃えて、項目ごとの箱の高さを一定にする */
     margin: 0 15px;
     cursor: pointer;
     transition: color 0.2s;

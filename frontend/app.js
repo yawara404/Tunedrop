@@ -276,12 +276,14 @@ function checkLoginStatus() {
     const token = localStorage.getItem('tunedrop_token');
     const username = localStorage.getItem('tunedrop_username');
     if (token && username) {
+        // display は CSS 側 (inline-flex) に任せる。'inline-block' を直接入れると
+        // アイコンとラベルの並び (flex) が崩れて高さが揃わなくなる。
         document.getElementById('nav-login').style.display = 'none';
-        document.getElementById('nav-profile').style.display = 'inline-block';
+        document.getElementById('nav-profile').style.display = '';
         document.getElementById('profile-name').innerText = username;
         document.getElementById('profile-avatar').innerText = username.charAt(0).toUpperCase();
     } else {
-        document.getElementById('nav-login').style.display = 'inline-block';
+        document.getElementById('nav-login').style.display = '';
         document.getElementById('nav-profile').style.display = 'none';
     }
 }
