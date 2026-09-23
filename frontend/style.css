@@ -4227,18 +4227,19 @@ body.player-in-sidebar .youtube-popup.is-active {
     margin-top: 24px;
 }
 
-/* ヘルプボタン (ナビの「?」) */
-.top-nav #nav-help {
-    margin-right: 4px;
-    color: var(--accent-color);
+/* ヘッダー右側: ボタンの高さ・ベースラインを揃える (既定は display:block でずれる) */
+.top-nav .user-menu {
+    display: flex;
+    align-items: center;
 }
 
-.top-nav #nav-help .nav-icon {
-    margin-right: 0;
+/* ヘルプボタン (ナビの「?」): 他のナビ項目と同じ配色・行高に揃える */
+.top-nav #nav-help {
+    margin: 0 8px;
 }
 
 .top-nav #nav-help .nav-help-label {
-    margin-left: 6px;
+    margin-left: 1px;
 }
 
 /* 極小画面: ヘッダーが折り返して崩れないように詰める */
@@ -4258,13 +4259,21 @@ body.player-in-sidebar .youtube-popup.is-active {
         font-size: 12px;
     }
 
+    /* ヘッダー右側: 折り返して縦積みにならないよう1行に固定する */
+    .top-nav .user-menu {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+
+    #nav-help {
+        margin: 0 2px;
+    }
+
     /* ヘルプはアイコンのみ (読み上げは aria-label が担当) */
     #nav-help .nav-help-label {
         display: none;
-    }
-
-    #nav-help .nav-icon {
-        font-size: 22px;
     }
 }
 
