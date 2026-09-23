@@ -128,10 +128,12 @@ function dispatch(type, target, extra = {}, capture = false) {
 }
 
 const windowHandlers = new Map();   // `type` -> [handler]
+const locationStub = { hash: '', origin: 'http://localhost' };
 const context = vm.createContext({
+    location: locationStub,
     window: {
         ManagerLists: { setData() { } },
-        location: { hash: '', origin: 'http://localhost' },
+        location: locationStub,
         innerWidth: 390,
         // テスト中はモバイル幅 (ハンバーガーが出る幅) として扱う
         matchMedia: () => ({ matches: true }),

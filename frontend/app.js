@@ -231,19 +231,110 @@ function navigateView(viewName, id) {
 }
 
 // ハッシュからビューを復元して表示する
+// ==========================================================
+// スクロール位置の復元 (ブラウザの戻る/進む)
+// ----------------------------------------------------------
+// 本アプリのスクロールは .content-area 等の内側要素で起きるため、
+// ブラウザ標準のスクロール復元が効かない。ハッシュごとに位置を覚えて戻す。
+// ==========================================================
+const scrollPositions = new Map();   // ハッシュ -> スクロール位置
+// モジュール読み込み時に評価されるため、ブラウザ/テストどちらでも安全な形で取る
+let lastScrollKey = (window.location && window.location.hash) || '#/manager';
+
+/** 現在のビューのスクロール領域 (無ければ null)。 */
+function activeScrollContainer() {
+    const view = document.querySelector('.view-section.active');
+    if (!view) return null;
+    const inner = view.querySelector('.content-area');
+    if (inner) return inner;
+    return view;
+}
+
+// スクロール位置は「切替直前」ではなく、スクロールのたびに現在のキーで保存する。
+// (画面遷移は navigateView → switchView が先に走ることがあり、
+//  切替時に取ると切替後の位置=0 を保存してしまうため)
+let scrollSaveQueued = false;
+let scrollRestoreToken = 0;
+let scrollRestoring = false;
+function scheduleScrollSave(el) {
+    // 復元中は再描画で一時的に 0 になることがあるため保存しない
+    if (scrollSaveQueued || scrollRestoring) return;
+    // 保存が遅れると、ビューが display:none になって scrollTop が 0 に戻った後の
+    // 値を拾ってしまう。イベント時点の値とキーを控えてから書く。
+    const key = lastScrollKey;
+    const position = el.scrollTop;
+    scrollSaveQueued = true;
+    const save = () => {
+        scrollSaveQueued = false;
+        if (scrollRestoring) return;
+        scrollPositions.set(key, position);
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(save);
+    else save();
+}
+
+document.addEventListener('scroll', (event) => {
+    const el = event.target;
+    if (!el || el.nodeType !== 1 || typeof el.scrollTop !== 'number') return;
+    if (!el.closest || !el.closest('.view-section')) return;
+    // ビューが display:none になると scrollTop が 0 に戻り、その 0 がスクロール
+    // イベントとして飛んでくる。非表示の要素は保存しない。
+    if (!el.getClientRects || el.getClientRects().length === 0) return;
+    scheduleScrollSave(el);
+}, true);
+
+// 戻る/進むでビューを戻したあと、内容の読み込みを待って位置を復元する。
+// 一覧は取得後に描き直されるため、スクロールがリセットされることがある。
+// 目標位置に落ち着くまで短い間隔で数回だけ追従する。
+function applyScrollRestoration(key) {
+    const target = scrollPositions.get(key) || 0;
+    const token = ++scrollRestoreToken;
+    scrollRestoring = true;
+    let tries = 0;
+    const attempt = () => {
+        if (token !== scrollRestoreToken) return;   // 次の遷移が始まったら中断
+        tries += 1;
+        const el = activeScrollContainer();
+        if (el) el.scrollTop = target;
+        // 一覧の再描画でスクロールが戻るため、落ち着くまで追従する
+        const settled = el && Math.abs(el.scrollTop - target) < 1;
+        if (!settled && tries < 20 && typeof setTimeout === 'function') {
+            setTimeout(attempt, 150);
+            return;
+        }
+        scrollRestoring = false;
+    };
+    attempt();
+}
+
 function applyHashView() {
     const { view, id } = currentHashView();
+    // 表示名は pendingDetail / pendingUserProfile が同じIDのときだけ使う
+    // (renderPlaylistDetail / renderUserProfile 側で判定するため、ここでは消さない)
     if (view === 'playlist-detail' && id) {
-        // 詳細は実データロード (履歴復元のためハッシュ更新しない)
-        renderPlaylistDetail(parseInt(id, 10), '', '');
+        renderPlaylistDetail(parseInt(id, 10));
     } else if (view === 'user-profile' && id) {
         renderUserProfile(parseInt(id, 10));
     } else {
         switchView(view);
     }
+    // 切替えが済んでから現在のキーを更新し、その位置を復元する
+    // (切替え前に更新すると、離れる側のスクロール位置を新しいキーへ保存してしまう)
+    lastScrollKey = location.hash;
+    applyScrollRestoration(lastScrollKey);
 }
 
 function switchView(viewName) {
+    // 切り替える前に、表示中のビューのスクロール位置を控える。
+    // (切替後は display:none になり scrollTop が 0 に戻るため、ここで取る必要がある)
+    // 同じビューへの再適用 (二重呼び出し) では控えない。
+    const currentActive = document.querySelector('.view-section.active');
+    const nextActive = document.getElementById(`view-${viewName}`);
+    if (currentActive && currentActive !== nextActive) {
+        const outgoing = activeScrollContainer();
+        if (outgoing) scrollPositions.set(lastScrollKey, outgoing.scrollTop);
+    }
+
     document.querySelectorAll('.view-section').forEach(section => section.classList.remove('active'));
     const target = document.getElementById(`view-${viewName}`);
     if (target) target.classList.add('active');
@@ -361,14 +452,23 @@ async function loadProfile() {
 // ==========================================================
 // 他ユーザーのプロフィール (Shareの作成者名から開く)
 // ==========================================================
-let pendingUserProfile = { name: '' };
+let pendingUserProfile = { id: null, name: '' };
 
 function openUserProfile(userId, name) {
     const id = Number(userId);
     if (!Number.isFinite(id) || id <= 0) return;
-    pendingUserProfile = { name: name || '' };
+    pendingUserProfile = { id, name: name || '' };
+    // クリック直後に前のユーザー名が見えないよう、名前だけ先に反映しておく
+    if (name) {
+        const nameEl = document.getElementById('user-profile-name');
+        const avatarEl = document.getElementById('user-profile-avatar');
+        if (nameEl) nameEl.textContent = name;
+        if (avatarEl) avatarEl.textContent = name.slice(0, 1).toUpperCase();
+    }
+    const targetHash = '#user/' + id;
+    const hashChanges = location.hash !== targetHash;
     navigateView('user-profile', id);
-    if (('#' + 'user/' + id) === location.hash) renderUserProfile(id);
+    if (!hashChanges) renderUserProfile(id);
 }
 
 // 戻る: 直前の画面へ (履歴が無ければ Share へ)
@@ -414,9 +514,11 @@ async function renderUserProfile(userId) {
     const avatarEl = document.getElementById('user-profile-avatar');
     const grid = document.getElementById('user-profile-grid');
     const titleEl = document.getElementById('user-profile-lists-title');
-    if (pendingUserProfile.name && nameEl) nameEl.textContent = pendingUserProfile.name;
+    // 直前に見ていた別ユーザーの名前を持ち越さない (IDが一致するときだけ使う)
+    const pendingName = pendingUserProfile.id === id ? pendingUserProfile.name : '';
+    if (pendingName && nameEl) nameEl.textContent = pendingName;
     if (metaEl) metaEl.textContent = '読み込み中…';
-    if (avatarEl && pendingUserProfile.name) avatarEl.textContent = pendingUserProfile.name.slice(0, 1).toUpperCase();
+    if (avatarEl && pendingName) avatarEl.textContent = pendingName.slice(0, 1).toUpperCase();
     if (grid) grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>プロフィールを読み込んでいます…</div>';
     for (const elId of ['user-profile-public-count', 'user-profile-track-count', 'user-profile-favorite-count']) {
         document.getElementById(elId).textContent = '—';
@@ -2802,14 +2904,19 @@ function radarZoomToPoint(mx, my, factor) {
 
 
 // プレイリスト詳細を開く (URLハッシュを履歴に積む)
-let pendingDetail = { name: '', cover: '' };
+let pendingDetail = { id: null, name: '', cover: '' };
 function openPlaylistDetail(playlistId, playlistName, coverId) {
-    pendingDetail = { name: playlistName || '', cover: coverId || '' };
-    navigateView('playlist-detail', playlistId);
-    // ハッシュが変わらない場合のみ即時描画 (変更時は hashchange 経由)
-    if (('#' + 'playlist/' + playlistId) === location.hash) {
-        renderPlaylistDetail(playlistId, playlistName, coverId);
+    pendingDetail = { id: Number(playlistId), name: playlistName || '', cover: coverId || '' };
+    // クリック直後に前のリスト名が見えないよう、名前だけ先に反映しておく
+    // (描画本体は hashchange 側。ハッシュが変わらない場合のみここで描画する)
+    if (playlistName) {
+        const titleEl = document.getElementById('detail-title');
+        if (titleEl) titleEl.innerText = playlistName;
     }
+    const targetHash = '#playlist/' + playlistId;
+    const hashChanges = location.hash !== targetHash;
+    navigateView('playlist-detail', playlistId);
+    if (!hashChanges) renderPlaylistDetail(playlistId, playlistName, coverId);
 }
 
 // プレイリスト詳細のメタ行: 「3曲 · 作成者名」。
@@ -2843,15 +2950,28 @@ function renderDetailMeta(trackCount, listData) {
 // プレイリスト詳細の実データロード・表示
 async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     switchView('playlist-detail');
-    const effName = playlistName || pendingDetail.name;
-    const effCover = coverId || pendingDetail.cover;
-    if (effName) document.getElementById('detail-title').innerText = effName;
+    // 直前に開いた別リストの名前を持ち越さない (IDが一致するときだけ使う)
+    const pending = pendingDetail.id === Number(playlistId) ? pendingDetail : { name: '', cover: '' };
+    const effName = playlistName || pending.name;
+    const effCover = coverId || pending.cover;
+    const detailTitleEl = document.getElementById('detail-title');
+    // 名前が未確定 (履歴復元など) のときは前のリスト名を残さない
+    if (detailTitleEl) detailTitleEl.innerText = effName || '読み込み中…';
     const coverEl = document.getElementById('detail-cover');
     if (effCover) coverEl.innerHTML = `<img src="https://img.youtube.com/vi/${effCover}/hqdefault.jpg">`;
     else coverEl.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:40px;">🎵</div>`;
 
-    const response = await tunedropFetch(`api.php?action=get_my_bookmarks&playlist_id=${playlistId}`);
-    const tracks = await response.json();
+    let tracks;
+    try {
+        const response = await tunedropFetch(`api.php?action=get_my_bookmarks&playlist_id=${playlistId}`);
+        tracks = await response.json();
+    } catch (error) {
+        // 直リンクやオフラインでも画面を壊さない (履歴復元で例外を投げない)
+        tracks = [];
+        const meta = document.getElementById('detail-meta');
+        if (meta) meta.textContent = 'リストを読み込めませんでした。';
+    }
+    if (!Array.isArray(tracks)) tracks = [];
     currentDetailTracks = tracks;
     if (!effName) {
         const titleFromList = allPlaylists.find(p => p.id == playlistId)
@@ -2887,6 +3007,10 @@ async function renderPlaylistDetail(playlistId, playlistName, coverId) {
         }
     }
     renderDetailMeta(tracks.length, listData);
+    // 存在しないリスト (直リンク・古い履歴) は「読み込み中…」のままにしない
+    if (!listData && tracks.length === 0 && detailTitleEl && !effName) {
+        detailTitleEl.innerText = 'リストが見つかりません';
+    }
 
     const favBtn = document.getElementById('btn-fav-playlist');
     if (favBtn && listData) {
@@ -3683,9 +3807,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (document.getElementById('view-radar').classList.contains('active')) drawRadarMap(vibeFiltered);
     });
 
-    // ルーティング: ハッシュ変更 (ブラウザ戻る/進む/直接URL) をビューへ反映
+    // ルーティング: ハッシュ変更 (ブラウザ戻る/進む/直接URL) をビューへ反映。
+    // popstate も併せて購読すると、戻る/進むでは hashchange と両方発火して
+    // 描画とAPI呼び出しが二重になるため、ハッシュ方式の本アプリでは hashchange のみ購読する。
     window.addEventListener('hashchange', applyHashView);
-    window.addEventListener('popstate', applyHashView);
 
     // 初期表示 (ハッシュがあればそれを復元、なければ manager)。
     // 分岐を二重に持つと片方だけ直して不整合になるため applyHashView に一本化する。
