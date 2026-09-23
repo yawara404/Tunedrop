@@ -13,9 +13,9 @@
          下の icon_names にアルファベット順で追加すること（未知の名前があると全収録版の
          約3.1MBにフォールバックする）。 -->
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=add,arrow_back,close,delete,description,drag_indicator,drive_file_move,edit,favorite,heart_broken,home,library_music,lock,menu,more_vert,music_note,person,play_arrow,public,radar,share,skip_next,skip_previous&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=add,arrow_back,close,delete,description,drag_indicator,drive_file_move,edit,favorite,heart_broken,help,home,library_music,lock,menu,more_vert,music_note,person,play_arrow,public,radar,share,skip_next,skip_previous&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="frontend/style.css?v=detail-2">
+    <link rel="stylesheet" href="frontend/style.css?v=help-2">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
@@ -40,6 +40,8 @@
                     class="nav-icon material-symbols-rounded">public</span>Share</button>
         </nav>
         <div class="user-menu">
+            <button onclick="navigateView('help')" id="nav-help" class="nav-help-btn" title="使い方ヘルプ" aria-label="使い方ヘルプ"><span
+                    class="nav-icon material-symbols-rounded">help</span><span class="nav-help-label">ヘルプ</span></button>
             <button onclick="showLoginModal()" id="nav-login">ログイン / 登録</button>
             <button onclick="navigateView('profile')" id="nav-profile" style="display:none;"><span
                     class="nav-icon material-symbols-rounded">person</span>Profile</button>
@@ -324,6 +326,131 @@
                 <div class="grid-container share-grid" id="user-profile-grid"></div>
             </div>
         </div>
+        <div id="view-help" class="view-section">
+            <div class="help-container">
+                <header class="help-header">
+                    <span class="material-symbols-rounded help-header-icon">help</span>
+                    <div>
+                        <h1>Tune drop の使い方</h1>
+                        <p>YouTubeの音楽を集めて、整理して、みんなと発掘するためのガイドです。</p>
+                    </div>
+                </header>
+
+                <nav class="help-toc" aria-label="目次">
+                    <a href="#help-manager">Manager</a>
+                    <a href="#help-radar">Radar</a>
+                    <a href="#help-share">Share</a>
+                    <a href="#help-profile">Profile</a>
+                    <a href="#help-player">プレイヤー</a>
+                    <a href="#help-account">アカウント</a>
+                    <a href="#help-mobile">スマホで使う</a>
+                </nav>
+
+                <section class="help-section" id="help-manager">
+                    <h2><span class="material-symbols-rounded">library_music</span>Manager（マイコレクション）</h2>
+                    <p>自分のプレイリストと保存した曲を管理する画面です。</p>
+                    <h3>曲を追加する</h3>
+                    <ol>
+                        <li>プレイリストを開き、上部の入力欄にYouTubeのURLを貼り付けます。</li>
+                        <li>「追加」を押すと、曲名・アーティスト・サムネイルが自動で取得されます。</li>
+                    </ol>
+                    <p class="help-note">対応URL: <code>youtube.com/watch?v=…</code> / <code>youtu.be/…</code> /
+                        <code>music.youtube.com/watch?v=…</code> / <code>youtube.com/shorts/…</code>、または11桁の動画ID。</p>
+                    <h3>プレイリストを作る・編集する</h3>
+                    <ul>
+                        <li>「＋ 新規リスト」でプレイリストを作成します（カテゴリも選択できます）。</li>
+                        <li>カード左上のカテゴリ選択で、リロードなしにカテゴリを変更できます。</li>
+                        <li>三点メニュー「⋮」から「編集・公開」を開くと、名前・カテゴリ・カバー画像・公開設定を変更できます。</li>
+                        <li>曲の三点メニュー「⋮」から、ほかのプレイリストへ移動できます。</li>
+                    </ul>
+                    <h3>固定タブ（未整理 / 公開用お気に入り）</h3>
+                    <ul>
+                        <li>「未整理」「公開用お気に入り」は全ユーザーが必ず持つ専用タブで、サイドバーの上部に常に表示されます。</li>
+                        <li>そのため並び替え・改名・削除はできません。ホームから曲を追加した場合は「未整理」に入ります。</li>
+                    </ul>
+                    <h3>並び替え</h3>
+                    <p>カードやサイドバーのつまみ（⠿）をドラッグすると並び替えできます。並び順は自動保存され、次に開いたときも維持されます。</p>
+                </section>
+
+                <section class="help-section" id="help-radar">
+                    <h2><span class="material-symbols-rounded">radar</span>Radar（曲を発掘する）</h2>
+                    <p>保存された曲を「雰囲気」で地図のように並べ、似た曲を探せる画面です。音の傾向が近い曲ほど近くに表示されます。</p>
+                    <h3>雰囲気マップ</h3>
+                    <ul>
+                        <li>点をタップすると選択カードが開き、「▶ 再生」「周辺N曲」「◎ 中央へ」を選べます。</li>
+                        <li>「周辺N曲」は、選択した曲と雰囲気が近い曲をまとめて連続再生し、下の一覧もその曲だけに絞り込みます。</li>
+                        <li>マウスホイール／ピンチでズーム、ドラッグで移動できます。</li>
+                    </ul>
+                    <h3>絞り込みと発掘</h3>
+                    <ul>
+                        <li>曲名・アーティスト検索、カテゴリ、雰囲気、BPM、並び順で絞り込めます。「条件クリア」で解除します。</li>
+                        <li>「🔍 雰囲気検索」は未解析の曲を音源から解析してマップへ反映します（曲数によっては時間がかかります）。</li>
+                        <li>「📡 Radar」は表示中のマップからランダムに3曲を選んで再生します。</li>
+                        <li>「⟳ 全曲解析」は全曲を再解析する重い処理です。実行前に確認が表示されます。</li>
+                    </ul>
+                    <p class="help-note">雰囲気やBPMは、タイトルからの推測ではなく実際の音源から算出しています。ツールチップに「実測」か「推定」かが表示されます。</p>
+                </section>
+
+                <section class="help-section" id="help-share">
+                    <h2><span class="material-symbols-rounded">public</span>Share（みんなで発掘する）</h2>
+                    <p>公開されたプレイリストを探したり、自分のリストを公開したりする画面です。</p>
+                    <ul>
+                        <li>「あなたへのおすすめ」は、あなたの保存曲・よく聴くカテゴリ・お気に入り状況から自動で選ばれます。「⟳ 更新」で引き直せます。</li>
+                        <li>「お気に入りランキング」は、みんなのお気に入り数が多いプレイリストの順位です。</li>
+                        <li>「おまかせ」で気になるプレイリストをランダムに1つ開けます。</li>
+                        <li>ハートのボタンでお気に入りに追加できます（件数も表示されます）。</li>
+                        <li>カードの作成者名をタップすると、そのユーザーのプロフィールと公開リスト一覧が開きます。</li>
+                    </ul>
+                    <h3>自分のリストを公開する</h3>
+                    <p>Managerのプレイリストの「⋮」→「編集・公開」で「Radar 公開設定」をONにすると、Shareに掲載されます。</p>
+                </section>
+
+                <section class="help-section" id="help-profile">
+                    <h2><span class="material-symbols-rounded">person</span>Profile（プロフィール）</h2>
+                    <ul>
+                        <li>表示名を3〜30文字で変更できます（ログインIDは変わりません）。</li>
+                        <li>保存曲数・プレイリスト数・お気に入り数を確認できます。</li>
+                        <li>他のユーザーのプロフィールでは、そのユーザーがShareで公開しているリストだけが表示されます。</li>
+                    </ul>
+                </section>
+
+                <section class="help-section" id="help-player">
+                    <h2><span class="material-symbols-rounded">play_arrow</span>プレイヤー</h2>
+                    <ul>
+                        <li>「すべて再生」で、リストの先頭から連続再生が始まります。</li>
+                        <li>再生できない動画は自動で飛ばして次の曲へ進みます。</li>
+                        <li>再生中の曲はハートでお気に入りに追加できます。「お気に入り曲」からいつでも再生できます。</li>
+                        <li>「📄」で曲名とURLの一覧をコピーできます。</li>
+                    </ul>
+                    <h3>キーボードショートカット</h3>
+                    <div class="help-keys">
+                        <div><kbd>Space</kbd><span>再生 / 一時停止</span></div>
+                        <div><kbd>Shift</kbd>+<kbd>N</kbd><span>次の曲</span></div>
+                        <div><kbd>Shift</kbd>+<kbd>P</kbd><span>前の曲</span></div>
+                    </div>
+                </section>
+
+                <section class="help-section" id="help-account">
+                    <h2><span class="material-symbols-rounded">lock</span>アカウント</h2>
+                    <ul>
+                        <li>右上の「ログイン / 登録」から、ユーザー名とパスワードで登録・ログインできます。</li>
+                        <li>Googleアカウントでのログインにも対応しています。</li>
+                        <li>ログインなしでも閲覧・検索はできますが、保存した内容はログイン時にのみ自分のアカウントへ紐づきます。</li>
+                    </ul>
+                </section>
+
+                <section class="help-section" id="help-mobile">
+                    <h2><span class="material-symbols-rounded">menu</span>スマホで使う</h2>
+                    <ul>
+                        <li>左上の「☰」でメニューが開きます。別の操作をすると自動で閉じます。</li>
+                        <li>並び替えはつまみ（⠿）を長押ししてドラッグします。</li>
+                        <li>画面下部のプレイヤーは常に表示されます（YouTubeの利用規約に沿った埋め込み表示です）。</li>
+                    </ul>
+                </section>
+
+                <p class="help-footer">困ったときは、このページの内容を確認するか、動作がおかしい場合はページを再読み込み（スーパーリロード）してみてください。</p>
+            </div>
+        </div>
     </main>
 
     <div class="youtube-popup" id="youtube-popup">
@@ -516,7 +643,7 @@
     </div>
 
     <script src="frontend/config.js"></script>
-    <script src="frontend/app.js?v=detail-2"></script>
+    <script src="frontend/app.js?v=help-1"></script>
 </body>
 
 </html>

@@ -69,6 +69,7 @@ const viewRadar = element({ id: 'view-radar', selectors: ['#view-radar', '.view-
 const viewShare = element({ id: 'view-share', selectors: ['#view-share', '.view-section'] });
 const viewProfile = element({ id: 'view-profile', selectors: ['#view-profile', '.view-section'] });
 const viewPlaylistDetail = element({ id: 'view-playlist-detail', selectors: ['#view-playlist-detail', '.view-section'] });
+const viewHelp = element({ id: 'view-help', selectors: ['#view-help', '.view-section'] });
 
 const elementsById = new Map([
     ['view-manager', viewManager],
@@ -76,6 +77,7 @@ const elementsById = new Map([
     ['view-share', viewShare],
     ['view-profile', viewProfile],
     ['view-playlist-detail', viewPlaylistDetail],
+    ['view-help', viewHelp],
 ]);
 function getElementById(id) {
     if (!elementsById.has(id)) elementsById.set(id, element({ id, selectors: [`#${id}`] }));
@@ -143,7 +145,7 @@ const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 
 function activeViewId() {
-    const active = [viewManager, viewRadar, viewShare, viewProfile, viewPlaylistDetail]
+    const active = [viewManager, viewRadar, viewShare, viewProfile, viewPlaylistDetail, viewHelp]
         .find(view => view.classList.contains('active'));
     return active ? active.id : null;
 }
@@ -159,6 +161,12 @@ test('旧ハッシュ #/manager でも Manager が復元できる', () => {
     locationStub._hash = '#/manager';
     run('applyHashView()');
     assert.equal(activeViewId(), 'view-manager');
+});
+
+test('ヘルプ (#help) を開ける', () => {
+    locationStub._hash = '#help';
+    run('applyHashView()');
+    assert.equal(activeViewId(), 'view-help');
 });
 
 test('ロゴ (goToHome) で Radar から Manager + ホーム選択に戻る', async () => {

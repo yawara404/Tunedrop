@@ -208,7 +208,7 @@ function goToHome() {
 // ==========================================================
 // ルーティング (URLハッシュでブラウザ戻る/進むボタン対応)
 // ==========================================================
-const VIEW_FOR_HASH = { manager: 'manager', radar: 'radar', share: 'share', profile: 'profile', user: 'user-profile', playlist: 'playlist-detail' };
+const VIEW_FOR_HASH = { manager: 'manager', radar: 'radar', share: 'share', profile: 'profile', user: 'user-profile', help: 'help', playlist: 'playlist-detail' };
 
 function currentHashView() {
     const hash = (location.hash || '').replace(/^#\/?/, '');
