@@ -2808,6 +2808,34 @@ function openPlaylistDetail(playlistId, playlistName, coverId) {
     }
 }
 
+// プレイリスト詳細のメタ行: 「3曲 · 作成者名」。
+// 作成者名はクリック/Enter でそのユーザーのプロフィールへ移動する。
+function renderDetailMeta(trackCount, listData) {
+    const meta = document.getElementById('detail-meta');
+    if (!meta) return;
+    meta.textContent = `${trackCount} 曲`;
+    const authorName = (listData && (listData.author || listData.author_name)) || '';
+    const authorId = Number(listData && listData.user_id) || 0;
+    if (!authorName || authorId <= 0) return;
+    meta.appendChild(document.createTextNode(' · '));
+    const link = document.createElement('span');
+    link.className = 'detail-author-link';
+    link.textContent = authorName;
+    link.setAttribute('role', 'link');
+    link.setAttribute('tabindex', '0');
+    link.title = `${authorName}のプロフィールを開く`;
+    const open = (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        openUserProfile(authorId, authorName);
+    };
+    link.addEventListener('click', open);
+    link.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') open(e);
+    });
+    meta.appendChild(link);
+}
+
 // プレイリスト詳細の実データロード・表示
 async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     switchView('playlist-detail');
@@ -2833,48 +2861,55 @@ async function renderPlaylistDetail(playlistId, playlistName, coverId) {
             }
         }
     }
-    document.getElementById('detail-meta').innerText = `${tracks.length} 曲`;
-
-    const favBtn = document.getElementById('btn-fav-playlist');
-    if (favBtn) {
-        const favIcon = document.getElementById('btn-fav-playlist-icon');
-        let listData = allPlaylists.find(p => p.id === playlistId) || allRadarPlaylists.find(p => p.id === playlistId) || allRadarRecentPlaylists.find(p => p.id === playlistId) || sharePlaylists.find(p => p.id === playlistId);
-        if (!listData) {
+    // 詳細の元データ (タイトル・カバー・作成者・お気に入り) を1か所で解決する。
+    // 一覧で見つからない場合 (直リンク等) は公開リストから探す。
+    let listData = allPlaylists.find(p => p.id === playlistId)
+        || allRadarPlaylists.find(p => p.id === playlistId)
+        || allRadarRecentPlaylists.find(p => p.id === playlistId)
+        || sharePlaylists.find(p => p.id === playlistId);
+    if (!listData) {
+        try {
             const listsResponse = await tunedropFetch('api.php?action=get_public_playlists');
             const lists = await listsResponse.json();
-            listData = lists.find(p => p.id === playlistId);
+            listData = Array.isArray(lists) ? lists.find(p => p.id === playlistId) : null;
+        } catch (_) {
+            // 取得できないときは作成者名を出さずに曲数だけ表示する
         }
-        if (listData) {
-            document.getElementById('detail-title').textContent = listData.name;
-            if (listData.cover_id) {
-                coverEl.innerHTML = `<img src="https://img.youtube.com/vi/${encodeURIComponent(listData.cover_id)}/hqdefault.jpg" alt="プレイリストのカバー">`;
+    }
+    if (listData) {
+        document.getElementById('detail-title').textContent = listData.name;
+        if (listData.cover_id) {
+            coverEl.innerHTML = `<img src="https://img.youtube.com/vi/${encodeURIComponent(listData.cover_id)}/hqdefault.jpg" alt="プレイリストのカバー">`;
+        }
+    }
+    renderDetailMeta(tracks.length, listData);
+
+    const favBtn = document.getElementById('btn-fav-playlist');
+    if (favBtn && listData) {
+        const favIcon = document.getElementById('btn-fav-playlist-icon');
+        const favCount = document.getElementById('playlist-favorite-count');
+        const setFav = (isFav, count) => {
+            if (favIcon) { favIcon.textContent = 'favorite'; favIcon.classList.toggle('is-filled', isFav); favIcon.style.color = isFav ? 'var(--accent-color)' : '#fff'; }
+            favBtn.classList.toggle('is-fav', isFav);
+            const label = isFav ? 'お気に入り解除' : 'お気に入り追加';
+            favBtn.title = label;
+            favBtn.setAttribute('aria-label', label);
+            favBtn.setAttribute('aria-pressed', String(isFav));
+            // Shareカードのお気に入りボタンと同じく件数を併記する
+            if (favCount) favCount.textContent = shareFavCount({ favorite_count: count });
+        };
+        setFav(listData.is_favorite == 1, listData.favorite_count);
+        favBtn.onclick = async (e) => {
+            favBtn.disabled = true;
+            const result = await togglePlaylistFavorite(playlistId, e);
+            if (result?.success) {
+                listData.is_favorite = result.is_favorite;
+                listData.favorite_count = result.favorite_count;
+                setFav(listData.is_favorite == 1, listData.favorite_count);
             }
-        }
-        if (listData) {
-            const favCount = document.getElementById('playlist-favorite-count');
-            const setFav = (isFav, count) => {
-                if (favIcon) { favIcon.textContent = 'favorite'; favIcon.classList.toggle('is-filled', isFav); favIcon.style.color = isFav ? 'var(--accent-color)' : '#fff'; }
-                favBtn.classList.toggle('is-fav', isFav);
-                const label = isFav ? 'お気に入り解除' : 'お気に入り追加';
-                favBtn.title = label;
-                favBtn.setAttribute('aria-label', label);
-                favBtn.setAttribute('aria-pressed', String(isFav));
-                // Shareカードのお気に入りボタンと同じく件数を併記する
-                if (favCount) favCount.textContent = shareFavCount({ favorite_count: count });
-            };
-            setFav(listData.is_favorite == 1, listData.favorite_count);
-            favBtn.onclick = async (e) => {
-                favBtn.disabled = true;
-                const result = await togglePlaylistFavorite(playlistId, e);
-                if (result?.success) {
-                    listData.is_favorite = result.is_favorite;
-                    listData.favorite_count = result.favorite_count;
-                    setFav(listData.is_favorite == 1, listData.favorite_count);
-                }
-                favBtn.disabled = false;
-                closeTrackMenus();
-            };
-        }
+            favBtn.disabled = false;
+            closeTrackMenus();
+        };
     }
 
     const shareBtn = document.getElementById('btn-share');

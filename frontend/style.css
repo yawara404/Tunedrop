@@ -836,7 +836,8 @@ body.player-in-sidebar .youtube-popup.is-active {
     display: flex;
     gap: 12px;
     overflow-x: auto;
-    padding-bottom: 6px;
+    /* ホバーで浮き上がる (-2px) ぶんの余白。無いと overflow で上端が切れる */
+    padding: 4px 2px 6px;
     scroll-snap-type: x mandatory;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
@@ -873,6 +874,8 @@ body.player-in-sidebar .youtube-popup.is-active {
     transform: translateY(-2px);
     border-color: var(--accent-color);
     filter: brightness(1.08);
+    /* 浮いたカードが隣のカードに隠れないよう前面へ */
+    z-index: 2;
 }
 
 .share-recommend-card:focus-visible {
@@ -982,7 +985,8 @@ body.player-in-sidebar .youtube-popup.is-active {
     display: flex;
     gap: 10px;
     overflow-x: auto;
-    padding-bottom: 4px;
+    /* ホバーで浮き上がる (-2px) ぶんの余白。無いと overflow で上端が切れる */
+    padding: 4px 2px 4px;
     scroll-snap-type: x mandatory;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
@@ -1022,6 +1026,8 @@ body.player-in-sidebar .youtube-popup.is-active {
     transform: translateY(-2px);
     border-color: var(--accent-color);
     filter: brightness(1.08);
+    /* 浮いたカードが隣のカードに隠れないよう前面へ */
+    z-index: 2;
 }
 
 .podium-1 {
@@ -4039,6 +4045,26 @@ body.player-in-sidebar .youtube-popup.is-active {
 }
 
 .share-author-name.is-link:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* プレイリスト詳細の作成者名 (クリックでプロフィールへ) */
+.detail-author-link {
+    color: var(--accent-color);
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: rgba(212, 225, 87, 0.5);
+    text-underline-offset: 2px;
+}
+
+.detail-author-link:hover,
+.detail-author-link:focus-visible {
+    text-decoration-color: var(--accent-color);
+}
+
+.detail-author-link:focus-visible {
     outline: 2px solid var(--accent-color);
     outline-offset: 2px;
     border-radius: 4px;
