@@ -4374,3 +4374,36 @@ body.player-in-sidebar .youtube-popup.is-active {
         margin: 0 0 0 10px;
     }
 }
+
+/* ==========================================================
+   プロフィール / ヘルプ / ユーザープロフィールは .content-area を使わないため、
+   ビュー自身をスクロール領域にする (body と .app-container が overflow:hidden)
+   ========================================================== */
+#view-profile,
+#view-help,
+#view-user-profile {
+    display: none;
+    min-height: 0;
+}
+
+#view-profile.active,
+#view-help.active,
+#view-user-profile.active {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding-bottom: 140px;   /* 画面下の固定プレイヤーぶん */
+}
+
+/* 動画プレイヤー表示中はさらに余白を確保する (PC枠 355x200) */
+@media (min-width: 1025px) {
+    body:has(.youtube-popup.is-active) #view-help.active,
+    body:has(.youtube-popup.is-active) #view-user-profile.active {
+        padding-bottom: 300px;
+    }
+}
+
+/* 目次からジャンプしたとき固定ヘッダーに隠れないように */
+#view-help .help-section {
+    scroll-margin-top: 70px;
+}

@@ -251,17 +251,19 @@ function switchView(viewName) {
     // Radar画面では動画プレイヤーを左サイドバー上に固定配置する
     document.body.classList.toggle('player-in-sidebar', viewName === 'radar');
 
-    document.querySelectorAll('.top-nav nav button').forEach(btn => {
+    // ナビのアクティブ表示を一度すべて解除してから、対象だけ点灯する。
+    // (プロフィール / ヘルプは .user-menu 側にあるため、nav 内だけを対象にすると
+    //  一度点いた黄色が戻らなくなる)
+    document.querySelectorAll('.top-nav button').forEach(btn => {
         btn.classList.remove('active');
-        btn.style.color = "var(--text-sub)";
+        btn.style.color = '';
     });
 
-    const navBtn = document.getElementById(`nav-${viewName}`) || document.getElementById(`nav-${viewName === 'manager' ? 'manager' : viewName}`);
-    if (navBtn) navBtn.classList.add('active');
-    // 既存の className.active と btn 色のどちらも揃える
-    document.querySelectorAll('.top-nav nav button').forEach(btn => {
-        if (btn.id === `nav-${viewName}`) { btn.classList.add('active'); btn.style.color = "var(--accent-color)"; }
-    });
+    const navBtn = document.getElementById(`nav-${viewName}`);
+    if (navBtn) {
+        navBtn.classList.add('active');
+        navBtn.style.color = 'var(--accent-color)';
+    }
 
     // 画面遷移したらモバイルメニューは必ず閉じる
     closeMobileMenu();
@@ -3591,6 +3593,17 @@ function formatTime(seconds) {
     const sec = Math.floor(seconds % 60);
     return `${min}:${sec.toString().padStart(2, '0')}`;
 }
+
+// ヘルプの目次: ハッシュを変えずにその場でスクロールする。
+// href="#help-..." を素通しすると、ルーターが未知のハッシュを Manager と解釈して
+// 別画面へ飛んでしまう。
+document.addEventListener('click', (event) => {
+    const link = event.target.closest('.help-toc a[href^="#"]');
+    if (!link) return;
+    event.preventDefault();
+    const target = document.getElementById(link.getAttribute('href').slice(1));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 
 // ==========================================================
 // 更新通知

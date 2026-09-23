@@ -70,6 +70,10 @@ const viewShare = element({ id: 'view-share', selectors: ['#view-share', '.view-
 const viewProfile = element({ id: 'view-profile', selectors: ['#view-profile', '.view-section'] });
 const viewPlaylistDetail = element({ id: 'view-playlist-detail', selectors: ['#view-playlist-detail', '.view-section'] });
 const viewHelp = element({ id: 'view-help', selectors: ['#view-help', '.view-section'] });
+// ナビのボタン (点灯/消灯の検証用)。.top-nav button として querySelectorAll に拾わせる
+const navManagerBtn = element({ id: 'nav-manager', selectors: ['#nav-manager', '.top-nav button'] });
+const navProfileBtn = element({ id: 'nav-profile', selectors: ['#nav-profile', '.top-nav button'] });
+const navHelpBtn = element({ id: 'nav-help', selectors: ['#nav-help', '.top-nav button'] });
 
 const elementsById = new Map([
     ['view-manager', viewManager],
@@ -78,6 +82,9 @@ const elementsById = new Map([
     ['view-profile', viewProfile],
     ['view-playlist-detail', viewPlaylistDetail],
     ['view-help', viewHelp],
+    ['nav-manager', navManagerBtn],
+    ['nav-profile', navProfileBtn],
+    ['nav-help', navHelpBtn],
 ]);
 function getElementById(id) {
     if (!elementsById.has(id)) elementsById.set(id, element({ id, selectors: [`#${id}`] }));
@@ -167,6 +174,24 @@ test('ヘルプ (#help) を開ける', () => {
     locationStub._hash = '#help';
     run('applyHashView()');
     assert.equal(activeViewId(), 'view-help');
+});
+
+test('ユーザーメニューのナビ点灯は他画面へ移ると解除される', () => {
+    run(`navigateView('profile')`);
+    run('applyHashView()');
+    assert.equal(navProfileBtn.classList.contains('active'), true, 'プロフィール表示中は点灯');
+    assert.equal(navHelpBtn.classList.contains('active'), false, 'ヘルプは消灯');
+
+    run(`navigateView('manager')`);
+    run('applyHashView()');
+    assert.equal(navProfileBtn.classList.contains('active'), false, 'マネージャーへ移ると消灯');
+    assert.equal(navProfileBtn.style.color, '', 'インラインの色指定も戻る');
+    assert.equal(navManagerBtn.classList.contains('active'), true, 'マネージャーが点灯');
+
+    run(`navigateView('help')`);
+    run('applyHashView()');
+    assert.equal(navHelpBtn.classList.contains('active'), true, 'ヘルプ表示中は点灯');
+    assert.equal(navProfileBtn.classList.contains('active'), false, 'プロフィールは消灯');
 });
 
 test('ロゴ (goToHome) で Radar から Manager + ホーム選択に戻る', async () => {
