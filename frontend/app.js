@@ -1339,7 +1339,15 @@ function sortByMode(items, mode, dateKey, nameKey) {
             return arr.sort((a, b) => (a[nameKey] || '').localeCompare(b[nameKey] || '', 'ja'));
         case 'custom':
         default:
-            return arr.sort((a, b) => ((a.sort_order ?? 0) - (b.sort_order ?? 0)) || ((a.id ?? 0) - (b.id ?? 0)));
+            // 固定タブ (未整理 / 公開用お気に入り) を常に先頭2件にし、その後にユーザー作成リストを
+            // sort_order → id で並べる (サーバーの get_playlists と同じ規則)。
+            return arr.sort((a, b) => {
+                const aSystem = isSystemPlaylist(a);
+                const bSystem = isSystemPlaylist(b);
+                if (aSystem && bSystem) return compareSystemPlaylists(a, b);
+                if (aSystem !== bSystem) return aSystem ? -1 : 1;
+                return ((a.sort_order ?? 0) - (b.sort_order ?? 0)) || ((a.id ?? 0) - (b.id ?? 0));
+            });
     }
 }
 

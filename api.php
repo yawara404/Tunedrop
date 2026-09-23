@@ -430,11 +430,22 @@ function toggle_public_favorite(PDO $db, int $user_id, string $kind, int $id): i
  * SQL は `sort_order = ?` / `id = ?` / `user_id = ?` の順でプレースホルダを持つ前提で、
  * 他人のリストや固定タブは SQL 側の WHERE 句で除外される。
  */
-function save_sort_order(PDO $db, string $sql, $ordered_ids, int $user_id): void {
+function save_sort_order(PDO $db, string $sql, $ordered_ids, int $user_id, int $offset = 0): void {
     $stmt = $db->prepare($sql);
     foreach (array_values(array_filter(array_map('intval', (array)$ordered_ids))) as $position => $id) {
-        $stmt->execute([$position, $id, $user_id]);
+        $stmt->execute([$position + $offset, $id, $user_id]);
     }
+}
+
+/**
+ * 固定タブ (未整理 / 公開用お気に入り) が占める先頭の枠数。
+ * ユーザー作成リストの sort_order をこの数だけずらして保存し、
+ * 固定タブの 0,1 と衝突しないようにする。
+ */
+function system_playlist_offset(PDO $db, int $user_id): int {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM playlists WHERE user_id = ? AND system_key IS NOT NULL");
+    $stmt->execute([$user_id]);
+    return (int)$stmt->fetchColumn();
 }
 
 /**
@@ -580,7 +591,11 @@ try {
             $stmt = $db->prepare("SELECT p.*,
                     ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
                      + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
-                FROM playlists p WHERE p.user_id = ? OR (p.system_key IS NULL AND p.is_public=1 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id)) ORDER BY p.sort_order ASC, p.id ASC");
+                FROM playlists p WHERE p.user_id = ? OR (p.system_key IS NULL AND p.is_public=1 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id))
+                -- 固定タブ (未整理 / 公開用お気に入り) を必ず先頭2件にし、その後にユーザー作成リストを並べる。
+                -- sort_order だけで並べると、ユーザーリストの 0,1,2... と固定タブの 0,1 が衝突して
+                -- 固定タブが1・2番目から外れる (画面上でリストが入れ替わって見える)。
+                ORDER BY (p.system_key IS NULL) ASC, p.sort_order ASC, p.id ASC");
             $stmt->execute([$user_id, $user_id]);
             $playlists = with_default_playlist_covers($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
             // 固定タブ (未整理 / 公開用お気に入り) にはフロント制御用のフラグを付ける
@@ -597,8 +612,12 @@ try {
                 $name = $input['name'];
                 $category = !empty($input['category']) ? $input['category'] : 'Other';
                 $is_public = isset($input['is_public']) ? (int)$input['is_public'] : 0;
-                $stmt = $db->prepare("INSERT INTO playlists (user_id, name, category, is_public) VALUES (?, ?, ?, ?)");
-                $stmt->execute([$user_id, $name, $category, $is_public]);
+                // 新規リストは末尾に置く (全リストが 0 だと並び替え前の順序が id 依存になる)
+                $next = $db->prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM playlists WHERE user_id = ?");
+                $next->execute([$user_id]);
+                $sort_order = (int)$next->fetchColumn();
+                $stmt = $db->prepare("INSERT INTO playlists (user_id, name, category, is_public, sort_order) VALUES (?, ?, ?, ?, ?)");
+                $stmt->execute([$user_id, $name, $category, $is_public, $sort_order]);
                 echo json_encode(['success' => true, 'id' => (int)$db->lastInsertId()]);
             } else {
                 echo json_encode(['success' => false, 'error' => 'プレイリスト名を入力してください']);
@@ -1115,10 +1134,12 @@ try {
         // ==========================================
         case 'reorder_playlists':
             if ($method === 'POST' && isset($input['ordered_ids']) && is_array($input['ordered_ids'])) {
-                // 固定タブ (未整理 / 公開用お気に入り) は並び替え対象外 (サイドバーで常に先頭固定)
+                // 固定タブ (未整理 / 公開用お気に入り) は並び替え対象外 (サイドバーで常に先頭固定)。
+                // 先頭の固定タブぶんだけ番号をずらし、固定タブの sort_order と衝突させない。
+                $user_id = require_user_or_guest($db);
                 save_sort_order($db,
                     "UPDATE playlists SET sort_order = ? WHERE id = ? AND user_id = ? AND system_key IS NULL",
-                    $input['ordered_ids'], require_user_or_guest($db));
+                    $input['ordered_ids'], $user_id, system_playlist_offset($db, $user_id));
                 echo json_encode(['success' => true]);
             } else {
                 echo json_encode(['success' => false, 'error' => 'Invalid input']);
