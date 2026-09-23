@@ -2754,17 +2754,22 @@ async function renderPlaylistDetail(playlistId, playlistName, coverId) {
             }
         }
         if (listData) {
-            const setFav = (isFav) => {
+            const favCount = document.getElementById('playlist-favorite-count');
+            const setFav = (isFav, count) => {
                 if (favIcon) { favIcon.textContent = 'favorite'; favIcon.classList.toggle('is-filled', isFav); favIcon.style.color = isFav ? 'var(--accent-color)' : '#fff'; }
+                favBtn.classList.toggle('is-fav', isFav);
                 document.getElementById('playlist-favorite-label').textContent = isFav ? 'お気に入り解除' : 'お気に入り追加';
+                // Shareカードのお気に入りボタンと同じく件数を併記する
+                if (favCount) favCount.textContent = shareFavCount({ favorite_count: count });
             };
-            setFav(listData.is_favorite == 1);
+            setFav(listData.is_favorite == 1, listData.favorite_count);
             favBtn.onclick = async (e) => {
                 favBtn.disabled = true;
                 const result = await togglePlaylistFavorite(playlistId, e);
                 if (result?.success) {
                     listData.is_favorite = result.is_favorite;
-                    setFav(listData.is_favorite == 1);
+                    listData.favorite_count = result.favorite_count;
+                    setFav(listData.is_favorite == 1, listData.favorite_count);
                 }
                 favBtn.disabled = false;
                 closeTrackMenus();

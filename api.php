@@ -536,7 +536,10 @@ try {
             $user_id = require_user_or_guest($db);
             // 全ユーザー共通の固定タブ (未整理 / 公開用お気に入り) を必ず用意する
             ensure_system_playlists($db, $user_id);
-            $stmt = $db->prepare("SELECT p.* FROM playlists p WHERE p.user_id = ? OR (p.system_key IS NULL AND p.is_public=1 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id)) ORDER BY p.sort_order ASC, p.id ASC");
+            $stmt = $db->prepare("SELECT p.*,
+                    ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
+                     + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
+                FROM playlists p WHERE p.user_id = ? OR (p.system_key IS NULL AND p.is_public=1 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id)) ORDER BY p.sort_order ASC, p.id ASC");
             $stmt->execute([$user_id, $user_id]);
             $playlists = with_default_playlist_covers($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
             // 固定タブ (未整理 / 公開用お気に入り) にはフロント制御用のフラグを付ける

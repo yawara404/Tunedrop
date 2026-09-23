@@ -3568,6 +3568,26 @@ body.player-in-sidebar .youtube-popup.is-active {
     min-height: 44px;
 }
 
+/* プレイリスト詳細のお気に入り件数 (Shareカードのお気に入りバッジと同じ見た目) */
+.detail-fav-count {
+    margin-left: auto;
+    min-width: 1.6em;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    font-size: 12px;
+    font-weight: 800;
+    text-align: center;
+    color: var(--text-main);
+}
+
+#btn-fav-playlist.is-fav .detail-fav-count {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #000;
+}
+
 .detail-info {
     min-width: 0;
 }
@@ -3931,5 +3951,20 @@ body.player-in-sidebar .youtube-popup.is-active {
 
     body:has(.youtube-popup.is-active) .profile-container {
         padding-bottom: 272px;
+    }
+}
+/* ==========================================================
+   極小画面 (Galaxy Fold 閉じ 280px 等) 向け: プレイリスト詳細
+   ----------------------------------------------------------
+   600px 以下の共通ルールより後に置くこと (同詳細度のため上書きされる)。
+   ========================================================== */
+@media (max-width: 380px) {
+    /* 「すべて再生」の文言を折り返さず、収まらない分は行を折り返す */
+    #view-playlist-detail .detail-actions-row {
+        flex-wrap: wrap;
+    }
+
+    #view-playlist-detail .btn-play-all {
+        white-space: nowrap;
     }
 }
