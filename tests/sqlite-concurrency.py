@@ -14,6 +14,7 @@
 """
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -21,7 +22,10 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = 1
+# api.php の TUNEDROP_SCHEMA_VERSION と同期させる (ベタ書きだと更新時にずれる)
+SCHEMA_VERSION = int(re.search(
+    r'const TUNEDROP_SCHEMA_VERSION\s*=\s*(\d+)',
+    (ROOT / 'api.php').read_text(encoding='utf-8')).group(1))
 BUSY_TIMEOUT_WAIT = 5      # api.php の TUNEDROP_BUSY_TIMEOUT_MS と合わせる
 MAX_ACCEPTABLE_SECONDS = 15  # FastCGI idle timeout (30秒) より十分短いこと
 

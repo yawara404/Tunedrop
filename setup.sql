@@ -103,3 +103,10 @@ VALUES (1, 2, 'uSijY6BEMRE', 'Yellow', 'kz (livetune)');
 
 INSERT OR IGNORE INTO bookmarks (id, playlist_id, youtube_id, title, channel)
 VALUES (2, 2, 'bPI0_YzOiEw', 'i wanna be your world', 'kz (livetune)');
+
+-- サイト設定 (推薦の重みなど)。admin.php から編集する。
+CREATE TABLE IF NOT EXISTS site_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

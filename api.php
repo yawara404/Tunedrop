@@ -168,7 +168,7 @@ const TUNEDROP_SYSTEM_PLAYLISTS = [
  * テーブル作成・列追加・重複整理 (書き込み) を実行する。
  * 列や索引を追加したときはここを +1 する。
  */
-const TUNEDROP_SCHEMA_VERSION = 1;
+const TUNEDROP_SCHEMA_VERSION = 2;
 
 /** SQLite のロック待ち時間 (ミリ秒)。FastCGI の idle timeout (30秒) より十分短くする。 */
 const TUNEDROP_BUSY_TIMEOUT_MS = 5000;
@@ -496,6 +496,13 @@ function ensure_schema(PDO $db): void {
         updated_at INTEGER NOT NULL
     )");
 
+    // サイト設定 (推薦の重みなど)。admin.php から編集する。
+    $db->exec("CREATE TABLE IF NOT EXISTS site_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+
     $columns_pl = $db->query("PRAGMA table_info(playlists)")->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('is_favorite', $columns_pl)) {
         $db->exec("ALTER TABLE playlists ADD COLUMN is_favorite INTEGER DEFAULT 0");
@@ -515,6 +522,40 @@ function ensure_schema(PDO $db): void {
     // 固定タブの印付け・古い重複行の掃除は、直すべき行があるときだけ書き込む
     // migrate_* 側で毎リクエスト確認する (ここでは呼ばない)。
     $db->exec("PRAGMA user_version = " . TUNEDROP_SCHEMA_VERSION);
+}
+
+/* ==========================================================
+   推薦設定 (「あなたへのおすすめ」の重み)
+   ----------------------------------------------------------
+   既定値はここに置き、admin.php が site_settings テーブルへ
+   'recommend.<name>' として保存した値で上書きする。
+   ========================================================== */
+const RECOMMEND_DEFAULT_SETTINGS = [
+    'limit' => 6,              // 表示件数
+    'common_weight' => 20,     // 視聴者の保存曲と共通する曲1曲あたり
+    'category_weight' => 8,    // 視聴者のよく使うカテゴリと一致
+    'favorite_weight' => 1,    // お気に入り数1件あたり
+    'track_weight' => 0.05,    // 収録曲数1曲あたり
+    'own_penalty' => 1000,     // 自分の公開リストを後回しにする強さ
+    'faved_penalty' => 500,    // すでにお気に入り済みを後回しにする強さ
+];
+
+/** 推薦設定を既定値へ site_settings の保存値を重ねて返す。 */
+function recommend_settings(PDO $db): array {
+    $settings = RECOMMEND_DEFAULT_SETTINGS;
+    try {
+        $rows = $db->query("SELECT key, value FROM site_settings WHERE key LIKE 'recommend.%'")
+            ->fetchAll(PDO::FETCH_KEY_PAIR);
+    } catch (Throwable $error) {
+        return $settings;
+    }
+    foreach ($rows as $key => $value) {
+        $name = substr((string)$key, strlen('recommend.'));
+        if (array_key_exists($name, $settings) && is_numeric($value)) {
+            $settings[$name] = 0 + $value;
+        }
+    }
+    return $settings;
 }
 
 try {
@@ -960,7 +1001,8 @@ try {
             // - お気に入り数は人気ブーストとして少量加点
             // - 自分の公開リスト・すでにお気に入り済みは後回し (除外はしない)
             $viewer = require_user_or_guest($db);
-            $limit = max(1, min(12, (int)($_GET['limit'] ?? 6)));
+            $settings = recommend_settings($db);   // admin.php で編集した重み
+            $limit = max(1, min(12, (int)($_GET['limit'] ?? $settings['limit'])));
             $my_youtube_ids = $db->prepare(
                 "SELECT DISTINCT b.youtube_id FROM bookmarks b
                  JOIN playlists p ON p.id = b.playlist_id
@@ -1008,11 +1050,13 @@ try {
                 $cat_bonus = in_array($pl['category'] ?? '', $top_cats, true) ? 1 : 0;
                 $is_own = ((int)$pl['user_id'] === $viewer);
                 $is_faved = isset($own_fav_ids[(int)$pl['id']]);
-                $score = $common * 20 + ($cat_bonus ? 8 : 0)
-                    + (int)$pl['favorite_count'] * 1.0 + (int)$pl['track_count'] * 0.05
+                $score = $common * $settings['common_weight']
+                    + ($cat_bonus ? $settings['category_weight'] : 0)
+                    + (int)$pl['favorite_count'] * $settings['favorite_weight']
+                    + (int)$pl['track_count'] * $settings['track_weight']
                     + ((int)$pl['id'] % 100) * 0.001;
-                if ($is_own) $score -= 1000;
-                if ($is_faved) $score -= 500;
+                if ($is_own) $score -= $settings['own_penalty'];
+                if ($is_faved) $score -= $settings['faved_penalty'];
                 if ($common > 0) {
                     $reason = "保存曲{$common}曲と共通";
                 } elseif ($cat_bonus && !empty($pl['category'])) {
