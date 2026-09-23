@@ -102,6 +102,17 @@ async function cdpVersion() {
         await sleep(100);
     }
 
+    // ヘッダーの余白 (ロゴとユーザーメニューの間) の x 座標。
+    // 固定値だとヘルプ等のボタン追加で「余白」がボタンに変わり、
+    // タップが画面遷移になってしまうため、実際の隙間の中央を求める。
+    async function headerBlankX() {
+        return evaluate(`(() => {
+            const logo = document.querySelector('.top-nav .logo').getBoundingClientRect();
+            const menu = document.querySelector('.top-nav .user-menu').getBoundingClientRect();
+            return Math.round((logo.right + menu.left) / 2);
+        })()`);
+    }
+
     const state = () => evaluate(`({
         open: document.body.classList.contains('mobile-menu-open'),
         nav: document.querySelector('.top-nav nav').classList.contains('show-mobile'),
@@ -128,7 +139,7 @@ async function cdpVersion() {
     check('開いたとき aria-expanded=true', s.aria === 'true', String(s.aria));
 
     // 2) ヘッダー余白 (メニュー外) の実タップで閉じる
-    await clickPoint(220, 26);
+    await clickPoint(await headerBlankX(), 26);
     s = await state();
     check('ヘッダー余白のタップで閉じる', !s.open && !s.nav && !s.sidebar, JSON.stringify(s));
     check('閉じたとき aria-expanded=false', s.aria === 'false', String(s.aria));
@@ -224,7 +235,7 @@ async function cdpVersion() {
     const radarState = await state();
     check('Radar 画面でハンバーガーからドロワーが開く',
         radarState.open && radarState.radarSidebar, JSON.stringify(radarState));
-    await clickPoint(220, 26);   // ヘッダー余白の実タップ
+    await clickPoint(await headerBlankX(), 26);   // ヘッダー余白の実タップ
     s = await state();
     check('Radar 画面でも他の操作で閉じる', !s.open && !s.radarSidebar, JSON.stringify(s));
 
