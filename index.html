@@ -15,7 +15,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=add,arrow_back,close,delete,description,drag_indicator,drive_file_move,edit,favorite,heart_broken,home,library_music,lock,menu,more_vert,music_note,person,play_arrow,public,radar,share,skip_next,skip_previous&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="frontend/style.css?v=order-1">
+    <link rel="stylesheet" href="frontend/style.css?v=uprof-1">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
@@ -293,6 +293,37 @@
                 </div>
             </div>
         </div>
+
+        <div id="view-user-profile" class="view-section">
+            <div class="profile-container">
+                <button type="button" class="action-pill secondary user-profile-back" onclick="backFromUserProfile()">
+                    <span class="material-symbols-rounded">arrow_back</span> 戻る
+                </button>
+                <div class="profile-header">
+                    <div class="avatar" id="user-profile-avatar">U</div>
+                    <div class="profile-info">
+                        <h2 id="user-profile-name">User</h2>
+                        <p id="user-profile-meta">プロフィールを読み込み中…</p>
+                    </div>
+                </div>
+                <div class="profile-stats">
+                    <div class="stat-box">
+                        <h3 id="user-profile-public-count">—</h3>
+                        <p>公開リスト</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3 id="user-profile-track-count">—</h3>
+                        <p>公開曲</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3 id="user-profile-favorite-count">—</h3>
+                        <p>お気に入り</p>
+                    </div>
+                </div>
+                <h3 class="user-profile-section-title" id="user-profile-lists-title">Shareで公開中のプレイリスト</h3>
+                <div class="grid-container share-grid" id="user-profile-grid"></div>
+            </div>
+        </div>
     </main>
 
     <div class="youtube-popup" id="youtube-popup">
@@ -485,7 +516,7 @@
     </div>
 
     <script src="frontend/config.js"></script>
-    <script src="frontend/app.js?v=order-1"></script>
+    <script src="frontend/app.js?v=uprof-2"></script>
 </body>
 
 </html>

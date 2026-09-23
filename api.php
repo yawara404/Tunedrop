@@ -997,6 +997,51 @@ try {
             echo json_encode($playlists, JSON_UNESCAPED_UNICODE);
             break;
 
+        case 'get_user_profile': {
+            // 他ユーザーのプロフィール (Shareの作成者名から開く)。
+            // 公開情報のみ返し、非公開リストや固定タブは含めない。
+            $target = (int)($_GET['user_id'] ?? 0);
+            if ($target <= 0) {
+                echo json_encode(['error' => 'ユーザーが指定されていません。'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            $user_stmt = $db->prepare("SELECT id, COALESCE(display_name, username) AS name, created_at FROM users WHERE id = ?");
+            $user_stmt->execute([$target]);
+            $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$user) {
+                echo json_encode(['error' => 'ユーザーが見つかりません。'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            $lists = $db->prepare(
+                "SELECT p.*, COALESCE(u.display_name, u.username) AS author, COALESCE(u.display_name, u.username) AS author_name,
+                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
+                        ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
+                         + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
+                 FROM playlists p JOIN users u ON u.id = p.user_id
+                 WHERE p.user_id = ? AND p.is_public = 1 AND p.system_key IS NULL
+                 ORDER BY p.created_at DESC, p.id DESC"
+            );
+            $lists->execute([$target]);
+            $playlists = with_default_playlist_covers($db, $lists->fetchAll(PDO::FETCH_ASSOC));
+            $tracks_stmt = $db->prepare("SELECT COUNT(*) FROM bookmarks b JOIN playlists p ON p.id = b.playlist_id
+                WHERE p.user_id = ? AND p.is_public = 1 AND p.system_key IS NULL");
+            $tracks_stmt->execute([$target]);
+            echo json_encode([
+                'user' => [
+                    'id' => (int)$user['id'],
+                    'name' => $user['name'],
+                    'created_at' => $user['created_at'],
+                    'stats' => [
+                        'public_playlists' => count($playlists),
+                        'public_tracks' => (int)$tracks_stmt->fetchColumn(),
+                        'favorites' => array_sum(array_map(fn($p) => (int)$p['favorite_count'], $playlists)),
+                    ],
+                ],
+                'playlists' => $playlists,
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
         case 'get_recent_playlists':
             // 共有一覧と同じく固定タブ (未整理 / 公開用お気に入り) は除外する
             $stmt = $db->query(

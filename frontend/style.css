@@ -4007,3 +4007,39 @@ body.player-in-sidebar .youtube-popup.is-active {
         white-space: nowrap;
     }
 }
+
+/* ==========================================================
+   他ユーザーのプロフィール (Shareの作成者名から開く)
+   ========================================================== */
+.user-profile-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 14px;
+}
+
+.user-profile-section-title {
+    font-size: 16px;
+    font-weight: 800;
+    margin: 24px 0 12px;
+}
+
+/* 作成者名はプロフィールへのリンクとして見せる */
+.share-author-name.is-link {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: rgba(212, 225, 87, 0.5);
+    text-underline-offset: 2px;
+}
+
+.share-author-name.is-link:hover,
+.share-author-name.is-link:focus-visible {
+    color: var(--accent-color);
+    text-decoration-color: var(--accent-color);
+}
+
+.share-author-name.is-link:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+    border-radius: 4px;
+}

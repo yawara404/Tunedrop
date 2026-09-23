@@ -208,7 +208,7 @@ function goToHome() {
 // ==========================================================
 // ルーティング (URLハッシュでブラウザ戻る/進むボタン対応)
 // ==========================================================
-const VIEW_FOR_HASH = { manager: 'manager', radar: 'radar', share: 'share', profile: 'profile', playlist: 'playlist-detail' };
+const VIEW_FOR_HASH = { manager: 'manager', radar: 'radar', share: 'share', profile: 'profile', user: 'user-profile', playlist: 'playlist-detail' };
 
 function currentHashView() {
     const hash = (location.hash || '').replace(/^#\/?/, '');
@@ -220,7 +220,7 @@ function currentHashView() {
 
 // ビューをURLに記録しつつ遷移する (戻る履歴へ積む)
 function navigateView(viewName, id) {
-    let hashPath = viewName === 'playlist-detail' ? 'playlist' : viewName;
+    let hashPath = viewName === 'playlist-detail' ? 'playlist' : (viewName === 'user-profile' ? 'user' : viewName);
     if (id) hashPath += '/' + id;
     if (('#' + hashPath) !== location.hash) {
         location.hash = hashPath;
@@ -236,6 +236,8 @@ function applyHashView() {
     if (view === 'playlist-detail' && id) {
         // 詳細は実データロード (履歴復元のためハッシュ更新しない)
         renderPlaylistDetail(parseInt(id, 10), '', '');
+    } else if (view === 'user-profile' && id) {
+        renderUserProfile(parseInt(id, 10));
     } else {
         switchView(view);
     }
@@ -350,6 +352,93 @@ async function loadProfile() {
         status.textContent = '';
     } catch (error) { status.textContent = error.message; }
     finally { button.disabled = false; }
+}
+
+// ==========================================================
+// 他ユーザーのプロフィール (Shareの作成者名から開く)
+// ==========================================================
+let pendingUserProfile = { name: '' };
+
+function openUserProfile(userId, name) {
+    const id = Number(userId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    pendingUserProfile = { name: name || '' };
+    navigateView('user-profile', id);
+    if (('#' + 'user/' + id) === location.hash) renderUserProfile(id);
+}
+
+// 戻る: 直前の画面へ (履歴が無ければ Share へ)
+function backFromUserProfile() {
+    if (history.length > 1) history.back();
+    else navigateView('share');
+}
+
+/** 公開リストのカードを組み立てる (Share画面と同じ見た目)。 */
+function renderUserProfileCards(playlists) {
+    const grid = document.getElementById('user-profile-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!playlists || playlists.length === 0) {
+        grid.innerHTML = '<div class="share-empty"><span class="material-symbols-rounded share-empty-icon">public</span><p>まだ公開されたプレイリストがありません。</p></div>';
+        return;
+    }
+    playlists.forEach(list => {
+        const card = document.createElement('div');
+        card.className = 'card share-card';
+        card.onclick = () => openPlaylistDetail(list.id, list.name, list.cover_id);
+        const coverHtml = list.cover_id
+            ? `<img src="https://img.youtube.com/vi/${list.cover_id}/hqdefault.jpg" alt="cover" loading="lazy">`
+            : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="font-size:40px; color:var(--text-sub);">music_note</span></div>`;
+        const catBadge = list.category ? `<span class="cat-badge share-cat-badge">${escapeHtml(list.category)}</span>` : '';
+        card.innerHTML = `
+            <div class="card-img-wrapper">${coverHtml}<div class="card-hover-play"></div>${catBadge}</div>
+            <div class="info">
+                <div class="title">${escapeHtml(list.name || '')}</div>
+                <div class="artist"><span class="material-symbols-rounded share-author-icon">music_note</span><span class="share-author-name">${shareTrackCount(list)}曲</span></div>
+                <div class="share-card-stats"><span class="material-symbols-rounded share-meta-icon">favorite</span>${shareFavCount(list)}</div>
+            </div>`;
+        grid.appendChild(card);
+    });
+}
+
+/** 他ユーザーのプロフィールを読み込んで表示する。 */
+async function renderUserProfile(userId) {
+    switchView('user-profile');
+    const id = Number(userId);
+    const nameEl = document.getElementById('user-profile-name');
+    const metaEl = document.getElementById('user-profile-meta');
+    const avatarEl = document.getElementById('user-profile-avatar');
+    const grid = document.getElementById('user-profile-grid');
+    const titleEl = document.getElementById('user-profile-lists-title');
+    if (pendingUserProfile.name && nameEl) nameEl.textContent = pendingUserProfile.name;
+    if (metaEl) metaEl.textContent = '読み込み中…';
+    if (avatarEl && pendingUserProfile.name) avatarEl.textContent = pendingUserProfile.name.slice(0, 1).toUpperCase();
+    if (grid) grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>プロフィールを読み込んでいます…</div>';
+    for (const elId of ['user-profile-public-count', 'user-profile-track-count', 'user-profile-favorite-count']) {
+        document.getElementById(elId).textContent = '—';
+    }
+    try {
+        const res = await tunedropFetch(`api.php?action=get_user_profile&user_id=${id}`);
+        const data = await res.json();
+        if (!res.ok || !data.user) throw new Error(data.error || 'プロフィールを取得できませんでした。');
+        const user = data.user;
+        const name = user.name || '';
+        if (nameEl) nameEl.textContent = name;
+        if (avatarEl) avatarEl.textContent = name.slice(0, 1).toUpperCase() || 'U';
+        if (metaEl) {
+            const joined = user.created_at ? String(user.created_at).slice(0, 10) : '';
+            metaEl.textContent = joined ? `${joined} から利用` : 'Tune drop ユーザー';
+        }
+        const stats = user.stats || {};
+        document.getElementById('user-profile-public-count').textContent = stats.public_playlists ?? 0;
+        document.getElementById('user-profile-track-count').textContent = stats.public_tracks ?? 0;
+        document.getElementById('user-profile-favorite-count').textContent = stats.favorites ?? 0;
+        if (titleEl) titleEl.textContent = `${name} がShareで公開中のプレイリスト`;
+        renderUserProfileCards(data.playlists);
+    } catch (error) {
+        if (metaEl) metaEl.textContent = error.message;
+        if (grid) grid.innerHTML = '<div class="share-empty"><p>プロフィールを読み込めませんでした。</p></div>';
+    }
 }
 
 async function saveProfile(event) {
@@ -3129,11 +3218,25 @@ function renderSharePlaylists() {
             </div>
             <div class="info">
                 <div class="title" title="${escapeHtml(list.name)}">${escapeHtml(list.name)}</div>
-                <div class="artist"><span class="material-symbols-rounded share-author-icon">person</span><span class="share-author-name">${authorName}</span></div>
+                <div class="artist"><span class="material-symbols-rounded share-author-icon">person</span><span class="share-author-name" role="link" tabindex="0" title="${escapeHtml(authorName)}のプロフィールを開く" data-author-id="${Number(list.user_id) || 0}">${authorName}</span></div>
                 <div class="share-card-stats"><span class="material-symbols-rounded share-meta-icon">music_note</span>${trackCount}曲<span class="share-card-stats-dot">·</span><span class="material-symbols-rounded share-meta-icon">favorite</span>${favs}</div>
             </div>
         `;
         card.querySelector('.share-fav-btn')?.addEventListener('click', (e) => toggleShareFavorite(list.id, e));
+        // 作成者名からその人のプロフィール (公開リスト一覧) を開く
+        const authorEl = card.querySelector('.share-author-name');
+        if (authorEl && Number(authorEl.dataset.authorId) > 0) {
+            authorEl.classList.add('is-link');
+            const open = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                openUserProfile(Number(authorEl.dataset.authorId), authorEl.textContent.trim());
+            };
+            authorEl.addEventListener('click', open);
+            authorEl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') open(e);
+            });
+        }
         grid.appendChild(card);
     });
 }
@@ -3481,15 +3584,10 @@ document.addEventListener("DOMContentLoaded", () => {
     window.addEventListener('hashchange', applyHashView);
     window.addEventListener('popstate', applyHashView);
 
-    // 初期表示 (ハッシュがあればそれを復元、なければ manager)
-    const { view, id } = currentHashView();
-    if (view === 'playlist-detail' && id) {
-        renderPlaylistDetail(parseInt(id, 10), '', '');
-    } else {
-        switchView(view);
-        // ハッシュが無い場合は URL を揃える (履歴置換)
-        if (!location.hash) history.replaceState(null, '', '#/manager');
-    }
+    // 初期表示 (ハッシュがあればそれを復元、なければ manager)。
+    // 分岐を二重に持つと片方だけ直して不整合になるため applyHashView に一本化する。
+    applyHashView();
+    if (!location.hash) history.replaceState(null, '', '#/manager');
 });
 
 // ===== text-marquee (旧 frontend/text-marquee.js を統合: 長文の自動スクロール) =====
