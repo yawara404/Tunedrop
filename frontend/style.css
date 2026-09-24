@@ -3134,8 +3134,11 @@ body.player-in-sidebar .youtube-popup.is-active {
         justify-content: center;
     }
 
-    /* 一覧見出しの全幅バー: モバイルの内容余白に合わせる */
+    /* 一覧見出しの全幅バー: モバイルの内容余白に合わせる。
+       小さい画面ではスクロールで画面上部に貼り付くとリストに被って
+       見づらいため、通常フローに戻して内容と一緒にスクロールさせる。 */
     .share-grid-header {
+        position: static;
         margin: 0 -12px 12px;
         padding: 10px 14px 8px;
     }
