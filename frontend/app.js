@@ -2948,6 +2948,21 @@ function renderDetailMeta(trackCount, listData) {
 }
 
 // プレイリスト詳細の実データロード・表示
+// ----------------------------------------------------------
+// 共有URLは OGP カードを返す ogp.php を使う。
+// SPA のハッシュURL (#/playlist/12) は SNS のクローラーに中身が見えず、
+// 共有してもカードが出ないため。
+// ----------------------------------------------------------
+function playlistShareUrl(playlistId) {
+    try {
+        const url = new URL('ogp.php', window.location.href);
+        url.searchParams.set('playlist', playlistId);
+        return url.href;
+    } catch (_) {
+        return window.location.href;
+    }
+}
+
 async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     switchView('playlist-detail');
     // 直前に開いた別リストの名前を持ち越さない (IDが一致するときだけ使う)
@@ -3043,16 +3058,22 @@ async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     const shareBtn = document.getElementById('btn-share');
     if (shareBtn) {
         shareBtn.onclick = async () => {
+            const listName = document.getElementById('detail-title').textContent;
+            // OGPカード付きの共有URL (ogp.php?playlist=...) を使う
+            const shareUrl = playlistShareUrl(playlistId);
             const shareData = {
-                title: `Tune drop: ${document.getElementById('detail-title').textContent}`,
-                text: `プレイリスト「${document.getElementById('detail-title').textContent}」をチェック！`,
-                url: window.location.href
+                title: `Tune drop: ${listName}`,
+                text: `プレイリスト「${listName}」をチェック！`,
+                url: shareUrl
             };
             try {
                 if (navigator.share) {
                     await navigator.share(shareData);
+                } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(shareUrl);
+                    alert('共有URLをコピーしました。');
                 } else {
-                    alert("お使いのブラウザは共有機能に対応していません。URL抽出機能をご利用ください。");
+                    window.prompt('このURLをコピーしてください', shareUrl);
                 }
             } catch (err) {
                 console.log("共有がキャンセルされたかエラーが発生しました:", err);

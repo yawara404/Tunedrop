@@ -23,7 +23,7 @@ DirectoryIndex index.html
 # plus the public alias /tunedrop/.
 # 末尾スラッシュなし (/tunedrop) も許可し、mod_dir に /tunedrop/ へ
 # リダイレクトさせる (許可しないと 403 になり「開けない」原因になる)。
-Require expr "%{REQUEST_URI} =~ m#^/(?:[Tt]unedrop/?)?(?:index\.html|api\.php|admin\.php|admin\.js|admin\.css|frontend/(?:(?:app|config)\.js|favicon\.svg)|frontend/style\.css)?$#"
+Require expr "%{REQUEST_URI} =~ m#^/(?:[Tt]unedrop/?)?(?:index\.html|api\.php|admin\.php|admin\.js|admin\.css|ogp\.php|frontend/(?:(?:app|config)\.js|favicon\.svg)|frontend/style\.css)?$#"
 
 # ==========================================================
 # TuneDrop: 配信の軽量化 (gzip + ブラウザ資産のキャッシュ)
