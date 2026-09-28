@@ -52,6 +52,90 @@ async function tunedropFetch(path, options) {
     return response;
 }
 
+// ==========================================================
+// 共通UI: トースト通知
+// ----------------------------------------------------------
+// alert() は再生中の音を止め、閉じるまで画面を操作できない。
+// 「追加した」「コピーした」等の結果は画面右上に一時表示して流れを止めない。
+// エラーは読み上げにも乗る role="alert" で、成功より長く表示する。
+// ==========================================================
+const TOAST_DURATION = { success: 2800, info: 3600, error: 5200 };
+
+function showToast(message, kind = 'success') {
+    const text = String(message == null ? '' : message).trim();
+    if (!text || typeof document === 'undefined' || !document.body) return null;
+    const type = kind === 'error' ? 'error' : (kind === 'info' ? 'info' : 'success');
+    let host = document.getElementById('toast-host');
+    if (!host) {
+        host = document.createElement('div');
+        host.id = 'toast-host';
+        host.className = 'toast-host';
+        document.body.appendChild(host);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    toast.textContent = text;
+    host.appendChild(toast);
+    // 追加直後に is-visible を付けてスライドインさせる。
+    // requestAnimationFrame は非表示タブや再描画が止まった環境で発火しないことがあるため、
+    // 1回 reflow を挟んで初期状態を確定させてからクラスを付ける。
+    void toast.offsetWidth;
+    toast.classList.add('is-visible');
+    setTimeout(() => {
+        toast.classList.remove('is-visible');
+        setTimeout(() => toast.remove(), 260);
+    }, TOAST_DURATION[type] || TOAST_DURATION.success);
+    return toast;
+}
+
+// ==========================================================
+// 共通UI: モーダルを Esc / 背景クリックで閉じる
+// ----------------------------------------------------------
+// index.html の並び = 重なったときの手前順 (z-index が同じなので後のものが上)。
+// 末尾から探して、開いている一番手前の1枚だけ閉じる。
+// 背景クリックは index.html 側で「モーダル自身が押されたとき」だけ閉じる。
+// ==========================================================
+const MODAL_CLOSERS = [
+    { id: 'create-playlist-modal', close: () => closeCreatePlaylistModal() },
+    { id: 'edit-playlist-modal', close: () => closeEditPlaylistModal() },
+    { id: 'move-track-modal', close: () => closeMoveModal() },
+    { id: 'export-preview-modal', close: () => closeExportModal() },
+    { id: 'login-modal', close: () => closeLoginModal() },
+];
+
+function isModalVisible(id) {
+    const modal = document.getElementById(id);
+    return Boolean(modal) && modal.style.display !== 'none';
+}
+
+function closeTopmostModal() {
+    for (let i = MODAL_CLOSERS.length - 1; i >= 0; i--) {
+        if (isModalVisible(MODAL_CLOSERS[i].id)) {
+            MODAL_CLOSERS[i].close();
+            return true;
+        }
+    }
+    return false;
+}
+
+// ==========================================================
+// 共通UI: YouTube URL から動画IDを取り出す
+// ----------------------------------------------------------
+// 1つの入力欄に複数URLをまとめて貼り付けられるように、
+// youtu.be / watch?v= / music.youtube.com / shorts などの書式から
+// 動画IDをすべて拾い、同じ動画は1つにまとめる。
+// ==========================================================
+const YOUTUBE_URL_PATTERN = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|watch\?v=|watch\?.+&v=))([\w-]{11})/g;
+
+function extractYouTubeIds(text) {
+    const ids = [];
+    for (const match of String(text == null ? '' : text).matchAll(YOUTUBE_URL_PATTERN)) {
+        if (!ids.includes(match[1])) ids.push(match[1]);
+    }
+    return ids;
+}
+
 let player;
 let playerReady = false;
 let isPlaying = false;
@@ -359,7 +443,7 @@ function switchView(viewName) {
     // 画面遷移したらモバイルメニューは必ず閉じる
     closeMobileMenu();
 
-    if (viewName === 'manager') loadPlaylists().catch(err => alert(err.message));
+    if (viewName === 'manager') loadPlaylists().catch(err => showToast(err.message, 'error'));
     else if (viewName === 'radar') loadRadarData();
     else if (viewName === 'share') loadSharePlaylists();
     else if (viewName === 'profile') loadProfile();
@@ -594,7 +678,7 @@ function reloadPlaylistsAfterAuth() {
 async function loginWithEmail() {
     const username = document.getElementById('auth-username').value;
     const password = document.getElementById('auth-password').value;
-    if (!username || !password) return alert("入力が不完全です。");
+    if (!username || !password) return showToast('ログインIDとパスワードを入力してください。', 'error');
     try {
         const res = await tunedropFetch('api.php?action=auth&endpoint=login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -604,15 +688,15 @@ async function loginWithEmail() {
         if (data.success) {
             localStorage.setItem('tunedrop_token', data.token);
             localStorage.setItem('tunedrop_username', data.user.username);
-            closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); alert("ログインしました！");
-        } else alert(data.error || "ログインに失敗しました。");
-    } catch (err) { alert("認証サーバーに接続できません。"); }
+            closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); showToast('ログインしました。');
+        } else showToast(data.error || 'ログインに失敗しました。', 'error');
+    } catch (err) { showToast('認証サーバーに接続できません。', 'error'); }
 }
 
 async function registerWithEmail() {
     const username = document.getElementById('auth-username').value;
     const password = document.getElementById('auth-password').value;
-    if (!username || !password) return alert("入力が不完全です。");
+    if (!username || !password) return showToast('ログインIDとパスワードを入力してください。', 'error');
     try {
         const res = await tunedropFetch('api.php?action=auth&endpoint=register', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -626,9 +710,10 @@ async function registerWithEmail() {
             checkLoginStatus();
             reloadPlaylistsAfterAuth();
             navigateView('profile');
+            showToast('アカウントを作成しました。');
         }
-        else alert(data.error || "登録に失敗しました。");
-    } catch (err) { alert("認証サーバーに接続できません。"); }
+        else showToast(data.error || '登録に失敗しました。', 'error');
+    } catch (err) { showToast('認証サーバーに接続できません。', 'error'); }
 }
 
 // ==========================================================
@@ -728,12 +813,12 @@ async function handleGoogleCredential(response) {
         if (data.success) {
             localStorage.setItem('tunedrop_token', data.token);
             localStorage.setItem('tunedrop_username', data.user && data.user.username);
-            closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); alert("Googleログインしました！");
+            closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); showToast('Googleログインしました。');
         } else {
-            alert(data.error || "Googleログインに失敗しました。");
+            showToast(data.error || 'Googleログインに失敗しました。', 'error');
         }
     } catch (err) {
-        alert("認証サーバーに接続できません。");
+        showToast('認証サーバーに接続できません。', 'error');
         console.error(err);
     }
 }
@@ -742,7 +827,7 @@ function logout() {
     clearSession();
     setProfileVisibility(false);
     navigateView('manager');
-    alert("ログアウトしました。");
+    showToast('ログアウトしました。', 'info');
 }
 
 async function loadPlaylists() {
@@ -916,7 +1001,7 @@ async function savePlaylistOrder() {
             body: JSON.stringify({ ordered_ids: orderedUserListIds() })
         });
     } catch (err) {
-        alert("並び替えの保存に失敗しました。");
+        showToast('並び替えの保存に失敗しました。', 'error');
         loadPlaylists();
     }
 }
@@ -1194,7 +1279,7 @@ async function togglePlaylistFavorite(id, event) {
             if (document.getElementById('view-radar').classList.contains('active')) loadRadarData();
         } else if (data.error) {
             // 固定タブは各ユーザー専用のため、他人の固定タブを追加しようとすると失敗する
-            alert(data.error);
+            showToast(data.error, 'error');
         }
         return data;
     } catch (err) { console.error(err); }
@@ -1232,11 +1317,11 @@ async function toggleTrackFavorite(id, event) {
                 else filterTracks();
             }
         } else {
-            alert(data.error || 'お気に入りを更新できませんでした。');
+            showToast(data.error || 'お気に入りを更新できませんでした。', 'error');
         }
     } catch (err) {
         console.error(err);
-        alert('お気に入りを更新できませんでした。もう一度お試しください。');
+        showToast('お気に入りを更新できませんでした。もう一度お試しください。', 'error');
     }
 }
 
@@ -1323,16 +1408,16 @@ async function submitNewPlaylist() {
     const name = document.getElementById('new-playlist-title').value.trim();
     const category = document.getElementById('new-playlist-category').value;
     const isPublic = document.getElementById('new-playlist-public').checked ? 1 : 0;
-    if (!name) return alert("タイトルを入力してください。");
+    if (!name) return showToast('リスト名を入力してください。', 'error');
     try {
         const response = await tunedropFetch('api.php?action=create_playlist', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, category, is_public: isPublic })
         });
         const result = await response.json();
-        if (result.success) { closeCreatePlaylistModal(); loadPlaylists(); }
-        else alert("作成に失敗しました。" + (result.error ? "\n" + result.error : ""));
-    } catch (err) { alert("通信エラーが発生しました。"); }
+        if (result.success) { closeCreatePlaylistModal(); loadPlaylists(); showToast(`リスト「${name}」を作成しました。`); }
+        else showToast('作成に失敗しました。' + (result.error ? ' ' + result.error : ''), 'error');
+    } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
 async function openEditPlaylistModal(event, playlistId) {
@@ -1371,16 +1456,16 @@ async function submitEditPlaylist() {
     const isPublic = document.getElementById('edit-playlist-public').checked ? 1 : 0;
     const coverId = document.getElementById('edit-playlist-cover').value;
 
-    if (!name) return alert("タイトルを入力してください。");
+    if (!name) return showToast('リスト名を入力してください。', 'error');
     try {
         const response = await tunedropFetch('api.php?action=edit_playlist', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, name, category, is_public: isPublic, cover_id: coverId })
         });
         const result = await response.json();
-        if (result.success) { closeEditPlaylistModal(); loadPlaylists(); }
-        else alert("更新に失敗しました。");
-    } catch (err) { alert("通信エラーが発生しました。"); }
+        if (result.success) { closeEditPlaylistModal(); loadPlaylists(); showToast('リストを更新しました。'); }
+        else showToast('更新に失敗しました。', 'error');
+    } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
 async function deletePlaylistFromSidebar(event, playlistId) {
@@ -1396,8 +1481,9 @@ async function deletePlaylistFromSidebar(event, playlistId) {
         if (result.success) {
             if (currentPlaylistId === playlistId) currentPlaylistId = 'home';
             loadPlaylists();
-        } else alert("削除に失敗しました。");
-    } catch (err) { alert("通信エラーが発生しました。"); }
+            showToast('プレイリストを削除しました。', 'info');
+        } else showToast('削除に失敗しました。', 'error');
+    } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
 async function updatePlaylistCategory(playlistId, newCategory, event) {
@@ -1408,8 +1494,8 @@ async function updatePlaylistCategory(playlistId, newCategory, event) {
             body: JSON.stringify({ id: playlistId, category: newCategory })
         });
         const result = await response.json();
-        if (result.success) loadPlaylists(); else alert("カテゴリの更新に失敗しました。");
-    } catch (err) { alert("通信エラーが発生しました。"); }
+        if (result.success) loadPlaylists(); else showToast('カテゴリの更新に失敗しました。', 'error');
+    } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
 function renderManagerHome(playlists) {
@@ -1513,6 +1599,8 @@ document.addEventListener('keydown', event => {
     const trigger = document.querySelector('[aria-expanded="true"].track-menu-btn');
     closeTrackMenus();
     trigger?.focus();
+    // 開いているモーダルがあれば閉じる (Escで画面が勝手に切り替わらないように)
+    closeTopmostModal();
 });
 
 // ==========================================================
@@ -1586,10 +1674,14 @@ function deleteTrackFromMenu(event, trackId) {
 }
 
 async function addTrack() {
-    const url = document.getElementById('youtube-url').value;
-    const regExp = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/;
-    const videoIdMatch = url.match(regExp);
-    if (!videoIdMatch) return alert("正しいYouTube URLを入力してください。");
+    const input = document.getElementById('youtube-url');
+    // 複数URLのまとめ貼り付けに対応 (1件ずつ追加した結果をまとめて知らせる)
+    const youtubeIds = extractYouTubeIds(input ? input.value : '');
+    if (youtubeIds.length === 0) {
+        if (input) input.focus();
+        return showToast('YouTubeのURL（https://youtu.be/...）を貼り付けてください。', 'error');
+    }
+
     // 追加先: リストを開いていればそのリスト、一覧/お気に入り表示中は自分の固定タブ「未整理」
     const inbox = allPlaylists.find(list => list.system_key === 'inbox')
         || allPlaylists.find(isSystemPlaylist)
@@ -1598,15 +1690,50 @@ async function addTrack() {
     const targetPlaylistId = (currentPlaylistId === 'home' || currentPlaylistId === 'fav_tracks' || currentPlaylistId === 'fav_playlists')
         ? inboxId
         : (Number.isInteger(currentPlaylistId) ? currentPlaylistId : inboxId);
+
+    // ボタン連打による二重登録を防ぐ (追加中は押せなくする)
+    const button = document.getElementById('add-track-btn');
+    if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
     try {
-        const response = await tunedropFetch('api.php?action=add_bookmark', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ youtube_id: videoIdMatch[1], playlist_id: targetPlaylistId })
-        });
-        const result = await response.json();
-        if (result.success) { document.getElementById('youtube-url').value = ''; loadMyBookmarks(currentPlaylistId); await loadPlaylists(); }
-        else alert(result.error || "曲を追加できませんでした。");
-    } catch (error) { console.error("通信エラー:", error); }
+        let added = 0;
+        let duplicated = 0;
+        let firstError = '';
+        for (const youtubeId of youtubeIds) {
+            try {
+                const response = await tunedropFetch('api.php?action=add_bookmark', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ youtube_id: youtubeId, playlist_id: targetPlaylistId })
+                });
+                const result = await response.json();
+                if (result.success) added += 1;
+                // 「この曲は既にこのリストに登録されています」は重複として件数だけ数える
+                else if (`${result.error || ''}`.includes('既に')) duplicated += 1;
+                else if (!firstError) firstError = result.error || '曲を追加できませんでした。';
+            } catch (error) {
+                console.error("通信エラー:", error);
+                if (!firstError) firstError = '通信できませんでした。時間をおいてお試しください。';
+            }
+        }
+
+        if (added > 0) {
+            if (input) input.value = '';
+            loadMyBookmarks(currentPlaylistId);
+            await loadPlaylists();
+
+            const notes = [];
+            if (duplicated) notes.push(`${duplicated}曲は登録済み`);
+            if (firstError) notes.push(firstError);
+            showToast(notes.length
+                ? `${added}曲を追加しました（${notes.join(' / ')}）`
+                : `${added}曲を追加しました。`);
+        } else if (duplicated && !firstError) {
+            showToast('すべて登録済みの曲でした。', 'error');
+        } else {
+            showToast(firstError || '曲を追加できませんでした。', 'error');
+        }
+    } finally {
+        if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+    }
 }
 
 async function deleteTrack(event, trackId) {
@@ -1618,8 +1745,17 @@ async function deleteTrack(event, trackId) {
             body: JSON.stringify({ id: trackId })
         });
         const result = await res.json();
-        if (result.success) { loadMyBookmarks(currentPlaylistId); await loadPlaylists(); }
-    } catch (err) { console.error(err); }
+        if (result.success) {
+            loadMyBookmarks(currentPlaylistId);
+            await loadPlaylists();
+            showToast('リストから削除しました。', 'info');
+        } else {
+            showToast('削除に失敗しました。', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        showToast('削除できませんでした。時間をおいてお試しください。', 'error');
+    }
 }
 
 function openMoveModal(event, trackId) {
@@ -1648,8 +1784,8 @@ async function submitMoveTrack() {
             body: JSON.stringify({ id: selectedTrackIdForMove, target_playlist_id: targetPlaylistId })
         });
         const result = await response.json();
-        if (result.success) { closeMoveModal(); loadMyBookmarks(currentPlaylistId); await loadPlaylists(); } else alert(result.error || "移動に失敗しました。");
-    } catch (err) { alert("通信エラーが発生しました。"); }
+        if (result.success) { closeMoveModal(); loadMyBookmarks(currentPlaylistId); await loadPlaylists(); showToast('移動しました。'); } else showToast(result.error || '移動に失敗しました。', 'error');
+    } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
 async function loadMyBookmarks(playlistId = null) {
@@ -1662,10 +1798,32 @@ async function loadMyBookmarks(playlistId = null) {
     renderTracks(currentTracks);
 }
 
+// 現在の検索語で絞り込んだ曲 (renderTracks / Enter再生で同じ結果を使う)
+function filteredTracks() {
+    const input = document.getElementById('track-search');
+    const query = (input ? input.value : '').toLowerCase();
+    if (!query) return currentTracks;
+    return currentTracks.filter(track => (track.title && track.title.toLowerCase().includes(query)) || (track.channel && track.channel.toLowerCase().includes(query)));
+}
+
 function filterTracks() {
-    const query = document.getElementById('track-search').value.toLowerCase();
-    const filtered = currentTracks.filter(track => (track.title && track.title.toLowerCase().includes(query)) || (track.channel && track.channel.toLowerCase().includes(query)));
-    renderTracks(filtered);
+    renderTracks(filteredTracks());
+}
+
+// 検索欄の Enter=先頭の曲を再生、Escape=クリア (Radar / Share と同じ操作感)
+function onTrackSearchKey(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const displayTracks = sortTracks(filteredTracks(), trackSortMode);
+        if (displayTracks.length === 0) return showToast('条件に合う曲がありません。', 'error');
+        playTrackFromQueue(0, displayTracks);
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        const input = document.getElementById('track-search');
+        if (input) input.value = '';
+        filterTracks();
+        if (input) input.focus();
+    }
 }
 
 function renderTracks(tracks) {
@@ -1759,7 +1917,7 @@ async function reorderBookmarks(orderedIds) {
             body: JSON.stringify({ ordered_ids: orderedIds })
         });
         // 画面は既に並び替え済み。DB保存のみ。
-    } catch (err) { alert("並び替えの保存に失敗しました。"); }
+    } catch (err) { showToast('並び替えの保存に失敗しました。', 'error'); }
 }
 
 // ==========================================================
@@ -3071,7 +3229,7 @@ async function renderPlaylistDetail(playlistId, playlistName, coverId) {
                     await navigator.share(shareData);
                 } else if (navigator.clipboard && navigator.clipboard.writeText) {
                     await navigator.clipboard.writeText(shareUrl);
-                    alert('共有URLをコピーしました。');
+                    showToast('共有URLをコピーしました。');
                 } else {
                     window.prompt('このURLをコピーしてください', shareUrl);
                 }
@@ -3176,11 +3334,11 @@ function renderDetailTracks(tracks) {
 
 function playAllRadarTracks() {
     if (currentDetailTracks.length > 0) playTrackFromQueue(0, currentDetailTracks);
-    else alert("再生できる曲がありません。");
+    else showToast('再生できる曲がありません。', 'error');
 }
 
 function exportPlaylistUrls(playlistName, tracks) {
-    if (!tracks || tracks.length === 0) return alert("曲が登録されていません。");
+    if (!tracks || tracks.length === 0) return showToast('曲が登録されていません。', 'error');
 
     let textData = `🎵 Tune drop プレイリスト: ${playlistName}\n\n`;
     const videoIds = tracks.map((track, index) => {
@@ -3225,7 +3383,7 @@ function copyExportText() {
             copyBtn.style.background = 'var(--accent-color)';
             copyBtn.style.color = '#000';
         }, 2000);
-    }).catch(err => { alert("クリップボードへのコピーに失敗しました。"); });
+    }).catch(err => { showToast('クリップボードへのコピーに失敗しました。', 'error'); });
 }
 
 function playRadarRandomThree() {
@@ -3234,7 +3392,7 @@ function playRadarRandomThree() {
         .filter(track => track.youtube_id)
         .map(track => [track.youtube_id, track])).values()];
     if (!candidates.length) {
-        alert('再生できる曲がありません。Radarの読み込み後、検索条件を確認してください。');
+        showToast('再生できる曲がありません。Radarの読み込み後、検索条件を確認してください。', 'error');
         return;
     }
     for (let i = candidates.length - 1; i > 0; i--) {
@@ -3549,7 +3707,7 @@ async function toggleShareFavorite(id, event) {
         });
         const data = await res.json();
         if (!data.success) {
-            if (data.error) alert(data.error);
+            if (data.error) showToast(data.error, 'error');
             return data;
         }
         const target = (sharePlaylists || []).find(p => p.id == id);
@@ -3579,7 +3737,7 @@ async function toggleShareFavorite(id, event) {
 function openRandomSharePlaylist() {
     const lists = (sharePlaylists || []).filter(p => p && p.id);
     if (lists.length === 0) {
-        alert('まだ公開されたプレイリストがありません。');
+        showToast('まだ公開されたプレイリストがありません。', 'error');
         return;
     }
     const pick = lists[Math.floor(Math.random() * lists.length)];

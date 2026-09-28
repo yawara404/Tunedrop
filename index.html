@@ -27,7 +27,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=account_circle,add,arrow_back,close,delete,description,drag_indicator,drive_file_move,edit,favorite,heart_broken,help,home,library_music,lock,menu,more_vert,music_note,person,play_arrow,public,radar,share,skip_next,skip_previous&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="frontend/style.css?v=fix-3">
+    <link rel="stylesheet" href="frontend/style.css?v=ux-1">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
@@ -97,12 +97,14 @@
                 </div>
                 <div id="manager-track-area" style="display: none;">
                     <div class="action-bar">
-                        <input type="text" id="youtube-url" placeholder="YouTube URLを追加 (例: https://youtu.be/...)">
-                        <button onclick="addTrack()">追加</button>
+                        <input type="text" id="youtube-url" placeholder="YouTube URLを追加 (複数まとめて貼り付けOK)"
+                            aria-label="YouTube URLを追加"
+                            onkeydown="if (event.key === 'Enter') { event.preventDefault(); addTrack(); }">
+                        <button id="add-track-btn" onclick="addTrack()">追加</button>
                     </div>
                     <div class="action-bar search-bar" style="margin-top: -10px;">
                         <input type="text" id="track-search" placeholder="🔍 このリスト内から曲名・アーティストを検索..."
-                            oninput="filterTracks()">
+                            aria-label="このリスト内を検索" oninput="filterTracks()" onkeydown="onTrackSearchKey(event)">
                     </div>
                     <div class="section-header-row track-section-header">
                         <h2 class="section-title" id="current-list-title" style="margin:0;">すべてのブックマーク</h2>
@@ -505,6 +507,7 @@
     </footer>
 
     <div id="create-playlist-modal"
+        onclick="if (event.target === this) closeCreatePlaylistModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
             style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
@@ -543,6 +546,7 @@
     </div>
 
     <div id="edit-playlist-modal"
+        onclick="if (event.target === this) closeEditPlaylistModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
             style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
@@ -590,6 +594,7 @@
     </div>
 
     <div id="move-track-modal"
+        onclick="if (event.target === this) closeMoveModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
             style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
@@ -610,6 +615,7 @@
     </div>
 
     <div id="export-preview-modal"
+        onclick="if (event.target === this) closeExportModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
             style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:600px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
@@ -636,6 +642,7 @@
     </div>
 
     <div id="login-modal"
+        onclick="if (event.target === this) closeLoginModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
             style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; text-align:center;">
@@ -659,7 +666,7 @@
     </div>
 
     <script src="frontend/config.js"></script>
-    <script src="frontend/app.js?v=share-ogp-1"></script>
+    <script src="frontend/app.js?v=ux-1"></script>
 </body>
 
 </html>

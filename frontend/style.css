@@ -1840,6 +1840,12 @@ body.player-in-sidebar .youtube-popup.is-active {
     cursor: pointer;
 }
 
+/* 曲の追加中は二重登録を防ぐため押せない。見た目でも分かるようにする */
+.action-bar button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .section-title {
     font-size: 22px;
     font-weight: bold;
@@ -4413,4 +4419,70 @@ body.player-in-sidebar .youtube-popup.is-active {
 /* 目次からジャンプしたとき固定ヘッダーに隠れないように */
 #view-help .help-section {
     scroll-margin-top: 70px;
+}
+
+/* ==========================================================
+   トースト通知 (alert の代わり。操作を止めずに結果を伝える)
+   z-index はモーダル (9999) より上にして、
+   「モーダルの操作 → 閉じてトースト」の流れでも隠れないようにする。
+   ========================================================== */
+.toast-host {
+    position: fixed;
+    top: 62px;
+    right: 16px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: min(360px, calc(100vw - 24px));
+    pointer-events: none;
+}
+
+.toast {
+    background: var(--panel-bg);
+    color: var(--text-main);
+    border: 1px solid #444;
+    border-left: 3px solid var(--accent-color);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity 0.22s ease, transform 0.22s ease;
+    overflow-wrap: anywhere;
+}
+
+.toast.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast-error {
+    border-left-color: #ff5c7a;
+}
+
+.toast-info {
+    border-left-color: #7ad0ff;
+}
+
+/* モバイルは幅いっぱいに出す (右上の固定位置だと折り返しやすい) */
+@media (max-width: 600px) {
+    .toast-host {
+        top: 58px;
+        left: 12px;
+        right: 12px;
+        align-items: stretch;
+        max-width: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast {
+        transition: none;
+        transform: none;
+    }
 }
