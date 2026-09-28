@@ -136,7 +136,9 @@ const context = vm.createContext({
     clearTimeout,
 });
 
-vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8'), context);
+// app.js は Vite が読む ES モジュール (export 付き)。vm では classic script として
+// 評価するため export だけ外す (中身は同じ)。
+vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8').replace(/^export /gm, ''), context);
 const run = code => vm.runInContext(code, context);
 // ビュー切替時のデータ取得とリスト選択は記録だけ行う (DOM/API 不要)
 vm.runInContext(`

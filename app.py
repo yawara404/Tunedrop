@@ -345,7 +345,8 @@ def register():
         'token': token,
         'user': {
             'id': user_id,
-            'username': display_name
+            'username': display_name,
+            'login_id': username
         }
     }), 201
 
@@ -357,16 +358,23 @@ def login():
     password = (data.get('password') or '').strip()
 
     if not username or not password:
-        return jsonify({'error': 'ユーザー名とパスワードを入力してください。'}), 400
+        return jsonify({'error': 'ログインIDとパスワードを入力してください。'}), 400
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, COALESCE(display_name, username) AS username, password_hash FROM users WHERE username = ?", (username,))
+    # ログインIDは登録時に指定した users.username (メールアドレスなど)。
+    # 画面に表示されるのは display_name (表示名) なので、両方を返して混同を防ぐ。
+    cursor.execute(
+        "SELECT id, username AS login_id, COALESCE(display_name, username) AS username, password_hash"
+        " FROM users WHERE username = ?", (username,))
     row = cursor.fetchone()
     conn.close()
 
     if not row or not check_password_hash(row['password_hash'], password):
-        return jsonify({'error': 'ユーザー名またはパスワードが正しくありません。'}), 401
+        return jsonify({
+            'error': 'ログインIDまたはパスワードが正しくありません。'
+                     'ログインIDは登録時のメールアドレスなどで、表示名とは別です。'
+        }), 401
 
     token = generate_token(row['id'], row['username'])
     return jsonify({
@@ -375,7 +383,8 @@ def login():
         'token': token,
         'user': {
             'id': row['id'],
-            'username': row['username']
+            'username': row['username'],
+            'login_id': row['login_id']
         }
     }), 200
 
@@ -482,7 +491,7 @@ def get_current_user():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, COALESCE(display_name, username) AS username, created_at FROM users WHERE id = ?", (decoded['user_id'],))
+    cursor.execute("SELECT id, username AS login_id, COALESCE(display_name, username) AS username, created_at FROM users WHERE id = ?", (decoded['user_id'],))
     row = cursor.fetchone()
 
     # ユーザーの統計情報を合わせて返却
@@ -535,6 +544,7 @@ def get_current_user():
         'user': {
             'id': row['id'],
             'username': row['username'],
+            'login_id': row['login_id'],
             'created_at': row['created_at'],
             'stats': {
                 'playlists_count': playlists_count,
@@ -749,7 +759,7 @@ def _db_bookmarks(include_cache=True):
     conn = get_db()
     try:
         rows = conn.execute("""
-            SELECT b.youtube_id, b.title, b.channel,
+            SELECT b.youtube_id, b.title, b.channel, b.added_at,
                    p.category, p.name AS playlist_name, p.is_public, p.user_id,
                    COALESCE(u.display_name, u.username) AS author
             FROM bookmarks b
@@ -766,6 +776,7 @@ def _db_bookmarks(include_cache=True):
             "youtube_id": r["youtube_id"],
             "title": r["title"],
             "channel": r["channel"],
+            "added_at": r["added_at"],   # Radar の「新着順」に使う (YYYY-MM-DD HH:MM:SS)
             "category": r["category"] or "Other",
             "playlist_name": r["playlist_name"] or "",
             "author": r["author"] or "User",
@@ -990,6 +1001,8 @@ def radar_map():
             "category": it["category"],
             "playlist_name": it["playlist_name"],
             "author": it["author"],
+            # 新着順の並べ替えに使う追加日時 (同一曲が複数リストにある場合は最新の1件)
+            "added_at": it.get("added_at"),
             # radar_map の応答は描画・検索に使う field のみに絞る。
             # chorus_start / beats / energy / audio_engine はフロントが参照しないため送らない。
             "features": {

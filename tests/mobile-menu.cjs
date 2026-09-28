@@ -155,7 +155,9 @@ const context = vm.createContext({
     tunedropFetch: async () => ({ ok: true, json: async () => [] }),
 });
 
-vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8'), context);
+// app.js は Vite が読む ES モジュール (export 付き)。vm では classic script として
+// 評価するため export だけ外す (中身は同じ)。
+vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8').replace(/^export /gm, ''), context);
 // 統合後の app.js は tunedropFetch を内包するため、メニュー挙動に関係ない
 // 非同期API呼び出しがテスト後に落ちないようスタブで上書きする。
 vm.runInContext('tunedropFetch = async () => ({ ok: true, json: async () => ({ success: true }) }); syncPlayerFavorite = async () => {};', context);

@@ -142,7 +142,9 @@ function dispatch(type, target, extra = {}, capture = false) {
 }
 
 const windowHandlers = new Map();
-const locationStub = { hash: '', origin: 'http://localhost' };
+const locationStub = { hash: '', origin: 'http://localhost', href: 'http://localhost:8888/tunedrop/index.html' };
+// localStorage のスタブ (トークンやゲスト認証情報の保存/削除を検証する)
+const storage = new Map();
 const context = vm.createContext({
     location: locationStub,
     window: {
@@ -160,7 +162,11 @@ const context = vm.createContext({
     fetch: async () => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({}) }),
     // トーストの中身を検証したいだけなので、自動削除のタイマーは動かさない
     requestAnimationFrame: handler => { handler(); return 0; },
-    localStorage: { getItem: () => null, setItem() { }, removeItem() { } },
+    localStorage: {
+        getItem: key => (storage.has(String(key)) ? storage.get(String(key)) : null),
+        setItem: (key, value) => { storage.set(String(key), String(value)); },
+        removeItem: key => { storage.delete(String(key)); },
+    },
     alert(message) { context.window.__alerts.push(String(message)); },
     console,
     setTimeout: () => 0,
@@ -168,7 +174,9 @@ const context = vm.createContext({
 });
 context.window.__alerts = [];
 
-vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8'), context);
+// app.js は Vite が読む ES モジュール (export 付き)。vm では classic script として
+// 評価するため export だけ外す (中身は同じ)。
+vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8').replace(/^export /gm, ''), context);
 const run = code => vm.runInContext(code, context);
 
 // index.html のモーダルは初期状態が display:none (JSが flex にして表示する)
@@ -272,6 +280,8 @@ test('extractYouTubeIds はURLが無ければ空配列', () => {
 // ----------------------------------------------------------
 function stubAddTrackBackend() {
     run(`
+        // 後続のテストで本物の tunedropFetch に戻せるように退避しておく
+        if (!window.__realTunedropFetch) window.__realTunedropFetch = tunedropFetch;
         window.__addedCalls = [];
         window.__buttonDisabledDuringCall = null;
         allPlaylists = [{ id: 5, name: '未整理', system_key: 'inbox' }];
@@ -399,6 +409,191 @@ test('ゲスト初期化はサーバーが返したJSONエラーをそのまま�
         + ".catch(error => { window.__guestError = error.message; })");
 
     assert.equal(run('window.__guestError'), reason);
+});
+
+// ----------------------------------------------------------
+// ログイン状態の取り扱い (期限切れ・無効なトークン)
+// ----------------------------------------------------------
+test('無効なトークンで401になったらセッションを捨ててログインを促す', async () => {
+    run(`
+        tunedropFetch = window.__realTunedropFetch;   // addTrack テスト用のスタブを戻す
+        localStorage.setItem('tunedrop_token', 'invalid-token');
+        localStorage.setItem('tunedrop_username', 'demo-user');
+        localStorage.setItem('tunedrop_login_id', 'user@example.com');
+        sessionExpiredNoticeAt = 0;
+        tunedropApiPromise = Promise.resolve(new URL('http://localhost:8888/api.php'));
+        fetch = async () => ({
+            ok: false, status: 401,
+            headers: { get: () => 'application/json; charset=utf-8' },
+            json: async () => ({ error: 'ログインの有効期限が切れています。' }),
+        });
+    `);
+
+    const status = await run("tunedropFetch('api.php?action=get_playlists').then(r => r.status)");
+    assert.equal(status, 401, '呼び出し側には今まで通り 401 を渡す');
+    assert.equal(run("localStorage.getItem('tunedrop_token')"), null, '無効なトークンを捨てる');
+    assert.equal(run("localStorage.getItem('tunedrop_username')"), null);
+    assert.equal(run("document.getElementById('login-modal').style.display"), 'flex', 'ログインモーダルを開く');
+    assert.match(lastToast().textContent, /有効期限が切れ/, lastToast().textContent);
+
+    // 2回目以降 (並行リクエスト) はトーストを重ねない
+    const before = toasts().length;
+    run("localStorage.setItem('tunedrop_token', 'invalid-token');");
+    await run("tunedropFetch('api.php?action=get_playlists')");
+    assert.equal(toasts().length, before, '連続して通知しない');
+    run("['tunedrop_token','tunedrop_username','tunedrop_login_id'].forEach(key => localStorage.removeItem(key))");
+});
+
+test('ゲスト認証情報が無効なら作り直して表示を止めない', async () => {
+    run(`
+        localStorage.setItem('tunedrop_guest_credential', '13.deadbeef');
+        tunedropGuestPromise = null;
+        tunedropGuestRefreshAt = 0;
+        window.__guestBodies = [];
+        fetch = async (url, options) => {
+            const body = JSON.parse(options.body);
+            window.__guestBodies.push(body.credential);
+            const denied = body.credential !== '';
+            return {
+                ok: !denied, status: denied ? 401 : 200,
+                headers: { get: () => 'application/json; charset=utf-8' },
+                json: async () => (denied
+                    ? { error: 'ゲスト認証情報が無効です。' }
+                    : { success: true, token: 'fresh-guest-token', credential: '20.newsecret' }),
+            };
+        };
+    `);
+
+    const token = await run("ensureTunedropGuest(new URL('http://localhost:8888/api.php'))");
+    assert.equal(token, 'fresh-guest-token', '新しいゲストで続行できる');
+    assert.deepEqual(vmValue('window.__guestBodies'), ['13.deadbeef', ''], '無効なら空の認証情報で作り直す');
+    assert.equal(run("localStorage.getItem('tunedrop_guest_credential')"), '20.newsecret', '新しい認証情報を保存する');
+});
+
+// ----------------------------------------------------------
+// モバイル Radar: 絞り込みの折りたたみ
+// ----------------------------------------------------------
+test('モバイルのRadar絞り込みは画面中央のモーダルで開閉でき、条件クリアは常に4つ目の枠にある', () => {
+    // スマホ幅 (600px以下) を再現する
+    run("window.innerWidth = 390; window.matchMedia = q => ({ matches: /max-width: 600px/.test(String(q)) });");
+    run(`
+        ['radar-vibe-filter', 'radar-tempo-filter'].forEach(id => { document.getElementById(id).value = ''; });
+        document.getElementById('radar-sort').value = 'default';
+        document.getElementById('radar-title-search').value = '';
+        document.getElementById('radar-category-filter').value = '';
+        closeRadarFilters();
+        updateRadarFiltersToggle();
+    `);
+    assert.equal(run('isRadarFiltersOpen()'), false, '既定は閉じておく (マップの高さを確保)');
+    assert.equal(run('isRadarFiltersSheetOpen()'), false);
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').textContent"), '絞り込み');
+    assert.notEqual(run("document.getElementById('btn-radar-filters-toggle').getAttribute('aria-expanded')"), 'true');
+    assert.equal(run("document.getElementById('btn-radar-clear').classList.contains('is-empty')"), true, '条件が無ければ条件クリアは控えめ (PCのツールバーでは出さない)');
+    assert.equal(run("document.getElementById('btn-radar-clear').hidden"), false, 'モーダルでは隠さず4つ目の枠に置く');
+
+    // 開く: モーダル (dialog) として扱い、フォーカスも移す
+    run('openRadarFilters()');
+    assert.equal(run('isRadarFiltersOpen()'), true, 'タップでシートが開く');
+    assert.equal(run('isRadarFiltersSheetOpen()'), true);
+    assert.equal(run("document.getElementById('radar-subcontrols').getAttribute('role')"), 'dialog');
+    assert.equal(run("document.getElementById('radar-subcontrols').getAttribute('aria-modal')"), 'true');
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').getAttribute('aria-expanded')"), 'true');
+    assert.equal(run("document.getElementById('radar-subcontrols').focused"), true, '開いたらシートへフォーカス');
+
+    // Esc (closeTopmostModal) で閉じ、開いたボタンへフォーカスが戻る
+    // (他のモーダルが開いたままだとそちらが優先されるため、初期状態に戻しておく)
+    run("['create-playlist-modal', 'edit-playlist-modal', 'move-track-modal', 'export-preview-modal', 'login-modal'].forEach(id => { document.getElementById(id).style.display = 'none'; });");
+    assert.equal(run('closeTopmostModal()'), true, 'Escで閉じる');
+    assert.equal(run('isRadarFiltersOpen()'), false);
+    assert.equal(run('isRadarFiltersSheetOpen()'), false);
+    assert.equal(run("document.getElementById('radar-subcontrols').getAttribute('role')"), null, '通常のツールバーに戻す');
+    assert.equal(run("document.getElementById('radar-subcontrols').getAttribute('aria-modal')"), null);
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').getAttribute('aria-expanded')"), 'false', '閉じたら展開状態を戻す');
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').focused"), true, '開いたボタンへ戻す');
+    assert.equal(run('closeTopmostModal()'), false, '閉じたあとは閉じる対象が無い');
+
+    // トグルでも開閉できる
+    run('toggleRadarFilters()');
+    assert.equal(run('isRadarFiltersOpen()'), true);
+    run('toggleRadarFilters()');
+    assert.equal(run('isRadarFiltersOpen()'), false);
+});
+
+test('Radarの絞り込みは適用中なら件数を出し、シートを開いて見せる', () => {
+    run("window.innerWidth = 390; window.matchMedia = q => ({ matches: /max-width: 600px/.test(String(q)) });");
+    run(`
+        closeRadarFilters();
+        document.getElementById('radar-category-filter').value = 'Vocaloid';
+        document.getElementById('radar-tempo-filter').value = 'fast';
+        updateRadarFiltersToggle();
+    `);
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').textContent"), '絞り込み(2)');
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').classList.contains('is-active')"), true);
+    assert.equal(run('isRadarFiltersOpen()'), true, '畳んだままだと変えられない条件はシートを開いて見せる');
+    assert.equal(run("document.getElementById('btn-radar-clear').classList.contains('is-empty')"), false, '条件があれば条件クリアを有効な見た目にする');
+
+    run(`
+        document.getElementById('radar-category-filter').value = '';
+        document.getElementById('radar-tempo-filter').value = '';
+        updateRadarFiltersToggle();
+        closeRadarFilters();
+    `);
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').textContent"), '絞り込み');
+    assert.equal(run("document.getElementById('btn-radar-clear').classList.contains('is-empty')"), true);
+});
+
+test('PC幅ではRadarの絞り込みはシートにせず、ツールバー内のまま扱う', () => {
+    run("window.innerWidth = 1280; window.matchMedia = () => ({ matches: false });");
+    run(`
+        document.getElementById('radar-tempo-filter').value = 'fast';
+        closeRadarFilters();
+        updateRadarFiltersToggle();
+    `);
+    assert.equal(run('isRadarFiltersSheetOpen()'), false, 'PCではシート扱いにしない');
+    assert.equal(run("document.getElementById('btn-radar-filters-toggle').textContent"), '絞り込み(1)');
+    run("document.getElementById('radar-tempo-filter').value = ''; updateRadarFiltersToggle();");
+    assert.equal(run("document.getElementById('btn-radar-clear').classList.contains('is-empty')"), true);
+});
+
+test('並び順に新着順があり、追加日時 (added_at) の新しい順に並ぶ', () => {
+    // 4つ目の枠と並び順は index.html (ビルド元のテンプレート) の構造もテストする
+    const html = fs.readFileSync(`${__dirname}/../frontend/index.html`, 'utf8');
+    assert.match(html, /<option value="newest">新着順<\/option>/, '並び順に新着順がある');
+    const sheetBody = html.match(/<div class="radar-filters-body">([\s\S]*?)<\/div>/)[1];
+    assert.equal((sheetBody.match(/<select /g) || []).length, 3, '絞り込みの選択肢は3つ');
+    assert.match(sheetBody, /id="btn-radar-clear"/, '条件クリアを4つ目の枠に置く');
+    assert.match(sheetBody, /id="radar-sort"[\s\S]*id="btn-radar-clear"/, '条件クリアは絞り込みの後ろ (4つ目)');
+
+    const ordered = run(`
+        (function () {
+            const tracks = [
+                { title: '古い曲', added_at: '2026-01-01 00:00:00' },
+                { title: '日時なし', added_at: null },
+                { title: '新しい曲', added_at: '2026-09-01 12:00:00' },
+            ];
+            const sorted = sortRadarTracks(tracks, 'newest');
+            // 元の配列を書き換えないこと (呼び出し元の一覧を壊さない)
+            return sorted.map(t => t.title).join(',') + ' / ' + tracks.map(t => t.title).join(',');
+        })()
+    `);
+    assert.equal(ordered, '新しい曲,古い曲,日時なし / 古い曲,日時なし,新しい曲', '追加日時の新しい順・日時が無い曲は最後・元の配列は保持');
+
+    // これまでの並び順は変わらない (default は API の返却順)
+    const others = run(`
+        (function () {
+            const tracks = [
+                { title: 'b', features: { tempo: 120 } },
+                { title: 'a', features: { tempo: 90 } },
+            ];
+            return [
+                sortRadarTracks(tracks, 'title'),
+                sortRadarTracks(tracks, 'bpm-desc'),
+                sortRadarTracks(tracks, 'bpm-asc'),
+                sortRadarTracks(tracks, 'default'),
+            ].map(list => list.map(t => t.title).join('')).join(' ');
+        })()
+    `);
+    assert.equal(others, 'ab ba ab ba', 'タイトル順 / BPM降順 / BPM昇順 / 既定の順');
 });
 
 // ----------------------------------------------------------

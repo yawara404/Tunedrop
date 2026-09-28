@@ -34,4 +34,4 @@ TOKEN=$(curl -s -X POST -H 'Content-Type: application/json' \
 ```
 
 詳細手順の実行例は対応する作業セッションのログを参照。
-削除は管理者API (`admin.php?action=delete_user`) でのみ行うこと。
+削除は管理者API (`admin/admin.php?action=delete_user`) でのみ行うこと。

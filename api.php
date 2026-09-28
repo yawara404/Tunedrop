@@ -12,7 +12,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 if (($_GET['action'] ?? '') === 'health') {
-    echo json_encode(['status' => 'ok', 'service' => 'TuneDrop PHP API']);
+    // features: フロントの接続先自動検出 (frontend/app.js の resolveTunedropApi) が
+    // 「別フォルダに残った古い api.php」を接続先に選ばないための目印。
+    // 古いコピーも health には同じ service 名で応答してしまうため、
+    // 認証プロキシ (guest 等) に対応したビルドであることを明示する。
+    // tests/api-client.cjs が「features の無い API を採用しない」ことを検証する。
+    echo json_encode([
+        'status' => 'ok',
+        'service' => 'TuneDrop PHP API',
+        'features' => ['auth_proxy', 'auth_guest'],
+    ]);
     exit;
 }
 
@@ -467,7 +476,7 @@ function ensure_schema(PDO $db): void {
         updated_at INTEGER NOT NULL
     )");
 
-    // サイト設定 (推薦の重みなど)。admin.php から編集する。
+    // サイト設定 (推薦の重みなど)。admin/admin.php から編集する。
     $db->exec("CREATE TABLE IF NOT EXISTS site_settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -498,7 +507,7 @@ function ensure_schema(PDO $db): void {
 /* ==========================================================
    推薦設定 (「あなたへのおすすめ」の重み)
    ----------------------------------------------------------
-   既定値はここに置き、admin.php が site_settings テーブルへ
+   既定値はここに置き、admin/admin.php が site_settings テーブルへ
    'recommend.<name>' として保存した値で上書きする。
    ========================================================== */
 const RECOMMEND_DEFAULT_SETTINGS = [
@@ -1025,7 +1034,7 @@ try {
             // - お気に入り数は人気ブーストとして少量加点
             // - 自分の公開リスト・すでにお気に入り済みは後回し (除外はしない)
             $viewer = require_user_or_guest($db);
-            $settings = recommend_settings($db);   // admin.php で編集した重み
+            $settings = recommend_settings($db);   // admin/admin.php で編集した重み
             $limit = max(1, min(12, (int)($_GET['limit'] ?? $settings['limit'])));
             $my_youtube_ids = $db->prepare(
                 "SELECT DISTINCT b.youtube_id FROM bookmarks b

@@ -1,0 +1,26 @@
+# Tune drop robots.txt
+#
+# 【置き場所の注意】robots.txt は「ホスト直下」で配信された場合だけ Google が読みます。
+#   有効: https://music.wawa-app.me/robots.txt          ← ホスト直下 (別プロジェクト QuadTecho が配信)
+#   無効: https://music.wawa-app.me/tunedrop/robots.txt ← このファイル (置いても読まれない)
+# このファイルは Tune drop のクロール方針の控えです。実際に反映するにはホスト直下の
+# robots.txt へ同じ内容と Sitemap 行を追加してください (このファイルが見本です)。
+#
+# サイトマップは Search Console の「サイトマップ」欄から直接送信もできます:
+#   https://music.wawa-app.me/tunedrop/sitemap.xml
+
+User-agent: *
+Allow: /
+
+# Tune drop の内部API (JSON) と管理者画面は検索結果に出す意味がなく、
+# クロール予算を使うため除外する。
+Disallow: /tunedrop/api.php
+Disallow: /tunedrop/admin/
+
+# ※ ogp.php (共有カード) は robots.txt で止めない。robots.txt でブロックすると
+#    Google が HTML 内の noindex を読めず、URL だけが残ることがあるため
+#    (ogp.php 自身が meta noindex を返している)。
+# ※ frontend/ の CSS/JS も止めない。ブロックすると Google がページを
+#    正しくレンダリングできず、評価が下がる。
+
+Sitemap: https://music.wawa-app.me/tunedrop/sitemap.xml

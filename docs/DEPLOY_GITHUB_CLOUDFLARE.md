@@ -15,8 +15,8 @@ GitHub → サーバーでコードを取得・更新
 
 ## 1. 今回追加した公開対策
 
-- `.htaccess` は公開するHTML・JS・CSSと `api.php`・`admin.php` だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git` はHTTPで取得できません。ブラウザ用のCSS/JSは `frontend/` に置きます。新しい画像やJSファイルを追加するときは許可リストにも追加してください。
-- `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と `./admin.sh --serve` はこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
+- `.htaccess` は公開するHTML（`index.html`）とビルド済み資産（`assets/*.js`, `*.css`, アイコン）、`api.php`・`ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（`admin/admin.php` とそのJS/CSS）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules` は配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面のシェルスクリプト `admin/admin.sh` は配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。
+- `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と `./admin/admin.sh --serve` はこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
 - JWT署名鍵はPython起動時に `.jwt_secret` にランダム生成され、PHPも同じファイルを読みます。既知の旧鍵は拒否します。既存ユーザーは更新後に再ログインが必要です。
 - Googleログインは `google-auth` で署名・宛先・発行者・有効期限を検証し、検証失敗や通信失敗をログイン拒否にします。`GOOGLE_CLIENT_ID` 未設定ならGoogleログインは利用できません。
 - Pythonは `127.0.0.1` のみで待ち受けます。外からはApache経由で利用します。
@@ -131,7 +131,7 @@ healthは200とJSON、後の4件は403になることを確認します。**200�
 
 ブラウザでは画面表示、新規登録、通常ログイン、楽曲の保存、再読み込み後の保持、Googleログインを確認します。以前のログイン状態は旧鍵で署名されているため、ログアウトしてログインし直します。
 
-既存DBにデモアカウントが残っている場合は、必要なデータを退避してから `./admin.sh` の管理画面で削除してください。今回の変更は既存アカウントを削除しません。管理者トークン付きURLは共有しないでください。
+既存DBにデモアカウントが残っている場合は、必要なデータを退避してから `./admin/admin.sh` の管理画面で削除してください。今回の変更は既存アカウントを削除しません。管理者トークン付きURLは共有しないでください。
 
 ## 6. Cloudflare Tunnelで公開
 
@@ -165,13 +165,16 @@ cloudflared tunnel --url http://localhost:8888
 
 ## 7. GitHubでコードを管理
 
-**初期設定は完了済みです。** Privateリポジトリ `yawora404/Tunedrop` を作成し、push済みです。
+**初期設定は完了済みです。** リポジトリ `<your-account>/Tunedrop` を作成し、push済みです。
 履歴は最新スナップショットの1コミットに整理済みです（変更履歴は残していません）。
-コミット author は GitHubアカウント（`yawora404` + noreplyメールアドレス）で設定済みです。
+コミット author は GitHubアカウント + noreplyメールアドレス（`<GitHubのID>+<your-account>@users.noreply.github.com`）で設定済みです。
 
-- リポジトリURL: https://github.com/yawora404/Tunedrop （Private）
+- リポジトリURL: https://github.com/<your-account>/Tunedrop （現在は **Public**）
 - DB・`.jwt_secret`・`.admin_token`・`.env`・バックアップは `.gitignore` により除外済み。
   ソース内にAPI鍵等の秘密情報が混入していないことも初回push前に確認済みです。
+- **Public リポジトリなので、本名・個人メール・アカウント固有の値をコミットしないこと。**
+  コミット author のメールは必ず noreply アドレスを使う（GitHubのプロフィールに出したくない
+  メールを履歴に入れてしまうと、後から消すには履歴の書き換えと force push が必要になる）。
 
 ### 初回公開の手順（実施記録・再現用）
 
@@ -189,8 +192,8 @@ git diff --cached -U0 | grep -inE 'AIza[0-9A-Za-z_-]{30,}|BEGIN [A-Z ]*PRIVATE K
   || echo 'OK: 鍵パターンなし'
 
 # 2) コミット author を GitHub アカウント + noreply メールに設定 (このリポジトリ限定)
-git config user.name "yawora404"
-git config user.email "283852575+yawora404@users.noreply.github.com"
+git config user.name "<your-account>"
+git config user.email "<GitHubのID>+<your-account>@users.noreply.github.com"
 git commit -m "Prepare TuneDrop for self-hosting"
 
 # 3) GitHub に空のリポジトリを作成 (Private)
@@ -199,7 +202,7 @@ git commit -m "Prepare TuneDrop for self-hosting"
 
 # 4) リモート登録して push
 git branch -M main
-git remote add origin https://github.com/yawora404/Tunedrop.git
+git remote add origin https://github.com/<your-account>/Tunedrop.git
 git push -u origin main
 ```
 
@@ -235,13 +238,13 @@ Change repository visibility** で Private ⇄ Public を切り替えられま�
 - `git config user.name` / `user.email` はこのリポジトリ限定（`--local`）で設定済みです。
   別リポジトリで使う場合は適宜設定してください。
 - push時の認証はmacOSキーチェーンに保存済みのGitHubトークン（credential helper）で自動処理されます。
-- 管理画面 (`admin.php` / `admin.js` / `admin.css` / `admin.sh` / `tests/admin-*`) は
+- 管理画面 (`admin/` 配下と `tests/admin-*`) は
   意図的にGit管理外 (`.gitignore`) です。ローカルでのみ保持され、GitHubには公開されません。
 - `.gitignore` は既に追跡済みのファイルや過去の履歴を消しません。以前秘密情報をコミットした場合は、その鍵を交換し、履歴からの削除を別途行ってください。
 
 ### 別サーバーへの展開
 
-別サーバーでは `git clone https://github.com/yawora404/Tunedrop.git` で取得し、Python・PHP（PDO SQLite含む）・Apache・cloudflaredを用意してこの手順を繰り返します。データを移す場合はSQLiteバックアップをサーバーへ安全に転送して復元します。GitHubだけではユーザーデータは移りません。
+別サーバーでは `git clone https://github.com/<your-account>/Tunedrop.git` で取得し、Python・PHP（PDO SQLite含む）・Apache・cloudflaredを用意してこの手順を繰り返します。データを移す場合はSQLiteバックアップをサーバーへ安全に転送して復元します。GitHubだけではユーザーデータは移りません。
 
 ## 8. 更新・バックアップ・常時運用
 

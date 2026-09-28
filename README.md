@@ -34,17 +34,22 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 ### 全体構成
 
 ```text
-ブラウザ (SPA, ビルド不要)
-├─ フロントエンド: Vanilla JS (plain script) + Canvas マップ描画
+ブラウザ (SPA)
+├─ フロントエンド: Vanilla JS (Vite でビルドした ES Modules) + Canvas マップ描画
 ├─ データ管理API: PHP + SQLite (PDO, WAL)
 └─ 認証・解析サーバー: Python (Flask + Waitress) + 楽曲解析エンジン
 配信: MAMP/Apache (:8888) + ngrok、または PHPビルトインサーバー (start.sh)
+ビルド: Vite (ソースは frontend/、成果物はプロジェクト直下の index.html + assets/)
 ```
 
 ### フロントエンド
 
-- フレームワークなしのVanilla JavaScript（classic script、ビルド・ES Modules不要）。`frontend/config.js` + `frontend/app.js` + `frontend/style.css` の3ファイルのみ
+- フレームワークなしのVanilla JavaScript。ソースは `frontend/main.js`（エントリ）+ `frontend/config.js` + `frontend/app.js` + `frontend/style.css`
   （旧 `api-client.js` / `manager-lists.js` / `text-marquee.js` は `app.js` に統合済み、vendored Vueは削除しVue依存なし）
+- Vite でビルドし、成果物はプロジェクト直下の `index.html` と `assets/`（内容ハッシュ付きファイル名）。
+  テンプレートは `frontend/index.html`。`./start.sh` と `./sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
+- `app.js` のトップレベル関数は `main.js` の `Object.assign(window, app)` で window に公開し、
+  マークアップの `onclick="..."` と外部スクリプト（YouTube IFrame API / Google Identity Services）のコールバックから呼べる
 - API接続先の自動検出（同一originの `api.php` → `mampApiUrl` のhealthプローブ）とJWTの自動付与
 - YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
 - Google Identity ServicesによるGoogleログイン（任意）
@@ -60,11 +65,15 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
   同じDBを同時に読み書きしてもリクエストが待たされない構成（スキーマ更新は版管理で必要時のみ実行）
 - 認証系はFlaskサーバーへのプロキシ（`.auth_port` → 既知ポート走査で動的検出）
 - 公開ファイル制限は `.htaccess`（Apache）と `router.php`（開発サーバー）の許可リストで実施。
-  FastCGI向けのAuthorizationヘッダ補正、gzip圧縮、`?v=` によるブラウザ資産のキャッシュ版管理付き
+  FastCGI向けのAuthorizationヘッダ補正、gzip圧縮、キャッシュ制御付き。配信するのは画面の
+  ビルド成果物（`index.html` と `assets/` のハッシュ付き資産）とOGPカード画像（`frontend/favicon-card.png`）だけで、
+  ビルド元の `frontend/*.js`・`*.css` や `node_modules` は配信しない
+  （`assets/` はファイル名に内容のハッシュが入るため長期キャッシュ、`index.html` は毎回検証）
 
 ### 認証サーバー
 
 - Python (Flask + flask-cors + PyJWT + Werkzeug + google-auth) によるメール登録・ログイン・Googleログイン検証
+- ログインIDは登録時に入力した値（メールアドレスなど）で、プロフィールで変更できる「表示名」とは別。プロフィール画面にログインIDを表示して取り違えを防ぐ
 - ゲストは Flask が端末ごとに SQLite のユーザーを作成し、ブラウザの `localStorage` に保存した認証情報で再訪時に復元する。ゲストのプレイリストや曲も端末ごとに分離される。ブラウザの保存情報を消すと以前のゲストデータにはアクセスできない
 - Waitressで配信（未導入時はFlask開発サーバーにフォールバック）。空きポートを自動選択し `.auth_port` に記録
 - パスワードはハッシュ化して保存し、署名付きJWT（24時間）でセッションを維持

@@ -19,7 +19,7 @@
    │ ② https://gainfully-macaroni-swivel.ngrok-free.dev/  （外部公開）
    ▼
 MAMP Apache (:8888, DocumentRoot = /Users/<username>/Tunedrop)
-   ├── index.html / frontend/ (app.js・style.css・config.js …) 静的配信
+   ├── index.html / assets/ (Vite のビルド成果物) 静的配信
    ├── api.php  … SQLite(database.sqlite) を直接読み書きするデータAPI
    │      └── 認証だけは下の Python サーバーへ HTTP 転送（プロキシ）
    └── /api/*   … ProxyPass で Python サーバーへ転送（httpd.conf 設定済み）
@@ -53,6 +53,11 @@ grep -E '^DocumentRoot|^Listen' /Applications/MAMP/conf/apache/httpd.conf
 
 # Python ライブラリ（Flask / flask-cors / PyJWT / Waitress）
 python3 -c 'import flask, flask_cors, jwt, waitress; print("Python依存関係 OK")'
+
+# Node（画面のビルドに使う。Vite は Node 20 以降）
+node -v
+npm install          # 初回と package.json を変えたときだけ (frontend/ のビルド用)
+npm run build        # frontend/ -> index.html + assets/ (./start.sh が自動でも実行する)
 
 # 音源解析 (実測BPM・雰囲気) を使うかどうか。start.sh は .venv の Python を使う。
 .venv/bin/python vibe_analyzer.py --engine
@@ -246,15 +251,21 @@ ngrok 無料プランの初回アクセス警告ページです。**「Visit Sit
 `frontend/app.js` 内のAPI接続処理は次の順で API を自動検出します。上から順に確認してください。
 
 1. 現在のページと同じ場所の `api.php`
-2. `frontend/config.js` の `mampApiUrl`（既定: `http://localhost:8888/api.php`）
+2. `frontend/config.js` の `mampApiUrl`（既定: `http://localhost:8888/tunedrop/api.php`）
 3. `http://localhost:8888/api.php`
 
+health 応答の `features` に `auth_guest` が含まれるものだけを接続先として採用します。
+別フォルダ（旧DocumentRoot）に残った古い `api.php` は同じ service 名で health に応答しますが
+`/auth/guest` を持たず認証が全滅するため、この判定で除外されます。
+
 ```bash
-curl -s "http://localhost:8888/api.php?action=health"   # JSON が返るか
-grep -E '^DocumentRoot|^Listen' /Applications/MAMP/conf/apache/httpd.conf
+curl -s "http://localhost:8888/tunedrop/api.php?action=health"   # JSON が返るか
+grep -E '^DocumentRoot|^Alias|^Listen' "/Library/Application Support/appsolute/MAMP PRO/conf/httpd.conf"
 ```
 
-別ポート・別パスで MAMP を動かしている場合は `frontend/config.js` の `mampApiUrl` を合わせてください。
+- MAMP のエイリアスは**小文字**の `/tunedrop` です。`/Tunedrop` は404、MAMP の `DocumentRoot`
+  （既定: `~/Sites/localhost`）配下の `api.php` はこのプロジェクトの別コピーです。
+- 別ポート・別パスで MAMP を動かしている場合は `frontend/config.js` の `mampApiUrl` を合わせてください。
 
 ### 画面は出るのに、操作すると何も返らない／ずっと読み込み中のままになる（SQLite のロック）
 
@@ -301,7 +312,12 @@ pkill -f 'app.py' && ./start.sh --mamp
   スキーマが古いときだけ実行します。加えて旧データの掃除も
   「直すべき行があるときだけ」書き込むため、通常のリクエストは読み取りだけで完了します。
 - **二重起動の防止**: `./start.sh --mamp` は既に認証・解析サーバーが動いていれば
-  起動せずに終了します（ポートとロックの取り合いを防ぐ）。
+  **その既存プロセスをそのまま使い**、Webサーバー（PHP）側だけを起動します
+  （ポートとロックの取り合いを防ぎつつ、Web側だけが落ちている状態から復帰できる）。
+  古い `app.py` を読み直させたい場合は、先に `kill <PID>` で止めてから実行してください。
+- **ポート競合時の自動切替**: `./start.sh`（引数なし）は 8000 番が別アプリに使われている場合、
+  8001 / 8002 / 8003 / 8010 / 8080 の順で空きポートを探して起動し、実際のURLを表示します
+  （`TUNEDROP_PORT=8001 ./start.sh` で固定も可能）。
 - **解析呼び出しのタイムアウト**: ブックマーク追加時の AI 解析呼び出しに
   8秒のタイムアウトを設定（既定の `default_socket_timeout` 60秒まで待たない）。
 
@@ -440,7 +456,9 @@ MAMP + ngrok で **画面は表示されるのに操作すると応答が返ら�
   `PRAGMA busy_timeout`、起動時の WAL 有効化。解析結果の保存などで例外が出ても
   接続を必ず閉じるよう修正（閉じ忘れるとロックを保持したままになり、サイト全体が固まる）。
 - **`analysis_cache.py` / `reanalyze_songs.py`**: 接続に `busy_timeout` を明示。
-- **`start.sh`**: 既に認証・解析サーバーが動いていれば起動しない（二重起動でポートとロックを取り合わない）。
+- **`start.sh`**: 認証・解析サーバーが既に動いている場合は二重起動せず、既存プロセスを使って
+  Webサーバー（PHP）だけを起動する。8000番が別アプリ（例: Midair.io の uvicorn）に使われている場合は
+  空きポートを自動で選び、実際のURLを表示する（`TUNEDROP_PORT` で固定可）。
 - **回帰テスト**: `tests/sqlite-concurrency.py`
   （読み取りは待たされない・書き込みは短時間で復帰可能なエラーを返す・閲覧でDBが書き換わらない）。
 

@@ -1523,6 +1523,14 @@ body.player-in-sidebar .youtube-popup.is-active {
     color: var(--text-sub);
 }
 
+/* 条件が何も無いときの「条件クリア」はPCのツールバーでは出さない
+   (スマホの絞り込みモーダルでは4つ目の枠として常に出す) */
+@media (min-width: 601px) {
+    .radar-content-area .radar-clear-chip.is-empty {
+        display: none;
+    }
+}
+
 .legend-dot {
     width: 9px;
     height: 9px;
@@ -2901,9 +2909,16 @@ body.player-in-sidebar .youtube-popup.is-active {
     body.mobile-menu-open .sidebar.show-mobile,
     body.mobile-menu-open .radar-sidebar.show-mobile {
         top: 143px !important;
-        bottom: 0 !important;
-        height: calc(100dvh - 195px) !important;
+        /* 下端はプレイヤー(56px)+シークバー(3px)の上で止める。
+           以前は height: calc(100dvh - 195px) で止めるつもりだったが、この要素の
+           基準位置はヘッダー(52px)の下からなので、下端が画面いっぱいまで伸びて
+           プレイヤーの再生ボタンを覆い、タップできなくなっていた (Radar画面で顕著)。 */
+        bottom: 59px !important;
+        height: auto !important;
         max-height: none !important;
+        /* 画面が低い端末で中身がプレイヤー側へはみ出さないよう、ドロワー内でスクロールさせる */
+        overflow-y: auto !important;
+        overscroll-behavior-y: contain;
         border-top: none !important;
         box-shadow: none !important;
     }
@@ -3038,12 +3053,10 @@ body.player-in-sidebar .youtube-popup.is-active {
         z-index: 150 !important;
     }
 
-    .youtube-popup:hover,
-    .youtube-popup:active,
-    .youtube-popup:focus-within {
-        opacity: 0.72;
-    }
-
+    /* 動画の上をタップ/クリックしている間だけ少し薄くする (マウス環境のみ)。
+       タッチ環境 (スマホ / DevTools のモバイル検証) では :hover や :focus-within が
+       動画内の操作で張り付き、再生中ずっと薄いままになって
+       「押せない・無効になっている」ように見えてしまうため適用しない。 */
     .bottom-player {
         height: 56px !important;
         background: rgba(24, 24, 24, 0.96) !important;
@@ -3793,13 +3806,16 @@ body.player-in-sidebar .youtube-popup.is-active {
 
 @media (max-width: 1024px) {
 
-    /* Keep all player layers beneath the mobile drawer (z-index: 200). */
+    /* Keep all player layers beneath the mobile drawer (z-index: 200).
+       ※ pointer-events は切らない: 切ると「メニューを開いた状態でプレイヤーの
+         再生ボタンを押しても1回目が無反応」になる (2回押さないと操作できない)。
+         重なっている部分は z-index が上のドロワーが受け取るので、
+         プレイヤー側は操作できるままにしておく。 */
     body.mobile-menu-open .bottom-player,
     body.mobile-menu-open .youtube-popup,
     body.mobile-menu-open .progress-bar-container,
     body.mobile-menu-open .track-details {
         z-index: 150 !important;
-        pointer-events: none;
     }
 
     .bottom-player .player-actions {
@@ -3972,6 +3988,25 @@ body.player-in-sidebar .youtube-popup.is-active {
     margin-top: 10px;
     font-size: 13px;
     line-height: 1.5;
+    color: var(--text-sub);
+}
+
+/* プロフィールの「ログインID」表示。
+   画面に出るのは表示名なので、ログイン時に何を入力するか分かるように明示する。 */
+.profile-login-id {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-sub);
+    overflow-wrap: anywhere;
+}
+
+/* ログインモーダルの「ログインIDとは何か」の補足 (表示名との取り違え防止) */
+.login-id-hint {
+    margin: 0 0 20px 0;
+    font-size: 11px;
+    line-height: 1.7;
+    text-align: left;
     color: var(--text-sub);
 }
 
@@ -4486,3 +4521,275 @@ body.player-in-sidebar .youtube-popup.is-active {
         transform: none;
     }
 }
+
+/* ==========================================================
+   モバイル: ヘッダーと Radar の操作領域を指で扱いやすくする
+   ----------------------------------------------------------
+   ・ヘッダー: ラベルを短くして、390px 以下でログインボタンが
+     潰れたり画面外に出たりするのを防ぐ
+   ・Radar: 絞り込みを既定で畳んでマップの高さを確保し、タップ領域を広げる
+   (既存の 600px / 380px ルールより後に置いて上書きする)
+   ========================================================== */
+.radar-filters-toggle,
+.nav-login-label-short {
+    display: none;   /* PCでは絞り込みは常時表示・ログインは「ログイン / 登録」 */
+}
+
+/* PC: シートのラッパーは箱を作らず、ツールバー内の横並びを維持する
+   (display: contents で子の select / ボタンが直接ツールバーの項目になる) */
+.radar-filters-sheet,
+.radar-filters-head,
+.radar-filters-body,
+.radar-filters-actions {
+    display: contents;
+}
+
+.radar-filters-head,
+.radar-filters-done {
+    display: none;   /* 見出しと「完了」はモバイルのボトムシート専用 */
+}
+
+@media (max-width: 600px) {
+    /* --- ヘッダー --- */
+    #nav-help {
+        margin: 0 4px;
+    }
+
+    #nav-help .nav-help-label {
+        display: none;   /* アイコンのみ (読み上げは aria-label が担当) */
+    }
+
+    .nav-login-label-full {
+        display: none;
+    }
+
+    .nav-login-label-short {
+        display: inline;
+    }
+
+    .top-nav .logo {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* ロゴ側は縮められるようにする (ラッパーが縮まないとヘッダーがはみ出す) */
+    .top-nav .nav-left {
+        min-width: 0;
+    }
+
+    .top-nav .user-menu {
+        flex-shrink: 0;
+    }
+
+    #nav-login,
+    #nav-profile {
+        flex-shrink: 0;
+        padding: 6px 10px;
+    }
+
+    #nav-profile .nav-profile-label {
+        display: inline-block;
+        max-width: 6.5em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+
+    /* --- Radar: 絞り込みはボトムシートのモーダル --- */
+    .radar-filters-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .radar-filters-toggle.is-active {
+        border-color: var(--accent-color);
+        color: var(--accent-color);
+    }
+
+    .radar-content-area .radar-map-subcontrols {
+        display: none;
+    }
+
+    /* 背景 (この要素自身) をタップすると閉じる。パネルは画面の中央に置く */
+    body.radar-filters-open .radar-content-area .radar-map-subcontrols {
+        display: flex;
+        position: fixed;
+        inset: 0;
+        z-index: 9998;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        margin: 0;
+        padding: 16px;
+        background: rgba(0, 0, 0, 0.72);
+    }
+
+    body.radar-filters-open .radar-content-area .radar-filters-sheet {
+        display: block;
+        width: 100%;
+        max-width: 420px;
+        max-height: 82dvh;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--panel-bg);
+        border: 1px solid #444;
+        border-radius: 16px;
+        padding: 14px;
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+    }
+
+    body.radar-filters-open .radar-content-area .radar-filters-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+
+    .radar-content-area .radar-filters-title {
+        margin: 0;
+        font-size: 14px;
+        color: var(--text-main);
+    }
+
+    .radar-content-area .radar-filters-close {
+        width: 40px;
+        height: 40px;
+        border: 1px solid #444;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--text-sub);
+        font-size: 15px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    /* 選択肢は2列。文字が切れない幅を確保する */
+    body.radar-filters-open .radar-content-area .radar-filters-body {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    /* 選択肢は2列。380px以下のツールバー用 span 指定より後に置いて打ち消す */
+    .radar-content-area .radar-map-subcontrols .radar-filters-body .ctrl-select {
+        width: 100%;
+        min-height: 42px;
+        font-size: 14px;
+        grid-column: auto;
+    }
+
+    /* 4つ目の枠: 条件クリア。条件が無くても枠を埋める (小さな画面の span 指定も打ち消す) */
+    .radar-content-area .radar-filters-body #btn-radar-clear {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        grid-column: auto;
+        width: 100%;
+        min-height: 42px;
+        font-size: 14px;
+    }
+
+    body.radar-filters-open .radar-content-area .radar-filters-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+    }
+
+    .radar-content-area .radar-filters-actions .ctrl-chip {
+        flex: 1 1 auto;
+        min-height: 44px;
+        font-size: 14px;
+    }
+
+    .radar-content-area .radar-filters-done {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+        color: #000;
+        font-weight: 800;
+    }
+
+    #radar-category-filter,
+    #btn-radar-random,
+    #btn-radar-filters-toggle {
+        grid-column: span 4;
+    }
+
+    /* --- Radar: タップ領域とマップの高さ --- */
+    .radar-map-zoom button {
+        width: 40px;
+        height: 40px;
+        font-size: 17px;
+    }
+
+    .radar-content-area .radar-selected-panel .radar-panel-btn {
+        min-height: 34px;
+        padding: 6px 10px;
+    }
+
+    .radar-content-area .radar-panel-title {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .radar-content-area .radar-map-container {
+        flex: 1 0 220px;
+        min-height: 220px;
+    }
+}
+
+/* 極小画面 (Galaxy Fold 閉じ等): 余白を詰めてヘッダーを1行に収める */
+@media (max-width: 380px) {
+    .top-nav #nav-help {
+        padding: 6px 6px;
+    }
+
+    #nav-login,
+    #nav-profile {
+        padding: 6px 8px;
+    }
+}
+
+/* ==========================================================
+   動画プレイヤー表示中 (Radar UI が下へずれる) のマップの高さ
+   ----------------------------------------------------------
+   マップは最小200〜220pxで縮まないため、画面が低い端末では曲札まで
+   押し出されてプレイヤーバーの裏に隠れ、そこをタップするとプレイヤーが
+   反応する「触れない領域」ができていた。
+   動画を出している間だけマップを縮めて、曲札まで画面内に収める
+   (動画を閉じれば元の大きさに戻る)。
+   ========================================================== */
+@media (max-width: 600px) {
+    body.player-in-sidebar:has(.youtube-popup.is-active) .radar-content-area .radar-map-container {
+        flex: 1 1 auto;
+        min-height: 80px;
+    }
+
+    /* 動画プレイヤーの角丸はモバイルの Radar でも維持する
+       (iframe が四角くはみ出さないよう overflow: hidden とセットで必ず残す) */
+    .youtube-popup,
+    body.player-in-sidebar .youtube-popup.is-active {
+        border-radius: 12px !important;
+        overflow: hidden !important;
+    }
+}
+
+/* 動画の上にマウスがある間だけ薄くする演出は、マウスで操作できる環境に限定する。
+   タッチ環境では :hover / :focus-within が張り付いて再生中ずっと薄くなり、
+   動画が「無効・押せない」ように見えてしまうため。 */
+@media (max-width: 1024px) and (hover: hover) and (pointer: fine) {
+    .youtube-popup:hover,
+    .youtube-popup:active,
+    .youtube-popup:focus-within {
+        opacity: 0.72;
+    }
+}
+

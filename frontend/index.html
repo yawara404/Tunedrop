@@ -63,8 +63,8 @@
     </script>
     <!-- ファビコン。タブ用は軽いSVG、スマホのホーム画面 (apple-touch-icon) と
          SNS/検索結果のプレビュー (og:image) は 512x512 の PNG (favicon-card.png) を使う。 -->
-    <link rel="icon" type="image/svg+xml" href="./assets/favicon-XFPjgaE8.svg">
-    <link rel="apple-touch-icon" href="./assets/favicon-card-kTGXgV4Y.png">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <link rel="apple-touch-icon" href="./favicon-card.png">
     <!-- モバイルのブラウザUI (アドレスバー) を配色に合わせる -->
     <meta name="theme-color" content="#121212">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -76,14 +76,13 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=account_circle,add,arrow_back,close,delete,description,drag_indicator,drive_file_move,edit,favorite,heart_broken,help,home,library_music,lock,menu,more_vert,music_note,person,play_arrow,public,radar,share,skip_next,skip_previous&display=swap"
         rel="stylesheet">
+    <link rel="stylesheet" href="./style.css">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
         window.initGoogleAuth = window.initGoogleAuth || function () { window.__gsiReadyQueued = true; };
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" crossorigin src="./assets/index-G2Au7lGb.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-rHf9bxIG.css">
 </head>
 
 <body>
@@ -746,6 +745,7 @@
          このファイルを直に配信することはない (許可リストにも入っていない)。
          開発中は npm run dev (Vite の開発サーバー)、確認は npm run build 後の
          プロジェクト直下の index.html (または ./start.sh の配信) で行う。 -->
+    <script type="module" src="./main.js"></script>
 </body>
 
 </html>

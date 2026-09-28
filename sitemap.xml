@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tune drop: 検索エンジンに登録してよい公開ページの一覧
+
+  載せていない URL と理由:
+  - 画面 (Manager / Radar / Share / Help など) はハッシュルーティング
+    (index.html#/manager) で、Google は # 以降を別URLとして扱わないため1枚に集約される。
+  - 公開プレイリストの共有URL (ogp.php?playlist=N) は ogp.php が meta noindex で返す
+    (カード表示専用で、すぐ SPA へ転送するため)。noindex の URL を sitemap へ載せると
+    Search Console で「noindex により除外」としてノイズになるため載せない。
+
+  lastmod は ./sync.sh が「ビルド成果物 (index.html / assets/) を更新した日」に書き換える。
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://music.wawa-app.me/tunedrop/</loc>
+    <lastmod>2026-09-28</lastmod>
+    <changefreq>weekly</changefreq>
+  </url>
+</urlset>

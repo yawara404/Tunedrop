@@ -15,10 +15,16 @@ else
 fi
 cd "$DIR"
 MODE="${1:-standalone}"
-if [[ "$MODE" != standalone && "$MODE" != --mamp ]]; then
-    echo "Usage: ./start.sh [--mamp]" >&2
-    exit 1
-fi
+case "$MODE" in
+    # `./start.sh start` のように start/serve を付けて呼ばれる場合も受け付ける
+    # (他のプロジェクトの起動スクリプトに合わせた呼び方で「Usage」で止まる事故を防ぐ)。
+    standalone|start|serve) MODE=standalone ;;
+    --mamp) ;;
+    *)
+        echo "Usage: ./start.sh [--mamp]   (引数なし = PHP + Python をこのMac内で起動)" >&2
+        exit 1
+        ;;
+esac
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if [[ -x "$DIR/.venv/bin/python" ]]; then
     PYTHON_BIN="$DIR/.venv/bin/python"
@@ -45,6 +51,31 @@ fi
 PYTHON_PID=''
 PHP_PID=''
 
+# 画面 (プロジェクト直下の index.html と assets/) は Vite のビルド成果物。
+# ビルド元 (frontend/) の方が新しければ自動でビルドし直す。MAMP 配信 (--mamp) でも
+# 同じフォルダを配信するため、モードに関わらずここで整える。
+# node_modules が無い (npm install 未実行) 場合はビルドできないので、
+# 既にある成果物をそのまま使う (無ければ理由を出して止まる)。
+if [[ -d node_modules ]]; then
+    needs_build=0
+    if [[ ! -f index.html || ! -d assets ]]; then
+        needs_build=1
+    else
+        for src in frontend/index.html frontend/main.js frontend/app.js frontend/config.js frontend/style.css; do
+            if [[ "$src" -nt index.html ]]; then
+                needs_build=1
+            fi
+        done
+    fi
+    if [[ "$needs_build" == 1 ]]; then
+        echo "画面をビルドしています (npm run build)..."
+        npm run build
+    fi
+elif [[ ! -f index.html ]]; then
+    echo "画面 (index.html) がありません。npm install && npm run build を実行してください。" >&2
+    exit 1
+fi
+
 # 既に認証・解析サーバーが動いているか (.auth_port のポートに /health を投げて確認)。
 # 二重起動するとポートと SQLite のロックを取り合い、MAMP 側の応答が止まるため先に弾く。
 auth_server_running() {
@@ -66,10 +97,36 @@ sys.exit(0 if payload.get("service") == "Tune drop Auth Server" else 1)
 PY
 }
 
+# 安全に bind できるポートを探す (8000 が他プロジェクトに使われている場合がある)。
+# TUNEDROP_PORT を指定するとその値を最優先で使う。
+pick_web_port() {
+    local candidate
+    for candidate in "${TUNEDROP_PORT:-8000}" 8000 8001 8002 8003 8010 8080; do
+        if "$PYTHON_BIN" - "$candidate" <<'PY'
+import socket
+import sys
+
+try:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    sys.exit(1)
+PY
+        then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# 認証・解析サーバー (app.py) が既に動いている場合でも、Webサーバーは起動する。
+# 以前はここで終了していたため「サーバーを起動できない/接続できない」状態になった。
+START_AUTH=1
 if auth_server_running; then
     echo "認証・解析サーバーは既に起動しています (ポート $(tr -dc '0-9' <"$DIR/.auth_port"))。" >&2
-    echo "二重起動を防ぐため、このまま終了します。再起動はそのプロセスを Ctrl+C で止めてから実行してください。" >&2
-    exit 0
+    echo "二重起動はせず、既存のプロセスをそのまま使ってWebサーバーだけを起動します。" >&2
+    START_AUTH=0
 fi
 
 cleanup() {
@@ -78,18 +135,33 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 0' INT TERM
-"$PYTHON_BIN" app.py &
-PYTHON_PID=$!
+if [[ "$START_AUTH" == 1 ]]; then
+    "$PYTHON_BIN" app.py &
+    PYTHON_PID=$!
+fi
 if [[ "$MODE" == --mamp ]]; then
-    echo "MAMPを起動してください: http://localhost:8888/Tunedrop/"
+    # MAMPのDocumentRootはプロジェクト直下とは限らない。公開エイリアスは小文字の /tunedrop/。
+    echo "MAMPを起動してください: http://localhost:8888/tunedrop/"
     echo "Live Server: index.htmlをOpen with Live Serverで開いてください。"
-    echo "管理者ページ: ./admin.sh （トークン付きURLを開きます）"
-    echo "Ctrl+CでPythonサーバーを停止します。"
-    wait "$PYTHON_PID"
+    echo "管理者ページ: ./admin/admin.sh （トークン付きURLを開きます）"
+    if [[ "$START_AUTH" == 1 ]]; then
+        echo "Ctrl+CでPythonサーバーを停止します。"
+        wait "$PYTHON_PID"
+    else
+        echo "WebサーバーはMAMPをそのまま使えます (このスクリプトは終了します)。"
+    fi
 else
-    echo "TuneDrop: http://localhost:8000 （Ctrl+Cで停止）"
-    echo "管理者ページ: ./admin.sh （トークン付きURLを開きます）"
-    "$PYTHON_BIN" "$DIR/runtime_config.py" "$PHP_BIN" -S 127.0.0.1:8000 -t "$DIR" "$DIR/router.php" &
+    WEB_PORT="$(pick_web_port)" || {
+        echo "空きポートが見つかりませんでした。TUNEDROP_PORT=8001 のように指定してください。" >&2
+        exit 1
+    }
+    if [[ "$WEB_PORT" != 8000 ]]; then
+        echo "注意: ポート8000は別のアプリが使用中です (このMacでは Midair.io の uvicorn が常駐)。" >&2
+        echo "Webサーバーはポート $WEB_PORT で起動します。" >&2
+    fi
+    echo "TuneDrop: http://localhost:$WEB_PORT （Ctrl+Cで停止）"
+    echo "管理者ページ: ./admin/admin.sh （トークン付きURLを開きます）"
+    "$PYTHON_BIN" "$DIR/runtime_config.py" "$PHP_BIN" -S "127.0.0.1:$WEB_PORT" -t "$DIR" "$DIR/router.php" &
     PHP_PID=$!
     wait "$PHP_PID"
 fi

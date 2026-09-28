@@ -23,7 +23,15 @@ DirectoryIndex index.html
 # plus the public alias /tunedrop/.
 # 末尾スラッシュなし (/tunedrop) も許可し、mod_dir に /tunedrop/ へ
 # リダイレクトさせる (許可しないと 403 になり「開けない」原因になる)。
-Require expr "%{REQUEST_URI} =~ m#^/(?:[Tt]unedrop/?)?(?:index\.html|api\.php|admin\.php|admin\.js|admin\.css|ogp\.php|frontend/(?:(?:app|config)\.js|favicon\.svg)|frontend/style\.css)?$#"
+# 管理画面は admin/ にまとめた。開くのは admin/admin.php (admin.sh が URL を作る)。
+# ディレクトリ (/admin/) は -Indexes のため 403 になる (ファイルを直接開く)。
+# 画面の本体 (index.html) と資産 (assets/*.js, *.css ...) は Vite のビルド成果物。
+# 資産はファイル名に内容のハッシュが入るため個別登録できないので、assets/ 直下で
+# 拡張子が既知のものだけを許可する (ビルド元の frontend/app.js・frontend/style.css や
+# サブフォルダ、隠しファイルは403のまま)。frontend/ で配信し続けるのは
+# OGPカード画像 (favicon-card.png。og:image に絶対URLで書くため、ハッシュ付きの
+# assets/ には置けない) だけ。
+Require expr "%{REQUEST_URI} =~ m#^/(?:[Tt]unedrop/?)?(?:index\.html|api\.php|ogp\.php|robots\.txt|sitemap\.xml|google[a-z0-9]+\.html|admin/admin\.(?:php|js|css)|assets/[A-Za-z0-9_-]+\.(?:js|css|svg|png|jpe?g|webp|gif|ico|woff2?|map)|frontend/favicon-card\.png)?$#"
 
 # ==========================================================
 # TuneDrop: 配信の軽量化 (gzip + ブラウザ資産のキャッシュ)
@@ -45,23 +53,35 @@ Require expr "%{REQUEST_URI} =~ m#^/(?:[Tt]unedrop/?)?(?:index\.html|api\.php|ad
     SetEnvIfNoCase Request_URI \.(?:gif|jpe?g|png|webp|woff2?|ttf|otf|mp4|webm|zip|gz)$ no-gzip dont-vary
 </IfModule>
 
-# ブラウザ資産はクエリ文字列 (?v=...) で版管理している。
-# ?v= 付きは長め (7日)、それ以外は短め (1時間) にして、更新漏れの事故を防ぐ。
-# index.html は毎回検証し、常に最新の資産を参照できるようにする。
-# 注意: SetEnvIf の Request_URI / Query_String ではクエリ (?v=) を判定できない
-# (どちらも一致しないことを実機検証済み)。クエリ判定は mod_rewrite で行う。
+# ブラウザ資産は Vite がファイル名に内容のハッシュを入れる (assets/index-<hash>.js)。
+# 中身が変わればURLも変わるので、assets/ は長く持たせてよい (再検証の往復を無くす)。
+# 以前は index.html が ?v=<ハッシュ> を付けて frontend/*.js を参照していたが、
+# その方式はビルド成果物のハッシュに置き換わった (?v= が残るのは OGPカード画像だけ)。
+# 画面の HTML は毎回検証し、常に最新の資産を参照できるようにする。
 # mod_rewrite が無効な環境では IfModule ごと無視され、全資産が短めキャッシュになるだけ。
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteCond %{QUERY_STRING} (^|&)v=
-    RewriteRule ^ - [E=tunedrop_versioned:1]
+    RewriteRule ^assets/ - [E=tunedrop_immutable:1]
 </IfModule>
 <IfModule headers_module>
-    <FilesMatch "\.(?:css|js|woff2?|ttf|otf)$">
-        Header set Cache-Control "public, max-age=3600"
-        Header set Cache-Control "public, max-age=604800" env=tunedrop_versioned
+    # OGPカード画像 (SNS/検索結果のプレビュー用) やアイコンは更新が稀なので長めに持たせる。
+    <FilesMatch "\.(?:png|jpe?g|webp|gif|svg|ico)$">
+        Header set Cache-Control "public, max-age=604800"
     </FilesMatch>
     <FilesMatch "\.html$">
         Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+    # 検索エンジンのクローラーが定期的に読む。長すぎるキャッシュは避ける (1時間)。
+    <FilesMatch "^(?:robots\.txt|sitemap\.xml)$">
+        Header set Cache-Control "public, max-age=3600"
+    </FilesMatch>
+    <FilesMatch "\.(?:css|js|woff2?|ttf|otf)$">
+        Header set Cache-Control "public, max-age=3600"
+    </FilesMatch>
+    # assets/ (Viteのハッシュ付き資産) は URL が内容に紐づくので長く持たせる。
+    # Header は後から書いたものが上書きするため、必ずこの最後に置くこと
+    # (上に置くと、下の png/svg の 7日ルールに負ける)。
+    <FilesMatch "\.(?:js|css|svg|png|jpe?g|webp|gif|ico|woff2?|ttf|otf)$">
+        Header set Cache-Control "public, max-age=31536000, immutable" env=tunedrop_immutable
     </FilesMatch>
 </IfModule>

@@ -21,11 +21,11 @@ __pycache__/
 _backup*/
 backups/
 .vscode/
+# Node / Vite (ビルド成果物の index.html と assets/ はコミットする)
+/node_modules/
+.vite/
 # Admin panel: local-only, not published on GitHub
-/admin.php
-/admin.js
-/admin.css
-/admin.sh
+/admin/
 /tests/admin-page.py
 /tests/admin-render.cjs
 # Detailed manual: local-only, not published on GitHub

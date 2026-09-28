@@ -5,6 +5,8 @@
 // 「メニューを開いている間に他の操作をしたら閉じる」ことを検証する。
 //
 // 使い方:
+//   0) 画面をビルドしておく (プロジェクト直下の index.html と assets/ に出力される):
+//      npm run build
 //   1) サーバー起動 (プロジェクト直下で): php -S 127.0.0.1:8199 -t .
 //   2) Chrome 起動:
 //      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \

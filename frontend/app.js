@@ -4,11 +4,13 @@ let tunedropApiPromise;
 let tunedropGuestPromise;
 let tunedropGuestRefreshAt = 0;
 
-async function resolveTunedropApi() {
+export async function resolveTunedropApi() {
     const config = window.TUNEDROP_CONFIG || {};
     const candidates = config.apiUrl ? [config.apiUrl] : [
         new URL('api.php', window.location.href).href,
-        config.mampApiUrl || 'http://localhost:8888/Tunedrop/api.php',
+        config.mampApiUrl || 'http://localhost:8888/tunedrop/api.php',
+        // MAMPのDocumentRootがこのプロジェクト直下に設定されている環境向けの最後の候補。
+        // (古いコピーを向いている場合は health の features 判定で弾かれる)
         'http://localhost:8888/api.php'
     ];
     for (const candidate of [...new Set(candidates)]) {
@@ -20,7 +22,11 @@ async function resolveTunedropApi() {
             const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
             if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) continue;
             const data = await response.json();
-            if (data.service === 'TuneDrop PHP API' && data.status === 'ok') {
+            // features.auth_guest: 認証ゲスト (api.php?action=auth&endpoint=guest) を持つビルドの目印。
+            // 別フォルダに残った古い api.php も health には同じ service 名で応答するため、
+            // これが無い接続先は採用しない (古いAPIに繋がって認証が全滅する事故を防ぐ)。
+            const supportsGuestAuth = Array.isArray(data.features) && data.features.includes('auth_guest');
+            if (data.service === 'TuneDrop PHP API' && data.status === 'ok' && supportsGuestAuth) {
                 url.search = '';
                 return url;
             }
@@ -30,10 +36,10 @@ async function resolveTunedropApi() {
             clearTimeout(timer);
         }
     }
-    throw new Error('APIに接続できません。MAMPを起動し、config.jsのmampApiUrlと公開フォルダを確認してください。');
+    throw new Error('APIに接続できません。MAMPを起動し、config.jsのmampApiUrl (既定: http://localhost:8888/tunedrop/api.php) と公開フォルダを確認してください。');
 }
 
-async function tunedropFetch(path, options) {
+export async function tunedropFetch(path, options) {
     if (!tunedropApiPromise) {
         tunedropApiPromise = resolveTunedropApi().catch(error => {
             tunedropApiPromise = null;
@@ -53,32 +59,60 @@ async function tunedropFetch(path, options) {
         tunedropApiPromise = null;
         throw new Error('APIからJSONが返りません。MAMPのPHP設定とconfig.jsを確認してください。');
     }
+    // ログイン中に 401 が返ったらトークンが期限切れ・無効。
+    // 何もしないと一覧が空のまま「プレイリストがありません」に見えてしまうため、
+    // セッションを捨ててログインし直してもらう (ゲスト利用時の401とは区別する)。
+    if (response.status === 401 && accountToken && !isAuthRequest) handleExpiredSession();
     return response;
 }
 
-async function ensureTunedropGuest(apiUrl) {
+// セッション切れの案内は1回だけ出す (並行リクエストで連続表示しない)
+let sessionExpiredNoticeAt = 0;
+
+export function handleExpiredSession() {
+    if (!localStorage.getItem('tunedrop_token')) return;
+    clearSession();   // 無効なトークンを捨てる (以降はゲストとして扱われる)
+    if (Date.now() - sessionExpiredNoticeAt < 10000) return;
+    sessionExpiredNoticeAt = Date.now();
+    showToast('ログインの有効期限が切れました。もう一度ログインしてください。', 'error');
+    showLoginModal();
+}
+
+export async function ensureTunedropGuest(apiUrl) {
     if (tunedropGuestRefreshAt && Date.now() >= tunedropGuestRefreshAt) tunedropGuestPromise = null;
     if (!tunedropGuestPromise) {
         tunedropGuestPromise = (async () => {
             const url = new URL(apiUrl.href);
             url.search = '?action=auth&endpoint=guest';
-            const response = await fetch(url, {
+            const requestGuest = credential => fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ credential: localStorage.getItem('tunedrop_guest_credential') || '' })
+                body: JSON.stringify({ credential })
             });
-            // 古い app.py が動いていると /auth/guest が無く、HTML の 404 が返る
-            // (api.php が JSON の Content-Type を付けているため content-type だけでは防げない)。
-            // そのまま response.json() を呼ぶと「<!doctype ... is not valid JSON」という
-            // 原因の分からないエラーになるため、対処法の分かるエラーへ置き換える。
-            if (!response.headers.get('content-type')?.includes('application/json')) {
-                throw new Error('認証サーバーの応答が不正です (古い app.py が動いている可能性があります)。./start.sh でサーバーを再起動してください。');
+            const readGuest = async response => {
+                // 古い app.py が動いていると /auth/guest が無く、HTML の 404 が返る
+                // (api.php が JSON の Content-Type を付けているため content-type だけでは防げない)。
+                // そのまま response.json() を呼ぶと「<!doctype ... is not valid JSON」という
+                // 原因の分からないエラーになるため、対処法の分かるエラーへ置き換える。
+                if (!response.headers.get('content-type')?.includes('application/json')) {
+                    throw new Error('認証サーバーの応答が不正です (古い app.py が動いている可能性があります)。./start.sh でサーバーを再起動してください。');
+                }
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || 'ゲスト情報を読み込めませんでした。');
+                localStorage.setItem('tunedrop_guest_credential', data.credential);
+                tunedropGuestRefreshAt = Date.now() + 23 * 60 * 60 * 1000;
+                return data.token;
+            };
+
+            const stored = localStorage.getItem('tunedrop_guest_credential') || '';
+            let response = await requestGuest(stored);
+            // 保存済みのゲスト認証情報が無効 (ゲストのDB行が消えた等) なら作り直す。
+            // これが無いと 401 のまま何も表示できなくなる。
+            if (response.status === 401 && stored) {
+                localStorage.removeItem('tunedrop_guest_credential');
+                response = await requestGuest('');
             }
-            const data = await response.json();
-            if (!response.ok || !data.success) throw new Error(data.error || 'ゲスト情報を読み込めませんでした。');
-            localStorage.setItem('tunedrop_guest_credential', data.credential);
-            tunedropGuestRefreshAt = Date.now() + 23 * 60 * 60 * 1000;
-            return data.token;
+            return readGuest(response);
         })().catch(error => {
             tunedropGuestPromise = null;
             throw error;
@@ -96,7 +130,7 @@ async function ensureTunedropGuest(apiUrl) {
 // ==========================================================
 const TOAST_DURATION = { success: 2800, info: 3600, error: 5200 };
 
-function showToast(message, kind = 'success') {
+export function showToast(message, kind = 'success') {
     const text = String(message == null ? '' : message).trim();
     if (!text || typeof document === 'undefined' || !document.body) return null;
     const type = kind === 'error' ? 'error' : (kind === 'info' ? 'info' : 'success');
@@ -132,6 +166,8 @@ function showToast(message, kind = 'success') {
 // 背景クリックは index.html 側で「モーダル自身が押されたとき」だけ閉じる。
 // ==========================================================
 const MODAL_CLOSERS = [
+    // モバイルのRadar絞り込みシート (アプリのモーダルより下に重なるので最初に確認する)
+    { id: 'radar-subcontrols', close: () => closeRadarFilters(), isOpen: () => isRadarFiltersSheetOpen() },
     { id: 'create-playlist-modal', close: () => closeCreatePlaylistModal() },
     { id: 'edit-playlist-modal', close: () => closeEditPlaylistModal() },
     { id: 'move-track-modal', close: () => closeMoveModal() },
@@ -139,15 +175,17 @@ const MODAL_CLOSERS = [
     { id: 'login-modal', close: () => closeLoginModal() },
 ];
 
-function isModalVisible(id) {
+export function isModalVisible(id) {
     const modal = document.getElementById(id);
     return Boolean(modal) && modal.style.display !== 'none';
 }
 
-function closeTopmostModal() {
+export function closeTopmostModal() {
     for (let i = MODAL_CLOSERS.length - 1; i >= 0; i--) {
-        if (isModalVisible(MODAL_CLOSERS[i].id)) {
-            MODAL_CLOSERS[i].close();
+        const target = MODAL_CLOSERS[i];
+        const open = typeof target.isOpen === 'function' ? target.isOpen() : isModalVisible(target.id);
+        if (open) {
+            target.close();
             return true;
         }
     }
@@ -163,7 +201,7 @@ function closeTopmostModal() {
 // ==========================================================
 const YOUTUBE_URL_PATTERN = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|watch\?v=|watch\?.+&v=))([\w-]{11})/g;
 
-function extractYouTubeIds(text) {
+export function extractYouTubeIds(text) {
     const ids = [];
     for (const match of String(text == null ? '' : text).matchAll(YOUTUBE_URL_PATTERN)) {
         if (!ids.includes(match[1])) ids.push(match[1]);
@@ -197,12 +235,12 @@ let trackSortMode = 'custom';      // custom | newest | oldest | name
 // ==========================================================
 const SYSTEM_PLAYLIST_ORDER = { inbox: 0, public_favorites: 1 };
 
-function isSystemPlaylist(list) {
+export function isSystemPlaylist(list) {
     if (!list) return false;
     return Boolean(list.system_key) || list.is_default == 1;
 }
 
-function compareSystemPlaylists(a, b) {
+export function compareSystemPlaylists(a, b) {
     const orderA = SYSTEM_PLAYLIST_ORDER[a.system_key] ?? 9;
     const orderB = SYSTEM_PLAYLIST_ORDER[b.system_key] ?? 9;
     return orderA - orderB || (a.id ?? 0) - (b.id ?? 0);
@@ -217,12 +255,12 @@ function compareSystemPlaylists(a, b) {
 // 一部だけ開いたまま・閉じたままになる不整合を防ぐ。
 // 開いている間に「他の操作」をした場合は自動的に閉じる (下の listeners を参照)。
 // ==========================================================
-function isMobileMenuOpen() {
+export function isMobileMenuOpen() {
     return document.body.classList.contains('mobile-menu-open');
 }
 
 // ハンバーガーボタンの見た目以外の状態 (スクリーンリーダー向け) を揃える
-function syncMobileMenuButton(open) {
+export function syncMobileMenuButton(open) {
     const button = document.getElementById('menu-toggle-btn');
     if (!button) return;
     const label = open ? 'メニューを閉じる' : 'メニューを開く';
@@ -232,7 +270,7 @@ function syncMobileMenuButton(open) {
 }
 
 // メニューを閉じる (開いていた場合のみ true)
-function closeMobileMenu() {
+export function closeMobileMenu() {
     const wasOpen = isMobileMenuOpen();
     document.querySelectorAll('.sidebar, .radar-sidebar, .top-nav nav')
         .forEach(el => el.classList.remove('show-mobile'));
@@ -242,7 +280,7 @@ function closeMobileMenu() {
 }
 
 // メニューを開く (モバイル幅でのみ見た目に反映される)
-function openMobileMenu() {
+export function openMobileMenu() {
     document.querySelector('.top-nav nav')?.classList.add('show-mobile');
     if (document.getElementById('view-manager')?.classList.contains('active')) {
         document.querySelector('.sidebar')?.classList.add('show-mobile');
@@ -253,7 +291,7 @@ function openMobileMenu() {
     syncMobileMenuButton(true);
 }
 
-function toggleSidebar() {
+export function toggleSidebar() {
     if (isMobileMenuOpen()) {
         closeMobileMenu();
         return false;
@@ -263,7 +301,7 @@ function toggleSidebar() {
 }
 
 // メニュー本体 (ドロワー・ナビ) の中かどうか。スクロール判定にも使う。
-function isInsideMobileMenu(target) {
+export function isInsideMobileMenu(target) {
     if (!(target instanceof Element)) return false;
     return Boolean(target.closest('.sidebar, .radar-sidebar, .top-nav nav'));
 }
@@ -272,7 +310,7 @@ function isInsideMobileMenu(target) {
 // - ハンバーガーボタン: onclick="toggleSidebar()" が開閉を担当する
 // - メニュー内の項目 (リスト選択・絞り込みなど) のタップ
 //   ただしメニュー自身の余白 (背景) をタップしたときは閉じる対象にする
-function keepsMobileMenuOpen(target) {
+export function keepsMobileMenuOpen(target) {
     if (!(target instanceof Element)) return false;
     if (target.closest('#menu-toggle-btn')) return true;
     const menu = target.closest('.sidebar, .radar-sidebar, .top-nav nav');
@@ -300,7 +338,7 @@ document.addEventListener('keydown', (event) => {
 
 // モバイル幅を外れたら (端末の回転など) メニューを閉じる
 // ハンバーガーが消える幅でメニューの状態が残り、プレイヤーが操作できなくなるのを防ぐ
-function isMobileMenuViewport() {
+export function isMobileMenuViewport() {
     return typeof window.matchMedia === 'function'
         ? window.matchMedia('(max-width: 600px)').matches
         : window.innerWidth <= 600;
@@ -310,7 +348,7 @@ window.addEventListener('resize', () => {
     if (isMobileMenuOpen() && !isMobileMenuViewport()) closeMobileMenu();
 });
 
-function closeYoutubePlayer() {
+export function closeYoutubePlayer() {
     const popup = document.getElementById('youtube-popup');
     if (!popup) return;
     popup.classList.remove('is-active');
@@ -319,7 +357,7 @@ function closeYoutubePlayer() {
     clearInterval(progressInterval);
 }
 
-function goToHome() {
+export function goToHome() {
     navigateView('manager');
     selectPlaylist('home');
 }
@@ -329,7 +367,7 @@ function goToHome() {
 // ==========================================================
 const VIEW_FOR_HASH = { manager: 'manager', radar: 'radar', share: 'share', profile: 'profile', user: 'user-profile', help: 'help', playlist: 'playlist-detail' };
 
-function currentHashView() {
+export function currentHashView() {
     const hash = (location.hash || '').replace(/^#\/?/, '');
     const parts = hash.split('/');
     const base = parts[0];
@@ -338,7 +376,7 @@ function currentHashView() {
 }
 
 // ビューをURLに記録しつつ遷移する (戻る履歴へ積む)
-function navigateView(viewName, id) {
+export function navigateView(viewName, id) {
     let hashPath = viewName === 'playlist-detail' ? 'playlist' : (viewName === 'user-profile' ? 'user' : viewName);
     if (id) hashPath += '/' + id;
     if (('#' + hashPath) !== location.hash) {
@@ -361,7 +399,7 @@ const scrollPositions = new Map();   // ハッシュ -> スクロール位置
 let lastScrollKey = (window.location && window.location.hash) || '#/manager';
 
 /** 現在のビューのスクロール領域 (無ければ null)。 */
-function activeScrollContainer() {
+export function activeScrollContainer() {
     const view = document.querySelector('.view-section.active');
     if (!view) return null;
     const inner = view.querySelector('.content-area');
@@ -375,7 +413,7 @@ function activeScrollContainer() {
 let scrollSaveQueued = false;
 let scrollRestoreToken = 0;
 let scrollRestoring = false;
-function scheduleScrollSave(el) {
+export function scheduleScrollSave(el) {
     // 復元中は再描画で一時的に 0 になることがあるため保存しない
     if (scrollSaveQueued || scrollRestoring) return;
     // 保存が遅れると、ビューが display:none になって scrollTop が 0 に戻った後の
@@ -405,7 +443,7 @@ document.addEventListener('scroll', (event) => {
 // 戻る/進むでビューを戻したあと、内容の読み込みを待って位置を復元する。
 // 一覧は取得後に描き直されるため、スクロールがリセットされることがある。
 // 目標位置に落ち着くまで短い間隔で数回だけ追従する。
-function applyScrollRestoration(key) {
+export function applyScrollRestoration(key) {
     const target = scrollPositions.get(key) || 0;
     const token = ++scrollRestoreToken;
     scrollRestoring = true;
@@ -426,7 +464,7 @@ function applyScrollRestoration(key) {
     attempt();
 }
 
-function applyHashView() {
+export function applyHashView() {
     const { view, id } = currentHashView();
     // 表示名は pendingDetail / pendingUserProfile が同じIDのときだけ使う
     // (renderPlaylistDetail / renderUserProfile 側で判定するため、ここでは消さない)
@@ -443,7 +481,7 @@ function applyHashView() {
     applyScrollRestoration(lastScrollKey);
 }
 
-function switchView(viewName) {
+export function switchView(viewName) {
     // 切り替える前に、表示中のビューのスクロール位置を控える。
     // (切替後は display:none になり scrollTop が 0 に戻るため、ここで取る必要がある)
     // 同じビューへの再適用 (二重呼び出し) では控えない。
@@ -484,7 +522,7 @@ function switchView(viewName) {
     else if (viewName === 'profile') loadProfile();
 }
 
-function checkLoginStatus() {
+export function checkLoginStatus() {
     const token = localStorage.getItem('tunedrop_token');
     const username = localStorage.getItem('tunedrop_username');
     if (token && username) {
@@ -494,27 +532,47 @@ function checkLoginStatus() {
         document.getElementById('nav-profile').style.display = '';
         document.getElementById('profile-name').innerText = username;
         document.getElementById('profile-avatar').innerText = username.charAt(0).toUpperCase();
+        renderProfileLoginId(localStorage.getItem('tunedrop_login_id'));
     } else {
         document.getElementById('nav-login').style.display = '';
         document.getElementById('nav-profile').style.display = 'none';
+        renderProfileLoginId('');
     }
 }
 
 // ログインセッションを破棄し、ヘッダー等を未ログイン表示へ戻す
-function clearSession() {
+export function clearSession() {
     localStorage.removeItem('tunedrop_token');
     localStorage.removeItem('tunedrop_username');
+    localStorage.removeItem('tunedrop_login_id');
     checkLoginStatus();
 }
 
+// 画面に出るのは表示名 (display_name) なので、ログイン時に何を入力するかを
+// プロフィールへ明示する (表示名でログインしようとして入れなくなるのを防ぐ)。
+export function renderProfileLoginId(loginId) {
+    const value = String(loginId || '').trim();
+    const line = document.getElementById('profile-login-id');
+    if (line) {
+        line.textContent = value ? `ログインID: ${value}（ログインで使うID。表示名とは別です）` : '';
+        line.hidden = !value;
+    }
+    const help = document.getElementById('profile-name-help');
+    if (help) {
+        help.textContent = value
+            ? `3〜30文字。変更してもログインID（${value}）は変わりません。`
+            : '3〜30文字。変更してもログインIDは変わりません。';
+    }
+}
+
 // プロフィール画面を開いているときだけ再読み込みする (ログイン直後の反映用)
-function refreshProfileIfVisible() {
+export function refreshProfileIfVisible() {
     const view = document.getElementById('view-profile');
     if (view && view.classList.contains('active')) loadProfile();
 }
 
 // プロフィール画面のログイン時 / 未ログイン時の表示を切り替える
-function setProfileVisibility(loggedIn) {
+export function setProfileVisibility(loggedIn) {
     document.getElementById('profile-header').hidden = !loggedIn;
     document.getElementById('profile-stats').hidden = !loggedIn;
     document.getElementById('profile-form').hidden = !loggedIn;
@@ -522,14 +580,14 @@ function setProfileVisibility(loggedIn) {
 }
 
 // 登録日をプロフィールカードのサブタイトルに表示する (created_at: YYYY-MM-DD HH:MM:SS)
-function renderProfileMeta(user) {
+export function renderProfileMeta(user) {
     const meta = document.getElementById('profile-meta');
     if (!meta) return;
     const created = String((user && user.created_at) || '').slice(0, 10).replace(/-/g, '/');
     meta.textContent = created ? `登録日 ${created}` : 'プロフィール';
 }
 
-async function loadProfile() {
+export async function loadProfile() {
     const status = document.getElementById('profile-status');
     const input = document.getElementById('profile-username');
     const button = document.getElementById('profile-save');
@@ -557,8 +615,10 @@ async function loadProfile() {
         }
         if (!response.ok || !data.user) throw new Error(data.error || 'プロフィールを取得できませんでした。');
         localStorage.setItem('tunedrop_username', data.user.username);
+        if (data.user.login_id) localStorage.setItem('tunedrop_login_id', data.user.login_id);
         checkLoginStatus();
         input.value = data.user.username;
+        renderProfileLoginId(data.user.login_id || localStorage.getItem('tunedrop_login_id'));
         renderProfileMeta(data.user);
         document.getElementById('profile-track-count').textContent = data.user.stats.bookmarks_count;
         document.getElementById('profile-list-count').textContent = data.user.stats.playlists_count;
@@ -573,7 +633,7 @@ async function loadProfile() {
 // ==========================================================
 let pendingUserProfile = { id: null, name: '' };
 
-function openUserProfile(userId, name) {
+export function openUserProfile(userId, name) {
     const id = Number(userId);
     if (!Number.isFinite(id) || id <= 0) return;
     pendingUserProfile = { id, name: name || '' };
@@ -591,13 +651,13 @@ function openUserProfile(userId, name) {
 }
 
 // 戻る: 直前の画面へ (履歴が無ければ Share へ)
-function backFromUserProfile() {
+export function backFromUserProfile() {
     if (history.length > 1) history.back();
     else navigateView('share');
 }
 
 /** 公開リストのカードを組み立てる (Share画面と同じ見た目)。 */
-function renderUserProfileCards(playlists) {
+export function renderUserProfileCards(playlists) {
     const grid = document.getElementById('user-profile-grid');
     if (!grid) return;
     grid.innerHTML = '';
@@ -625,7 +685,7 @@ function renderUserProfileCards(playlists) {
 }
 
 /** 他ユーザーのプロフィールを読み込んで表示する。 */
-async function renderUserProfile(userId) {
+export async function renderUserProfile(userId) {
     switchView('user-profile');
     const id = Number(userId);
     const nameEl = document.getElementById('user-profile-name');
@@ -666,7 +726,7 @@ async function renderUserProfile(userId) {
     }
 }
 
-async function saveProfile(event) {
+export async function saveProfile(event) {
     event.preventDefault();
     const button = document.getElementById('profile-save');
     if (button.disabled) return;
@@ -696,21 +756,21 @@ async function saveProfile(event) {
     finally { button.disabled = false; }
 }
 
-function showLoginModal() {
+export function showLoginModal() {
     closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
     document.getElementById('login-modal').style.display = 'flex';
     initGoogleAuth();
 }
-function closeLoginModal() { document.getElementById('login-modal').style.display = 'none'; }
+export function closeLoginModal() { document.getElementById('login-modal').style.display = 'none'; }
 
 // ログイン後にユーザー固有のプレイリストを再取得して反映する
 // (アカウント切り替えでゲストの一覧が残らないようにホームへ戻して再読込する)
-function reloadPlaylistsAfterAuth() {
+export function reloadPlaylistsAfterAuth() {
     currentPlaylistId = 'home';
     loadPlaylists();
 }
 
-async function loginWithEmail() {
+export async function loginWithEmail() {
     const username = document.getElementById('auth-username').value;
     const password = document.getElementById('auth-password').value;
     if (!username || !password) return showToast('ログインIDとパスワードを入力してください。', 'error');
@@ -723,12 +783,13 @@ async function loginWithEmail() {
         if (data.success) {
             localStorage.setItem('tunedrop_token', data.token);
             localStorage.setItem('tunedrop_username', data.user.username);
+            localStorage.setItem('tunedrop_login_id', data.user.login_id || username);
             closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); showToast('ログインしました。');
         } else showToast(data.error || 'ログインに失敗しました。', 'error');
     } catch (err) { showToast('認証サーバーに接続できません。', 'error'); }
 }
 
-async function registerWithEmail() {
+export async function registerWithEmail() {
     const username = document.getElementById('auth-username').value;
     const password = document.getElementById('auth-password').value;
     if (!username || !password) return showToast('ログインIDとパスワードを入力してください。', 'error');
@@ -756,17 +817,17 @@ async function registerWithEmail() {
 // ==========================================================
 let googleAuthInitialized = false;
 
-function googleClientId() {
+export function googleClientId() {
     return (window.TUNEDROP_CONFIG && window.TUNEDROP_CONFIG.googleClientId) || '';
 }
 
 // OAuth 2.0 クライアントIDの形式チェック (APIキー等の誤設定を検知する)
-function isValidGoogleClientId(cid) {
+export function isValidGoogleClientId(cid) {
     return /^[0-9a-z][0-9a-z-]*\.apps\.googleusercontent\.com$/i.test(String(cid || '').trim());
 }
 
 // ログインモーダル内の案内文を表示する
-function showGoogleAuthHint(message, isError) {
+export function showGoogleAuthHint(message, isError) {
     const hint = document.getElementById('google-origin-hint');
     if (!hint) return;
     hint.textContent = message;
@@ -774,7 +835,7 @@ function showGoogleAuthHint(message, isError) {
     hint.style.display = 'block';
 }
 
-function initGoogleAuth() {
+export function initGoogleAuth() {
     const cid = googleClientId();
     const origin = window.location.origin;
     if (!cid) {
@@ -836,7 +897,7 @@ function initGoogleAuth() {
     );
 }
 
-async function handleGoogleCredential(response) {
+export async function handleGoogleCredential(response) {
     const credential = response && response.credential;
     if (!credential) return;
     try {
@@ -848,6 +909,7 @@ async function handleGoogleCredential(response) {
         if (data.success) {
             localStorage.setItem('tunedrop_token', data.token);
             localStorage.setItem('tunedrop_username', data.user && data.user.username);
+            localStorage.setItem('tunedrop_login_id', (data.user && data.user.login_id) || '');
             closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); showToast('Googleログインしました。');
         } else {
             showToast(data.error || 'Googleログインに失敗しました。', 'error');
@@ -858,21 +920,21 @@ async function handleGoogleCredential(response) {
     }
 }
 
-function logout() {
+export function logout() {
     clearSession();
     setProfileVisibility(false);
     navigateView('manager');
     showToast('ログアウトしました。', 'info');
 }
 
-async function loadPlaylists() {
+export async function loadPlaylists() {
     const response = await tunedropFetch('api.php?action=get_playlists');
     // 未ログイン (401) の場合は空配列で安全に描画する (アカウントごとのデータ分離)
     allPlaylists = response.ok ? await response.json() : [];
     filterManagerPlaylists();
 }
 
-function filterManagerPlaylists() {
+export function filterManagerPlaylists() {
     const query = document.getElementById('manager-search').value.toLowerCase();
     const category = document.getElementById('manager-category').value;
     const filtered = allPlaylists.filter(list => list.name.toLowerCase().includes(query) && (category === "" || list.category === category));
@@ -880,11 +942,11 @@ function filterManagerPlaylists() {
 }
 
 // サイドバー・カード一覧の描画 (バニラJS: Vue依存を排除して軽量化)。
-function renderManagerLists(filtered) {
+export function renderManagerLists(filtered) {
     renderPlaylistNav(filtered);
 }
 
-function renderPlaylistNav(playlists) {
+export function renderPlaylistNav(playlists) {
     const nav = document.getElementById('playlist-nav');
     nav.innerHTML = `
         <li onclick="selectPlaylist('home')" class="${currentPlaylistId === 'home' ? 'active' : ''}"><span class="material-symbols-rounded nav-li-icon">home</span>ホーム (リスト一覧)</li>
@@ -985,12 +1047,12 @@ function renderPlaylistNav(playlists) {
 // loadPlaylists() で作り直すと画面が一瞬リセットされ、ドロップ直後のクリックが
 // 別のカードに当たって画面が切り替わってしまうため、DOMとメモリ順だけを更新する。
 // ==========================================================
-function orderedUserListIds() {
+export function orderedUserListIds() {
     return allPlaylists.filter(list => !isSystemPlaylist(list)).map(list => list.id);
 }
 
 // 表示中の(ドラッグされた)リストの並びを状態へ反映する。表示外のリストは元の位置に残す。
-function applyPlaylistOrderToState(orderedIds) {
+export function applyPlaylistOrderToState(orderedIds) {
     const visible = new Set(orderedIds);
     const queue = orderedIds
         .map(id => allPlaylists.find(list => list.id === id))
@@ -1005,7 +1067,7 @@ function applyPlaylistOrderToState(orderedIds) {
 }
 
 // 指定セレクタの要素を orderedIds の順に並べ替える (要素の作り直しはしない)
-function reorderItemsById(selector, orderedIds) {
+export function reorderItemsById(selector, orderedIds) {
     const items = [...document.querySelectorAll(selector)];
     if (items.length < 2) return;
     const byId = new Map(items.map(el => [Number(el.dataset.plid), el]));
@@ -1022,14 +1084,14 @@ function reorderItemsById(selector, orderedIds) {
 }
 
 // サイドバー・カード一覧の並びを状態に合わせる
-function syncPlaylistOrderInDom() {
+export function syncPlaylistOrderInDom() {
     const orderedIds = orderedUserListIds();
     reorderItemsById('#playlist-nav li.draggable-pl', orderedIds);
     reorderItemsById('#my-playlists-grid .card:not(.is-system)', orderedIds);
 }
 
 // 並び順をサーバーへ保存する (失敗時のみ再取得して整合を取る)
-async function savePlaylistOrder() {
+export async function savePlaylistOrder() {
     try {
         await tunedropFetch('api.php?action=reorder_playlists', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1042,7 +1104,7 @@ async function savePlaylistOrder() {
 }
 
 // ユーザープレイリストを並び替えて保存 (固定タブは対象外)
-async function reorderUserPlaylists(draggedId, targetId) {
+export async function reorderUserPlaylists(draggedId, targetId) {
     const userLists = allPlaylists.filter(list => !isSystemPlaylist(list));
     const draggedIdx = userLists.findIndex(p => p.id === draggedId);
     const targetIdx = userLists.findIndex(p => p.id === targetId);
@@ -1058,7 +1120,7 @@ async function reorderUserPlaylists(draggedId, targetId) {
 // タッチ端末の並び替え (つまみをドラッグ)
 // HTML5 の Drag & Drop はモバイルで動作しないため Pointer Events で実装する。
 // ==========================================================
-function isTouchPointer(event) {
+export function isTouchPointer(event) {
     return event.pointerType === 'touch' || event.pointerType === 'pen';
 }
 
@@ -1083,7 +1145,7 @@ window.onPlaylistsReordered = (orderedIds) => {
     savePlaylistOrder();
 };
 
-function enablePointerReorder({ handle, item, container, itemSelector, onDrop }) {
+export function enablePointerReorder({ handle, item, container, itemSelector, onDrop }) {
     if (!handle || !item || !container || typeof onDrop !== 'function') return;
     let active = false;
     let moved = false;
@@ -1190,7 +1252,7 @@ function enablePointerReorder({ handle, item, container, itemSelector, onDrop })
 }
 
 // 並び替え後のDOM順をそのまま保存する (プレイリスト / 曲)
-async function persistPlaylistOrderFromDom(container, itemSelector) {
+export async function persistPlaylistOrderFromDom(container, itemSelector) {
     const ids = [...container.querySelectorAll(itemSelector)]
         .map(el => Number(el.dataset.plid))
         .filter(id => Number.isFinite(id) && id > 0)
@@ -1202,7 +1264,7 @@ async function persistPlaylistOrderFromDom(container, itemSelector) {
     await savePlaylistOrder();
 }
 
-async function persistBookmarkOrderFromDom(container) {
+export async function persistBookmarkOrderFromDom(container) {
     const visibleIds = [...container.querySelectorAll('.card')]
         .map(el => Number(el.dataset.trackId))
         .filter(id => Number.isFinite(id) && id > 0);
@@ -1217,7 +1279,7 @@ async function persistBookmarkOrderFromDom(container) {
 }
 
 // プレイリスト詳細の曲リスト並び替え後のDOM順を状態とDBへ反映する (タッチ/マウス共通)
-function persistDetailTrackOrderFromDom(container) {
+export function persistDetailTrackOrderFromDom(container) {
     const visibleIds = [...container.querySelectorAll('.track-list-item')]
         .map(el => Number(el.dataset.trackId))
         .filter(id => Number.isFinite(id) && id > 0);
@@ -1237,7 +1299,7 @@ function persistDetailTrackOrderFromDom(container) {
 }
 
 // 表示中の曲の並びを再生キューへ反映する。表示外(検索中など)の曲は元の位置を保つ。
-function applyTrackOrderToState(orderedVisibleIds) {
+export function applyTrackOrderToState(orderedVisibleIds) {
     const visible = new Set(orderedVisibleIds);
     const queue = orderedVisibleIds
         .map(id => currentTracks.find(track => track.id === id))
@@ -1250,7 +1312,7 @@ function applyTrackOrderToState(orderedVisibleIds) {
 }
 
 // 曲カードの並びを再生キューに揃え、クリック時の再生インデックスを割り当て直す
-function syncTrackDomOrder() {
+export function syncTrackDomOrder() {
     const container = document.getElementById('my-bookmarks');
     if (!container) return;
     const cards = [...container.querySelectorAll('.card')];
@@ -1278,7 +1340,7 @@ function syncTrackDomOrder() {
     });
 }
 
-function selectPlaylist(id) {
+export function selectPlaylist(id) {
     currentPlaylistId = id;
     filterManagerPlaylists();
     const homeArea = document.getElementById('manager-home-area');
@@ -1301,7 +1363,7 @@ function selectPlaylist(id) {
     closeMobileMenu();
 }
 
-async function togglePlaylistFavorite(id, event) {
+export async function togglePlaylistFavorite(id, event) {
     if (event) event.stopPropagation();
     try {
         const res = await tunedropFetch('api.php?action=toggle_favorite_playlist', {
@@ -1320,7 +1382,7 @@ async function togglePlaylistFavorite(id, event) {
     } catch (err) { console.error(err); }
 }
 
-async function toggleTrackFavorite(id, event) {
+export async function toggleTrackFavorite(id, event) {
     if (event) event.stopPropagation();
     document.querySelectorAll('.track-dropdown-menu').forEach(m => m.style.display = 'none');
 
@@ -1361,12 +1423,12 @@ async function toggleTrackFavorite(id, event) {
 }
 
 let playerFavoriteVersion = 0;
-function playerFavoriteKey(track) {
+export function playerFavoriteKey(track) {
     return Number.isInteger(Number(track.id)) && String(track.id) !== String(track.youtube_id)
         ? { id: track.id } : { youtube_id: track.youtube_id };
 }
 
-async function syncPlayerFavorite(track) {
+export async function syncPlayerFavorite(track) {
     const version = ++playerFavoriteVersion;
     const button = document.getElementById('btn-player-fav');
     button.disabled = true;
@@ -1385,7 +1447,7 @@ async function syncPlayerFavorite(track) {
     }
 }
 
-async function togglePlayerFavorite() {
+export async function togglePlayerFavorite() {
     const track = currentQueue[currentTrackIndex];
     const button = document.getElementById('btn-player-fav');
     if (!track || button.disabled) return;
@@ -1399,7 +1461,7 @@ async function togglePlayerFavorite() {
     }
 }
 
-function updatePlayerFavButton(isFav) {
+export function updatePlayerFavButton(isFav) {
     const icon = document.getElementById('btn-player-fav-icon');
     const btn = document.getElementById('btn-player-fav');
     if (icon) {
@@ -1416,7 +1478,7 @@ function updatePlayerFavButton(isFav) {
     }
 }
 
-function toggleSidebarMenu(event, btn) {
+export function toggleSidebarMenu(event, btn) {
     event.stopPropagation();
     document.querySelectorAll('.sidebar-dropdown-menu').forEach(menu => {
         if (menu !== btn.nextElementSibling) menu.style.display = 'none';
@@ -1430,16 +1492,16 @@ document.addEventListener('click', () => {
     document.querySelectorAll('.sidebar-dropdown-menu').forEach(menu => menu.style.display = 'none');
 });
 
-function openCreatePlaylistModal() {
+export function openCreatePlaylistModal() {
     closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
     document.getElementById('new-playlist-title').value = '';
     document.getElementById('new-playlist-category').value = 'Other';
     document.getElementById('new-playlist-public').checked = false;
     document.getElementById('create-playlist-modal').style.display = 'flex';
 }
-function closeCreatePlaylistModal() { document.getElementById('create-playlist-modal').style.display = 'none'; }
+export function closeCreatePlaylistModal() { document.getElementById('create-playlist-modal').style.display = 'none'; }
 
-async function submitNewPlaylist() {
+export async function submitNewPlaylist() {
     const name = document.getElementById('new-playlist-title').value.trim();
     const category = document.getElementById('new-playlist-category').value;
     const isPublic = document.getElementById('new-playlist-public').checked ? 1 : 0;
@@ -1455,7 +1517,7 @@ async function submitNewPlaylist() {
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
-async function openEditPlaylistModal(event, playlistId) {
+export async function openEditPlaylistModal(event, playlistId) {
     closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
     event.stopPropagation();
     document.querySelectorAll('.sidebar-dropdown-menu').forEach(m => m.style.display = 'none');
@@ -1482,9 +1544,9 @@ async function openEditPlaylistModal(event, playlistId) {
     } catch (err) { console.error(err); }
     document.getElementById('edit-playlist-modal').style.display = 'flex';
 }
-function closeEditPlaylistModal() { document.getElementById('edit-playlist-modal').style.display = 'none'; }
+export function closeEditPlaylistModal() { document.getElementById('edit-playlist-modal').style.display = 'none'; }
 
-async function submitEditPlaylist() {
+export async function submitEditPlaylist() {
     const id = document.getElementById('edit-playlist-id').value;
     const name = document.getElementById('edit-playlist-title').value.trim();
     const category = document.getElementById('edit-playlist-category').value;
@@ -1503,7 +1565,7 @@ async function submitEditPlaylist() {
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
-async function deletePlaylistFromSidebar(event, playlistId) {
+export async function deletePlaylistFromSidebar(event, playlistId) {
     event.stopPropagation();
     document.querySelectorAll('.sidebar-dropdown-menu').forEach(m => m.style.display = 'none');
     if (!confirm("このプレイリストを削除しますか？\n（リスト内の曲もすべて削除されます）")) return;
@@ -1521,7 +1583,7 @@ async function deletePlaylistFromSidebar(event, playlistId) {
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
-async function updatePlaylistCategory(playlistId, newCategory, event) {
+export async function updatePlaylistCategory(playlistId, newCategory, event) {
     event.stopPropagation();
     try {
         const response = await tunedropFetch('api.php?action=update_category', {
@@ -1533,7 +1595,7 @@ async function updatePlaylistCategory(playlistId, newCategory, event) {
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
-function renderManagerHome(playlists) {
+export function renderManagerHome(playlists) {
     const container = document.getElementById('my-playlists-grid');
     container.innerHTML = '';
     const query = document.getElementById('manager-search').value.toLowerCase();
@@ -1613,14 +1675,14 @@ function renderManagerHome(playlists) {
     });
 }
 
-function closeTrackMenus() {
+export function closeTrackMenus() {
     document.querySelectorAll('.track-dropdown-menu').forEach(menu => {
         menu.style.display = 'none';
         menu.previousElementSibling?.setAttribute('aria-expanded', 'false');
     });
 }
 
-function toggleTrackMenu(event, btn) {
+export function toggleTrackMenu(event, btn) {
     event.stopPropagation();
     const menu = btn.nextElementSibling;
     const opening = menu.style.display !== 'flex';
@@ -1643,7 +1705,7 @@ document.addEventListener('keydown', event => {
 // ==========================================================
 // リスト (created_at / name) と曲 (added_at / title) で使うキーだけが違うため共通化。
 // 'custom' は DB が返した並び (sort_order → id 昇順) を尊重する。
-function sortByMode(items, mode, dateKey, nameKey) {
+export function sortByMode(items, mode, dateKey, nameKey) {
     const arr = [...items];
     switch (mode) {
         case 'newest':
@@ -1669,46 +1731,46 @@ function sortByMode(items, mode, dateKey, nameKey) {
     }
 }
 
-function sortPlaylists(playlists, mode) {
+export function sortPlaylists(playlists, mode) {
     return sortByMode(playlists, mode, 'created_at', 'name');
 }
 
-function sortTracks(tracks, mode) {
+export function sortTracks(tracks, mode) {
     return sortByMode(tracks, mode, 'added_at', 'title');
 }
 
-function onPlaylistSortChange() {
+export function onPlaylistSortChange() {
     const sel = document.getElementById('playlist-sort-select');
     playlistSortMode = sel ? sel.value : 'custom';
     // ソート順の変更を反映 (再描画する)
     filterManagerPlaylists();
 }
 
-function onTrackSortChange() {
+export function onTrackSortChange() {
     const sel = document.getElementById('track-sort-select');
     trackSortMode = sel ? sel.value : 'custom';
     renderDetailTracks(currentDetailTracks);
 }
 
-function onManagerTrackSortChange() {
+export function onManagerTrackSortChange() {
     const sel = document.getElementById('manager-track-sort-select');
     trackSortMode = sel ? sel.value : 'custom';
     renderTracks(currentTracks);
 }
 
-function openMoveModalFromMenu(event, trackId) {
+export function openMoveModalFromMenu(event, trackId) {
     event.stopPropagation();
     document.querySelectorAll('.track-dropdown-menu').forEach(m => m.style.display = 'none');
     openMoveModal(event, trackId);
 }
 
-function deleteTrackFromMenu(event, trackId) {
+export function deleteTrackFromMenu(event, trackId) {
     event.stopPropagation();
     document.querySelectorAll('.track-dropdown-menu').forEach(m => m.style.display = 'none');
     deleteTrack(event, trackId);
 }
 
-async function addTrack() {
+export async function addTrack() {
     const input = document.getElementById('youtube-url');
     // 複数URLのまとめ貼り付けに対応 (1件ずつ追加した結果をまとめて知らせる)
     const youtubeIds = extractYouTubeIds(input ? input.value : '');
@@ -1771,7 +1833,7 @@ async function addTrack() {
     }
 }
 
-async function deleteTrack(event, trackId) {
+export async function deleteTrack(event, trackId) {
     event.stopPropagation();
     if (!confirm("この曲をリストから削除しますか？")) return;
     try {
@@ -1793,7 +1855,7 @@ async function deleteTrack(event, trackId) {
     }
 }
 
-function openMoveModal(event, trackId) {
+export function openMoveModal(event, trackId) {
     event.stopPropagation();
     closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
     selectedTrackIdForMove = trackId;
@@ -1808,9 +1870,9 @@ function openMoveModal(event, trackId) {
     });
     document.getElementById('move-track-modal').style.display = 'flex';
 }
-function closeMoveModal() { document.getElementById('move-track-modal').style.display = 'none'; selectedTrackIdForMove = null; }
+export function closeMoveModal() { document.getElementById('move-track-modal').style.display = 'none'; selectedTrackIdForMove = null; }
 
-async function submitMoveTrack() {
+export async function submitMoveTrack() {
     const targetPlaylistId = document.getElementById('move-target-playlist-select').value;
     if (!selectedTrackIdForMove || !targetPlaylistId) return;
     try {
@@ -1823,7 +1885,7 @@ async function submitMoveTrack() {
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
-async function loadMyBookmarks(playlistId = null) {
+export async function loadMyBookmarks(playlistId = null) {
     let url = 'api.php?action=get_my_bookmarks';
     if (playlistId && playlistId !== 'home') url += `&playlist_id=${playlistId}`;
     const response = await tunedropFetch(url);
@@ -1834,19 +1896,19 @@ async function loadMyBookmarks(playlistId = null) {
 }
 
 // 現在の検索語で絞り込んだ曲 (renderTracks / Enter再生で同じ結果を使う)
-function filteredTracks() {
+export function filteredTracks() {
     const input = document.getElementById('track-search');
     const query = (input ? input.value : '').toLowerCase();
     if (!query) return currentTracks;
     return currentTracks.filter(track => (track.title && track.title.toLowerCase().includes(query)) || (track.channel && track.channel.toLowerCase().includes(query)));
 }
 
-function filterTracks() {
+export function filterTracks() {
     renderTracks(filteredTracks());
 }
 
 // 検索欄の Enter=先頭の曲を再生、Escape=クリア (Radar / Share と同じ操作感)
-function onTrackSearchKey(event) {
+export function onTrackSearchKey(event) {
     if (event.key === 'Enter') {
         event.preventDefault();
         const displayTracks = sortTracks(filteredTracks(), trackSortMode);
@@ -1861,7 +1923,7 @@ function onTrackSearchKey(event) {
     }
 }
 
-function renderTracks(tracks) {
+export function renderTracks(tracks) {
     const container = document.getElementById('my-bookmarks');
     container.innerHTML = '';
     if (tracks.length === 0) return container.innerHTML = '<p style="color:var(--text-sub);">曲が見つかりません。</p>';
@@ -1945,7 +2007,7 @@ function renderTracks(tracks) {
 }
 
 // ブックマークの並びを保存
-async function reorderBookmarks(orderedIds) {
+export async function reorderBookmarks(orderedIds) {
     try {
         await tunedropFetch('api.php?action=reorder_bookmarks', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1977,19 +2039,19 @@ const CATEGORY_COLORS = {
     'Other': '#9aa0a6',
 };
 
-function radarCategoryColor(cat) {
+export function radarCategoryColor(cat) {
     return CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
 }
 
 // 特徴量を生成したエンジンの表示ラベル
-function radarEngineLabel(engine) {
+export function radarEngineLabel(engine) {
     if (engine === 'gemini') return 'AI(Gemini)';
     if (engine === 'rules') return 'AI推定(ルール)';
     return engine || '—';
 }
 
 // BPM が音源実測か AI 推定かの表示ラベル ('essentia' は旧エンジン行の互換値)
-function radarBpmLabel(features) {
+export function radarBpmLabel(features) {
     const f = features || {};
     const src = f.bpm_source || (['essentia', 'audio', 'librosa', 'clap'].includes(f.engine) ? 'audio' : null);
     if (['essentia', 'audio', 'librosa', 'clap'].includes(src)) {
@@ -2003,14 +2065,14 @@ function radarBpmLabel(features) {
 }
 
 // 雰囲気タグ (vibe_tags) の表示ラベル。無ければ mood を返す
-function radarVibeLabel(features) {
+export function radarVibeLabel(features) {
     const f = features || {};
     if (f.vibe_tags && f.vibe_tags.length) return f.vibe_tags.slice(0, 3).join('・');
     return f.mood || '';
 }
 
 // マップの点・曲カード・ツールチップで共通に使う表示ラベル一式
-function radarTrackLabels(track) {
+export function radarTrackLabels(track) {
     const f = (track && track.features) || {};
     return {
         category: (track && track.category) || 'Other',
@@ -2024,7 +2086,7 @@ function radarTrackLabels(track) {
 // 楽曲をマップ上のピクセル座標へ射影する (パン + ズーム適用済み)。
 // 座標 (features.x / features.y) が無い曲は円配置へフォールバックする。
 // 描画 (drawRadarMap) と当たり判定 (bindRadarPointer) が同じ式を使うため共通化している。
-function radarPlotPoints(tracks, W, H) {
+export function radarPlotPoints(tracks, W, H) {
     const list = tracks || [];
     return list.map((track, index) => {
         const f = track.features || {};
@@ -2046,14 +2108,14 @@ function radarPlotPoints(tracks, W, H) {
 }
 
 // マップ上の吹き出し (マウスホバー時のツールチップ) の中身
-function radarTooltipHtml(track) {
+export function radarTooltipHtml(track) {
     const { category, tempo, bpmSource, vibe, engine } = radarTrackLabels(track);
     return `<b>${escapeHtml(track.title)}</b><span>${escapeHtml(track.channel || '')}</span>`
         + `<span>${escapeHtml(category)} · ${tempo}${bpmSource ? ' ' + escapeHtml(bpmSource) : ''}`
         + `${vibe ? ' · ' + escapeHtml(vibe) : ''}${engine ? ' · ' + escapeHtml(engine) : ''}</span>`;
 }
 
-async function loadRadarData() {
+export async function loadRadarData() {
     const hud = document.getElementById('radar-map-hud');
     const statusBtn = document.getElementById('btn-vibe-radar');
     if (statusBtn) statusBtn.innerText = '解析中...';
@@ -2073,6 +2135,7 @@ async function loadRadarData() {
             category: p.category || 'Other',
             playlist_name: p.playlist_name,
             author: p.author,
+            added_at: p.added_at,       // 新着順 (ブックマークへ追加した日時)
             features: p.features || {},
         }));
         const eng = data.points && data.points.length && data.points[0].features
@@ -2101,7 +2164,7 @@ async function loadRadarData() {
 }
 
 // 未解析曲数に応じてサイドバーの解析ボタンの表示を変える (0件なら押せない)
-function updateRadarAnalyzeButton() {
+export function updateRadarAnalyzeButton() {
     const statusBtn = document.getElementById('btn-vibe-radar');
     if (!statusBtn || statusBtn.disabled) return;
     if (radarPendingCount > 0) {
@@ -2113,7 +2176,7 @@ function updateRadarAnalyzeButton() {
     }
 }
 
-async function loadVibeRadar() {
+export async function loadVibeRadar() {
     const statusBtn = document.getElementById('btn-vibe-radar');
     const hud = document.getElementById('radar-map-hud');
     if (statusBtn) { statusBtn.disabled = true; statusBtn.innerText = '検索中...'; }
@@ -2153,13 +2216,13 @@ let radarPendingCount = 0;
 let radarVibeOptions = [];
 let radarOptionsSig = '';
 
-function radarDataSig() {
+export function radarDataSig() {
     return `${vibeMapData.length}:${vibeMapData.length ? vibeMapData[0].youtube_id : ''}`;
 }
 
 // 絞り込み選択肢の欠落を自己修復する (古いJSキャッシュや取得順序の入れ違いで空のまま残った場合用)。
 // データ署名が変わったか、選択肢が空のときだけ作り直す (入力中の再構築で開いている選択肢を閉じないため)
-function ensureRadarFilterOptions() {
+export function ensureRadarFilterOptions() {
     if (!vibeMapData.length) return;
     const vibeSel = document.getElementById('radar-vibe-filter');
     const tempoSel = document.getElementById('radar-tempo-filter');
@@ -2171,13 +2234,13 @@ function ensureRadarFilterOptions() {
     }
 }
 
-function queueRadarFilter() {
+export function queueRadarFilter() {
     //  typing every keystroke resets view previously; now debounce + preserve view
     if (radarFilterTimer) clearTimeout(radarFilterTimer);
     radarFilterTimer = setTimeout(() => { radarFilterTimer = null; applyRadarFilter(true); }, 150);
 }
 
-function clearRadarSearch() {
+export function clearRadarSearch() {
     const input = document.getElementById('radar-title-search');
     if (input) input.value = '';
     radarStripLimit = 30;
@@ -2186,7 +2249,7 @@ function clearRadarSearch() {
 }
 
 // 検索欄の Enter=先頭結果を再生、Escape=クリア
-function onRadarSearchKey(e) {
+export function onRadarSearchKey(e) {
     if (e.key === 'Enter') {
         e.preventDefault();
         applyRadarFilter(true);
@@ -2199,7 +2262,7 @@ function onRadarSearchKey(e) {
 }
 
 // 検索・カテゴリ・雰囲気・BPM・並び順をすべて初期化
-function clearRadarFilters() {
+export function clearRadarFilters() {
     const q = document.getElementById('radar-title-search');
     const cat = document.getElementById('radar-category-filter');
     const vibe = document.getElementById('radar-vibe-filter');
@@ -2218,9 +2281,34 @@ function clearRadarFilters() {
     resetRadarView();
 }
 
-function radarTempoValue(t) {
+export function radarTempoValue(t) {
     const v = Number(t?.features?.tempo);
     return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+// 新着順の比較用: 追加日時 (added_at: 'YYYY-MM-DD HH:MM:SS') を数値にする。
+// 日時が無い曲は 0 (= 最後に回す) として扱う。
+export function radarAddedTime(t) {
+    const value = Date.parse(String(t?.added_at || '').replace(' ', 'T'));
+    return Number.isFinite(value) ? value : 0;
+}
+
+// 並び順を適用する。'default' は API の返却順 (おすすめ順) のまま。
+// 元の配列は変更せず、並べ替えた新しい配列を返す。
+export function sortRadarTracks(tracks, sort) {
+    if (sort === 'newest') {
+        return tracks.slice().sort((a, b) => radarAddedTime(b) - radarAddedTime(a));
+    }
+    if (sort === 'title') {
+        return tracks.slice().sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ja'));
+    }
+    if (sort === 'bpm-asc') {
+        return tracks.slice().sort((a, b) => (radarTempoValue(a) || 9999) - (radarTempoValue(b) || 9999));
+    }
+    if (sort === 'bpm-desc') {
+        return tracks.slice().sort((a, b) => radarTempoValue(b) - radarTempoValue(a));
+    }
+    return tracks;
 }
 
 // 大まかな3区分の固定選択肢 (細かい10刻みではなく「ゆったり/ふつう/速め」で選ぶ)
@@ -2231,7 +2319,7 @@ const RADAR_TEMPO_BANDS = [
 ];
 let radarTempoBands = [];
 
-function buildRadarTempoOptions() {
+export function buildRadarTempoOptions() {
     const vals = (vibeMapData || []).map(radarTempoValue).filter(v => v > 0);
     const sel = document.getElementById('radar-tempo-filter');
     radarTempoBands = RADAR_TEMPO_BANDS.map(b => ({
@@ -2252,7 +2340,7 @@ function buildRadarTempoOptions() {
     sel.title = `BPMで絞り込み (取得済 ${lo}〜${hi}・${vals.length}曲)`;
 }
 
-function radarTempoMatch(t, key) {
+export function radarTempoMatch(t, key) {
     if (!key) return true;
     const band = RADAR_TEMPO_BANDS.find(b => b.key === key);
     if (!band) return true;
@@ -2261,7 +2349,7 @@ function radarTempoMatch(t, key) {
     return bpm >= band.lo && bpm < band.hi;
 }
 
-function radarVibeMatch(t, key) {
+export function radarVibeMatch(t, key) {
     if (!key) return true;
     const f = t?.features || {};
     if (Array.isArray(f.vibe_tags) && f.vibe_tags.includes(key)) return true;
@@ -2269,7 +2357,7 @@ function radarVibeMatch(t, key) {
 }
 
 // 全曲から雰囲気タグ候補を作る (件数が多い順・最大12件)
-function buildRadarVibeOptions() {
+export function buildRadarVibeOptions() {
     const counts = new Map();
     (vibeMapData || []).forEach(t => {
         const f = t?.features || {};
@@ -2292,13 +2380,13 @@ function buildRadarVibeOptions() {
     if (prev && radarVibeOptions.includes(prev)) sel.value = prev;
 }
 
-function resetRadarView() {
+export function resetRadarView() {
     radarZoom = 1.0;
     radarPan = { x: 0, y: 0 };
     drawRadarMap(vibeFiltered);
 }
 
-function applyRadarFilter(preserveView) {
+export function applyRadarFilter(preserveView) {
     ensureRadarFilterOptions();
     radarNeighborIds = null;   // 条件を変えたら周辺絞り込みは解除
     const query = (document.getElementById('radar-title-search')?.value || '').toLowerCase();
@@ -2312,13 +2400,7 @@ function applyRadarFilter(preserveView) {
         const okCat = !category || (t.category || 'Other') === category;
         return okText && okCat && radarVibeMatch(t, vibe) && radarTempoMatch(t, tempo);
     });
-    if (sort === 'title') {
-        vibeFiltered.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ja'));
-    } else if (sort === 'bpm-asc') {
-        vibeFiltered.sort((a, b) => (radarTempoValue(a) || 9999) - (radarTempoValue(b) || 9999));
-    } else if (sort === 'bpm-desc') {
-        vibeFiltered.sort((a, b) => radarTempoValue(b) - radarTempoValue(a));
-    }
+    vibeFiltered = sortRadarTracks(vibeFiltered, sort);
     if (!preserveView) {
         radarZoom = 1.0;
         radarPan = { x: 0, y: 0 };
@@ -2336,9 +2418,10 @@ function applyRadarFilter(preserveView) {
     updateRadarCount();
     updateRadarClearButton();
     updateRadarSelectedPanel();
+    updateRadarFiltersToggle();
 }
 
-function updateRadarCount() {
+export function updateRadarCount() {
     const el = document.getElementById('radar-result-count');
     if (!el) return;
     const total = vibeMapData.length;
@@ -2346,15 +2429,118 @@ function updateRadarCount() {
     el.textContent = total ? `${shown} / ${total}曲` : '';
 }
 
-function updateRadarClearButton() {
+export function updateRadarClearButton() {
     const btn = document.getElementById('btn-radar-search-clear');
     const input = document.getElementById('radar-title-search');
     if (!btn || !input) return;
     btn.style.display = input.value ? 'block' : 'none';
 }
 
+// ==========================================================
+// モバイル Radar: 絞り込み (雰囲気 / BPM / 並び順 / 条件クリア) のモーダル
+// ----------------------------------------------------------
+// スマホでは絞り込みを常時並べるとマップの高さを奪ううえ文字も切れるため、
+// 「絞り込み」ボタンで開く画面中央のモーダルにする。
+// PCでは同じ要素をツールバー内へそのまま横並びで表示する
+// (表示の切り替えは CSS だけ。JS は body のクラスを付け外しする)。
+// ==========================================================
+const RADAR_FILTER_IDS = ['radar-title-search', 'radar-category-filter', 'radar-vibe-filter', 'radar-tempo-filter', 'radar-sort'];
+const RADAR_SUB_FILTER_IDS = ['radar-vibe-filter', 'radar-tempo-filter', 'radar-sort'];
+
+export function activeRadarFilters(ids) {
+    return ids.filter(id => {
+        const el = document.getElementById(id);
+        if (!el) return false;
+        // 並び順は「おすすめ順(既定)」以外のときだけ適用中とみなす
+        return id === 'radar-sort' ? Boolean(el.value) && el.value !== 'default' : Boolean(el.value);
+    });
+}
+
+// シートを使う画面幅か (メニューと同じ 600px 以下)
+export function isRadarFiltersSheetViewport() {
+    return typeof window.matchMedia === 'function'
+        ? window.matchMedia('(max-width: 600px)').matches
+        : window.innerWidth <= 600;
+}
+
+export function isRadarFiltersOpen() {
+    return document.body.classList.contains('radar-filters-open');
+}
+
+// スマホでシートとして開いているか (PCでは常に false = Escや背景タップの対象外)
+export function isRadarFiltersSheetOpen() {
+    return isRadarFiltersOpen() && isRadarFiltersSheetViewport();
+}
+
+export function openRadarFilters(options = {}) {
+    const wasOpen = isRadarFiltersOpen();
+    closeMobileMenu();   // モーダル表示中はメニューを畳んでおく (ログインモーダルと同じ)
+    document.body.classList.add('radar-filters-open');
+    const panel = document.getElementById('radar-subcontrols');
+    if (panel) {
+        // 開いている間だけモーダルとして読み上げる (PCの横並びでは通常のツールバー)
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        // 開いた直後だけフォーカスを移す (適用中の再表示で select から奪わないため)
+        if (!wasOpen && options.focus !== false && typeof panel.focus === 'function') panel.focus();
+    }
+    const toggle = document.getElementById('btn-radar-filters-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+}
+
+export function closeRadarFilters() {
+    if (!isRadarFiltersOpen()) return;
+    document.body.classList.remove('radar-filters-open');
+    const panel = document.getElementById('radar-subcontrols');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+    }
+    const toggle = document.getElementById('btn-radar-filters-toggle');
+    if (toggle) {
+        toggle.setAttribute('aria-expanded', 'false');
+        // 閉じたあとに操作位置を見失わないよう、開いたボタンへ戻す
+        if (isRadarFiltersSheetViewport() && typeof toggle.focus === 'function') toggle.focus();
+    }
+}
+
+export function toggleRadarFilters() {
+    if (isRadarFiltersOpen()) closeRadarFilters();
+    else openRadarFilters();
+}
+
+// 開閉を一括で指定する (自動オープンでは focus を奪わない)
+export function setRadarFiltersOpen(open, options) {
+    if (open) openRadarFilters(options);
+    else closeRadarFilters();
+}
+
+// 適用中の条件を、絞り込みボタン (件数表示) と「条件クリア」へ反映する
+export function updateRadarFiltersToggle() {
+    const count = activeRadarFilters(RADAR_FILTER_IDS).length;
+    const toggle = document.getElementById('btn-radar-filters-toggle');
+    if (toggle) {
+        toggle.textContent = count ? `絞り込み(${count})` : '絞り込み';
+        toggle.classList.toggle('is-active', count > 0);
+        toggle.title = count ? `絞り込みを開く（${count}件適用中）` : '雰囲気・BPM・並び順の絞り込みを開く';
+    }
+    const clear = document.getElementById('btn-radar-clear');
+    // モーダルの4つ目の枠に常に置く。条件が無いときは is-empty を付けて、
+    // PCのツールバーでは CSS 側で隠す (スマホでは押せる状態のまま出す)
+    if (clear) clear.classList.toggle('is-empty', count === 0);
+    // 畳んだままだと変えられない条件 (雰囲気・BPM・並び順) はシートを開いて見せる
+    if (activeRadarFilters(RADAR_SUB_FILTER_IDS).length && isRadarFiltersSheetViewport()) {
+        setRadarFiltersOpen(true, { focus: false });
+    }
+}
+
+// 画面幅が広がったら (端末の回転など) シートは畳む
+window.addEventListener('resize', () => {
+    if (isRadarFiltersOpen() && !isRadarFiltersSheetViewport()) closeRadarFilters();
+});
+
 // マップ右上の選択中カード (再生・周辺再生・中央寄せを1か所に集約)
-function updateRadarSelectedPanel() {
+export function updateRadarSelectedPanel() {
     const panel = document.getElementById('radar-selected-panel');
     if (!panel) return;
     const t = (vibeFiltered.find(t => t.youtube_id === radarSelectedId)
@@ -2408,14 +2594,14 @@ function updateRadarSelectedPanel() {
 }
 
 // 点が重なったときの候補選択ポップアップ
-function hideRadarOverlap() {
+export function hideRadarOverlap() {
     const pop = document.getElementById('radar-overlap-popup');
     if (!pop) return;
     pop.hidden = true;
     pop.innerHTML = '';
 }
 
-function showRadarOverlap(candidates, x, y) {
+export function showRadarOverlap(candidates, x, y) {
     const pop = document.getElementById('radar-overlap-popup');
     const container = document.getElementById('radar-map-container');
     if (!pop || !container || !candidates || candidates.length < 2) return;
@@ -2448,7 +2634,7 @@ function showRadarOverlap(candidates, x, y) {
     pop.style.top = Math.max(8, Math.min(y + 12, container.clientHeight - ph - 8)) + 'px';
 }
 
-function bindRadarControls() {
+export function bindRadarControls() {
     const zoomIn = document.getElementById('btn-radar-zoom-in');
     const zoomOut = document.getElementById('btn-radar-zoom-out');
     const zoomReset = document.getElementById('btn-radar-zoom-reset');
@@ -2490,7 +2676,7 @@ function bindRadarControls() {
 }
 
 // 再解析バッチの進捗をポーリングする (完了または上限到達で返る)
-async function pollAnalyzeStatus(btn) {
+export async function pollAnalyzeStatus(btn) {
     const hud = document.getElementById('radar-map-hud');
     let state = null;
     for (let i = 0; i < 1800; i++) {
@@ -2520,7 +2706,7 @@ async function pollAnalyzeStatus(btn) {
     return state;
 }
 
-function renderRadarLegend() {
+export function renderRadarLegend() {
     const legend = document.getElementById('radar-map-legend');
     if (!legend) return;
     const activeCat = document.getElementById('radar-category-filter')?.value || '';
@@ -2549,13 +2735,13 @@ function renderRadarLegend() {
     });
 }
 
-function radarZoomAtCenter(factor) {
+export function radarZoomAtCenter(factor) {
     radarZoom = Math.max(0.2, Math.min(8, radarZoom * factor));
     drawRadarMap(vibeFiltered);
 }
 
 // 選択曲が画面中央に来るようパンする (一覧→マップ連携用)
-function focusRadarTrack(youtubeId) {
+export function focusRadarTrack(youtubeId) {
     const track = vibeFiltered.find(t => t.youtube_id === youtubeId);
     if (!track || !track.features) return;
     const f = track.features;
@@ -2568,7 +2754,7 @@ function focusRadarTrack(youtubeId) {
 }
 
 // 表示中の曲全体が収まるようズーム・パンを調整 (件数が少ない絞り込み後に便利)
-function fitRadarToFiltered() {
+export function fitRadarToFiltered() {
     const pts = (vibeFiltered || []).map(t => t?.features).filter(f => f && typeof f.x === 'number' && typeof f.y === 'number');
     if (!pts.length) { resetRadarView(); return; }
     if (pts.length === 1) {
@@ -2596,14 +2782,14 @@ function fitRadarToFiltered() {
     drawRadarMap(vibeFiltered);
 }
 
-function radarNormPos(t) {
+export function radarNormPos(t) {
     const f = t?.features || {};
     if (typeof f.x !== 'number' || typeof f.y !== 'number') return null;
     return { x: Math.max(0, Math.min(1, f.x)), y: Math.max(0, Math.min(1, f.y)) };
 }
 
 // マップ上で近い曲＝雰囲気が近い曲。選択曲の周辺 n 曲を返す
-function radarNeighbors(youtubeId, n) {
+export function radarNeighbors(youtubeId, n) {
     const base = (vibeFiltered.find(t => t.youtube_id === youtubeId)
         || vibeMapData.find(t => t.youtube_id === youtubeId));
     const bp = base && radarNormPos(base);
@@ -2619,7 +2805,7 @@ function radarNeighbors(youtubeId, n) {
         .map(o => o.t);
 }
 
-function radarQueueFromTracks(tracks, startId) {
+export function radarQueueFromTracks(tracks, startId) {
     const list = (tracks || []).filter(t => t && t.youtube_id).map(t => ({
         ...t, id: t.youtube_id, is_favorite: t.is_favorite || 0, fromRadar: true,
     }));
@@ -2629,14 +2815,14 @@ function radarQueueFromTracks(tracks, startId) {
 }
 
 // 下の一覧に表示する曲 (周辺絞り込み中はその9曲だけ)。
-function vibeDisplayTracks() {
+export function vibeDisplayTracks() {
     if (!radarNeighborIds) return vibeFiltered;
     const ids = new Set(radarNeighborIds);
     return vibeFiltered.filter(t => ids.has(t.youtube_id));
 }
 
 // 選択曲＋周辺の近い曲を連続再生 (下の一覧もその曲だけに絞り込む)
-function playRadarNeighbors(youtubeId, count) {
+export function playRadarNeighbors(youtubeId, count) {
     const base = vibeFiltered.find(t => t.youtube_id === youtubeId)
         || vibeMapData.find(t => t.youtube_id === youtubeId);
     if (!base) return;
@@ -2649,7 +2835,7 @@ function playRadarNeighbors(youtubeId, count) {
 }
 
 // 選択状態の一元更新: マップ・一覧・パネルを同期する
-function selectRadarTrack(youtubeId, opts) {
+export function selectRadarTrack(youtubeId, opts) {
     const o = opts || {};
     radarSelectedId = youtubeId || null;
     radarNeighborIds = null;   // 別の曲を選び直したら周辺絞り込みを解除
@@ -2668,7 +2854,7 @@ function selectRadarTrack(youtubeId, opts) {
 
 // ドラッグ/ホイール中の連続再描画を rAF で1フレームにまとめる (CPU/GPU負荷の軽減)。
 // クリック選択・ズームボタン・絞り込みなどの単発更新は drawRadarMap を直接呼ぶ。
-function queueRadarDraw() {
+export function queueRadarDraw() {
     if (typeof requestAnimationFrame !== 'function') { drawRadarMap(vibeFiltered); return; }
     if (radarDrawQueued) return;
     radarDrawQueued = true;
@@ -2676,7 +2862,7 @@ function queueRadarDraw() {
 }
 
 // UMAP座標をキャンバスに描画 (パン/ズーム/ホバー/クリック対応)
-function drawRadarMap(tracks) {
+export function drawRadarMap(tracks) {
     const container = document.getElementById('radar-map-container');
     const canvas = document.getElementById('radar-map-canvas');
     const tooltip = document.getElementById('radar-map-tooltip');
@@ -2798,7 +2984,7 @@ function drawRadarMap(tracks) {
     }
 }
 
-function roundRect(ctx, x, y, w, h, r) {
+export function roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -2808,7 +2994,7 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
-function renderVibeTracks(tracks, scrollToSelected) {
+export function renderVibeTracks(tracks, scrollToSelected) {
     const strip = document.getElementById('vibe-track-strip');
     if (!strip) return;
     strip.innerHTML = '';
@@ -2870,27 +3056,27 @@ function renderVibeTracks(tracks, scrollToSelected) {
     }
 }
 
-function canvasWidth() {
+export function canvasWidth() {
     return document.getElementById('radar-map-container')?.clientWidth || 0;
 }
-function canvasHeight() {
+export function canvasHeight() {
     return document.getElementById('radar-map-container')?.clientHeight || 0;
 }
 
-function playFromRadar(t) {
+export function playFromRadar(t) {
     if (!t || !t.youtube_id) return;
     currentDetailTracks = [{ id: t.youtube_id, youtube_id: t.youtube_id, title: t.title, channel: t.channel, is_favorite: 0 }];
     playTrackFromQueue(0, currentDetailTracks);
 }
 
-function escapeHtml(s) {
+export function escapeHtml(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // キャンバスポインタ操作 (ホバー/タップ/ドラッグ/ピンチ/ホイール)
-function bindRadarPointer() {
+export function bindRadarPointer() {
     const container = document.getElementById('radar-map-container');
     const canvas = document.getElementById('radar-map-canvas');
     const tooltip = document.getElementById('radar-map-tooltip');
@@ -3077,7 +3263,7 @@ function bindRadarPointer() {
 }
 
 // カーソル位置を基準にズーム (ホイール/ダブルクリック用)。ズーム後も指先の点が追従する
-function radarZoomToPoint(mx, my, factor) {
+export function radarZoomToPoint(mx, my, factor) {
     const container = document.getElementById('radar-map-container');
     if (!container) return;
     const W = Math.max(1, container.clientWidth);
@@ -3098,7 +3284,7 @@ function radarZoomToPoint(mx, my, factor) {
 
 // プレイリスト詳細を開く (URLハッシュを履歴に積む)
 let pendingDetail = { id: null, name: '', cover: '' };
-function openPlaylistDetail(playlistId, playlistName, coverId) {
+export function openPlaylistDetail(playlistId, playlistName, coverId) {
     pendingDetail = { id: Number(playlistId), name: playlistName || '', cover: coverId || '' };
     // クリック直後に前のリスト名が見えないよう、名前だけ先に反映しておく
     // (描画本体は hashchange 側。ハッシュが変わらない場合のみここで描画する)
@@ -3114,7 +3300,7 @@ function openPlaylistDetail(playlistId, playlistName, coverId) {
 
 // プレイリスト詳細のメタ行: 「3曲 · 作成者名」。
 // 作成者名はクリック/Enter でそのユーザーのプロフィールへ移動する。
-function renderDetailMeta(trackCount, listData) {
+export function renderDetailMeta(trackCount, listData) {
     const meta = document.getElementById('detail-meta');
     if (!meta) return;
     meta.textContent = `${trackCount} 曲`;
@@ -3146,7 +3332,7 @@ function renderDetailMeta(trackCount, listData) {
 // SPA のハッシュURL (#/playlist/12) は SNS のクローラーに中身が見えず、
 // 共有してもカードが出ないため。
 // ----------------------------------------------------------
-function playlistShareUrl(playlistId) {
+export function playlistShareUrl(playlistId) {
     try {
         const url = new URL('ogp.php', window.location.href);
         url.searchParams.set('playlist', playlistId);
@@ -3156,7 +3342,7 @@ function playlistShareUrl(playlistId) {
     }
 }
 
-async function renderPlaylistDetail(playlistId, playlistName, coverId) {
+export async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     switchView('playlist-detail');
     // 直前に開いた別リストの名前を持ち越さない (IDが一致するときだけ使う)
     const pending = pendingDetail.id === Number(playlistId) ? pendingDetail : { name: '', cover: '' };
@@ -3282,7 +3468,7 @@ async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     renderDetailTracks(currentDetailTracks);
 }
 
-function renderDetailTracks(tracks) {
+export function renderDetailTracks(tracks) {
     const listContainer = document.getElementById('detail-track-list');
     listContainer.innerHTML = '';
     if (tracks.length === 0) return listContainer.innerHTML = '<p style="padding:20px; color:var(--text-sub);">このプレイリストは空です。</p>';
@@ -3367,12 +3553,12 @@ function renderDetailTracks(tracks) {
     });
 }
 
-function playAllRadarTracks() {
+export function playAllRadarTracks() {
     if (currentDetailTracks.length > 0) playTrackFromQueue(0, currentDetailTracks);
     else showToast('再生できる曲がありません。', 'error');
 }
 
-function exportPlaylistUrls(playlistName, tracks) {
+export function exportPlaylistUrls(playlistName, tracks) {
     if (!tracks || tracks.length === 0) return showToast('曲が登録されていません。', 'error');
 
     let textData = `🎵 Tune drop プレイリスト: ${playlistName}\n\n`;
@@ -3404,8 +3590,8 @@ function exportPlaylistUrls(playlistName, tracks) {
     }
 }
 
-function closeExportModal() { document.getElementById('export-preview-modal').style.display = 'none'; }
-function copyExportText() {
+export function closeExportModal() { document.getElementById('export-preview-modal').style.display = 'none'; }
+export function copyExportText() {
     const textarea = document.getElementById('export-textarea');
     textarea.select();
     navigator.clipboard.writeText(textarea.value).then(() => {
@@ -3421,7 +3607,7 @@ function copyExportText() {
     }).catch(err => { showToast('クリップボードへのコピーに失敗しました。', 'error'); });
 }
 
-function playRadarRandomThree() {
+export function playRadarRandomThree() {
     // Draw from the current Radar results, without repeating the same video.
     const candidates = [...new Map(vibeFiltered
         .filter(track => track.youtube_id)
@@ -3450,7 +3636,7 @@ function playRadarRandomThree() {
 // ==========================================================
 // Share: みんなの公開プレイリスト一覧
 // ==========================================================
-async function loadSharePlaylists() {
+export async function loadSharePlaylists() {
     const grid = document.getElementById('share-playlists-grid');
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';
@@ -3470,18 +3656,18 @@ async function loadSharePlaylists() {
     }
 }
 
-function shareFavCount(p) {
+export function shareFavCount(p) {
     const n = Number(p?.favorite_count);
     return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-function shareTrackCount(p) {
+export function shareTrackCount(p) {
     const n = Number(p?.track_count);
     return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 // 人気順の順位表 (id -> 1-based rank)。同点は track_count → 新着(id降順) で決める。
-function sharePopularRanks(lists) {
+export function sharePopularRanks(lists) {
     const sorted = [...(lists || [])].sort((a, b) =>
         shareFavCount(b) - shareFavCount(a)
         || shareTrackCount(b) - shareTrackCount(a)
@@ -3491,7 +3677,7 @@ function sharePopularRanks(lists) {
     return { sorted, ranks };
 }
 
-function matchShareQuery(p, query, category) {
+export function matchShareQuery(p, query, category) {
     const name = (p?.name || '').toLowerCase();
     const author = ((p?.author || p?.author_name || p?.username || '')).toLowerCase();
     const okText = !query || name.includes(query) || author.includes(query);
@@ -3500,7 +3686,7 @@ function matchShareQuery(p, query, category) {
 }
 
 // 検索・カテゴリ・並び順を適用した一覧を返す (描画とEnterジャンプで共有)
-function getShareFiltered() {
+export function getShareFiltered() {
     const query = (document.getElementById('share-search')?.value || '').toLowerCase();
     const category = document.getElementById('share-category')?.value || '';
     const sortMode = document.getElementById('share-sort')?.value || 'newest';
@@ -3514,12 +3700,12 @@ function getShareFiltered() {
     return { query, category, sortMode, filtered, sorted };
 }
 
-function onShareSearchInput() {
+export function onShareSearchInput() {
     updateShareClearButton();
     renderSharePlaylists();
 }
 
-function clearShareSearch() {
+export function clearShareSearch() {
     const input = document.getElementById('share-search');
     if (input) input.value = '';
     renderSharePlaylists();
@@ -3527,7 +3713,7 @@ function clearShareSearch() {
 }
 
 // 検索欄の Enter=先頭結果を開く、Escape=クリア
-function onShareSearchKey(e) {
+export function onShareSearchKey(e) {
     if (e.key === 'Enter') {
         e.preventDefault();
         const { sorted } = getShareFiltered();
@@ -3538,14 +3724,14 @@ function onShareSearchKey(e) {
     }
 }
 
-function updateShareClearButton() {
+export function updateShareClearButton() {
     const btn = document.getElementById('btn-share-search-clear');
     const input = document.getElementById('share-search');
     if (!btn || !input) return;
     btn.style.display = input.value ? 'block' : 'none';
 }
 
-function renderSharePlaylists() {
+export function renderSharePlaylists() {
     const grid = document.getElementById('share-playlists-grid');
     if (!grid) return;
     updateShareClearButton();
@@ -3618,7 +3804,7 @@ function renderSharePlaylists() {
     });
 }
 
-function renderShareRecommend() {
+export function renderShareRecommend() {
     const box = document.getElementById('share-recommend');
     if (!box) return;
     const rawQuery = (document.getElementById('share-search')?.value || '').trim().toLowerCase();
@@ -3691,7 +3877,7 @@ function renderShareRecommend() {
     });
 }
 
-function renderShareRanking(popularSorted) {
+export function renderShareRanking(popularSorted) {
     const box = document.getElementById('share-ranking');
     if (!box) return;
     const query = (document.getElementById('share-search')?.value || '').trim();
@@ -3731,7 +3917,7 @@ function renderShareRanking(popularSorted) {
 }
 
 // Shareカード上の♥ボタン: 詳細を開かずにお気に入り切替＋件数を即時更新
-async function toggleShareFavorite(id, event) {
+export async function toggleShareFavorite(id, event) {
     if (event) event.stopPropagation();
     const btn = event?.currentTarget;
     if (btn) btn.disabled = true;
@@ -3769,7 +3955,7 @@ async function toggleShareFavorite(id, event) {
 }
 
 // Share画面の「おまかせ」: 公開プレイリストからランダムに1つ開く
-function openRandomSharePlaylist() {
+export function openRandomSharePlaylist() {
     const lists = (sharePlaylists || []).filter(p => p && p.id);
     if (lists.length === 0) {
         showToast('まだ公開されたプレイリストがありません。', 'error');
@@ -3779,7 +3965,7 @@ function openRandomSharePlaylist() {
     openPlaylistDetail(pick.id, pick.name, pick.cover_id);
 }
 
-function playTrackFromQueue(index, queue) {
+export function playTrackFromQueue(index, queue) {
     closeMobileMenu();   // 再生 (他操作) でメニューが残らないようにする
     currentQueue = queue;
     currentTrackIndex = index;
@@ -3814,20 +4000,20 @@ function playTrackFromQueue(index, queue) {
     }
 }
 
-function skipTrack(direction) {
+export function skipTrack(direction) {
     if (currentQueue.length === 0 || currentTrackIndex === -1) return;
     const nextIndex = currentTrackIndex + direction;
     if (nextIndex >= 0 && nextIndex < currentQueue.length) playTrackFromQueue(nextIndex, currentQueue);
 }
 
-function onYouTubeIframeAPIReady() {
+export function onYouTubeIframeAPIReady() {
     // YT スクリプト未ロード・プレイヤー作成済みの二重発火は何もしない
     if (player || !(window.YT && window.YT.Player)) return;
     const initialVideoId = currentQueue[currentTrackIndex]?.youtube_id || '';
     createYouTubePlayer(initialVideoId);
 }
 
-function createYouTubePlayer(videoId) {
+export function createYouTubePlayer(videoId) {
     if (!(window.YT && window.YT.Player)) return;
     document.getElementById('youtube-player')?.remove();
     document.getElementById('youtube-player-frame')?.remove();
@@ -3856,7 +4042,7 @@ function createYouTubePlayer(videoId) {
 }
 
 /* 自動字幕をオフにする (プレイヤー初期化時のみ。ユーザーが後からCCをオンにした場合は尊重) */
-function disableCaptions() {
+export function disableCaptions() {
     if (!player || typeof player.setOption !== 'function') return;
     try {
         player.setOption('captions', 'track', {});
@@ -3866,7 +4052,7 @@ function disableCaptions() {
     }
 }
 
-function onYouTubePlayerReady() {
+export function onYouTubePlayerReady() {
     playerReady = true;
     disableCaptions();
     if (currentQueue.length > 0 && currentTrackIndex >= 0) {
@@ -3880,7 +4066,7 @@ function onYouTubePlayerReady() {
 
 let ytErrorStreak = 0;   // 連続再生エラー数 (全滅時の無限ループ防止用)
 
-function onYouTubePlayerError(event) {
+export function onYouTubePlayerError(event) {
     console.error('YouTube player error:', event.data);
     // 再生できない動画 (埋め込み不可・削除済み等) は飛ばして次の曲へ。
     // キュー全曲が再生不可のときは止める (無限に回さない)。
@@ -3889,7 +4075,7 @@ function onYouTubePlayerError(event) {
     skipTrack(1);
 }
 
-function onPlayerStateChange(event) {
+export function onPlayerStateChange(event) {
     const playBtn = document.getElementById('play-pause-btn');
     if (event.data === YT.PlayerState.PLAYING) {
         isPlaying = true;
@@ -3904,12 +4090,12 @@ function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.ENDED) skipTrack(1);
 }
 
-function togglePlay() {
+export function togglePlay() {
     if (!player) return;
     isPlaying ? player.pauseVideo() : player.playVideo();
 }
 
-function updateProgressBar() {
+export function updateProgressBar() {
     if (!player || !isPlaying) return;
     const currentTime = player.getCurrentTime();
     const duration = player.getDuration();
@@ -3919,14 +4105,14 @@ function updateProgressBar() {
     }
 }
 
-function seekTrack(event) {
+export function seekTrack(event) {
     if (!player || player.getDuration() === 0) return;
     const container = document.getElementById('progress-container');
     const clickX = event.clientX - container.getBoundingClientRect().left;
     player.seekTo((clickX / container.offsetWidth) * player.getDuration(), true);
 }
 
-function formatTime(seconds) {
+export function formatTime(seconds) {
     const min = Math.floor(seconds / 60);
     const sec = Math.floor(seconds % 60);
     return `${min}:${sec.toString().padStart(2, '0')}`;
@@ -3953,7 +4139,7 @@ document.addEventListener('click', (event) => {
 // ==========================================================
 const APP_ASSET_PATTERN = /(?:app\.js|style\.css)\?v=([\w.-]+)/g;
 
-function loadedAssetVersions() {
+export function loadedAssetVersions() {
     const versions = new Set();
     document.querySelectorAll('script[src*="app.js"], link[href*="style.css"]').forEach(el => {
         const value = el.getAttribute('src') || el.getAttribute('href') || '';
@@ -3963,7 +4149,7 @@ function loadedAssetVersions() {
     return versions;
 }
 
-async function checkForAppUpdate() {
+export async function checkForAppUpdate() {
     const banner = document.getElementById('update-banner');
     if (!banner || banner.hidden === false) return;
     try {
@@ -3981,7 +4167,7 @@ async function checkForAppUpdate() {
 }
 
 let lastUpdateCheck = 0;
-function scheduleUpdateCheck() {
+export function scheduleUpdateCheck() {
     const now = Date.now();
     if (now - lastUpdateCheck < 5 * 60 * 1000) return;   // 最短5分間隔
     lastUpdateCheck = now;
@@ -4121,3 +4307,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.fonts?.ready.then(schedule);
     schedule();
 })();
+
+// ===== タッチ端末向けの表示調整 =====
+// スマートフォンには Enter キーが無いため、検索欄の案内 (Enterで先頭を再生) は出さない。
+(() => {
+    if (typeof matchMedia !== 'function' || !matchMedia('(pointer: coarse)').matches) return;
+    const input = document.getElementById('radar-title-search');
+    if (input) input.placeholder = '🔍 曲名・アーティストで絞り込み...';
+})();
+

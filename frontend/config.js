@@ -1,12 +1,18 @@
 // 公開環境: MAMP/Apache (port 8888) + Cloudflare Tunnel (https://music.wawa-app.me/tunedrop)
-// APIは localhost:8888/api.php (ドキュメントルート = Tunedrop/ 直下) で配信される。
+// APIは localhost:8888/tunedrop/api.php で配信される。
+// MAMPのDocumentRootは別フォルダ (既定: ~/Sites/localhost) を向いているが、
+// /tunedrop (小文字) がこのプロジェクトへAliasされているため、こちらを指定する。
+// ※ localhost:8888/api.php はDocumentRoot側の別のコピーを指すため使わない
+//   (古いコピーは /auth/guest を持たず、認証が失敗して「接続できない」状態になる)。
 window.TUNEDROP_CONFIG = {
-    mampApiUrl: 'http://localhost:8888/api.php',
+    mampApiUrl: 'http://localhost:8888/tunedrop/api.php',
     // Googleログイン用 (Google Cloud Console で発行した OAuth 2.0 クライアントID)
     // 「no registered origin」エラーが出るときは、GCS の当該クライアントの
     // 「承認済み JavaScript 生成元」に、現在ページを開いている origin を登録する:
     //   - http://localhost:8888 (MAMP) / http://127.0.0.1:8888
     //   - http://localhost:8000 (start.sh の PHPビルトインサーバー)
+    //     8000番が別アプリに使われている場合は 8001/8002/8003/8010/8080 の順で空きポートに
+    //     自動で切り替わる (起動時に表示されるURLを開く)。その origin も必要に応じて登録する。
     //   - http://localhost:5500 / http://127.0.0.1:5500 (VS Code Live Server)
     //   - https://music.wawa-app.me/tunedrop (Cloudflare Tunnel)
     //   - https://gainfully-macaroni-swivel.ngrok-free.dev (ngrok)
