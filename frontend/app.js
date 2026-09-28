@@ -2118,25 +2118,30 @@ export function radarTooltipHtml(track) {
         + `${vibe ? ' · ' + escapeHtml(vibe) : ''}${engine ? ' · ' + escapeHtml(engine) : ''}</span>`;
 }
 
-// おすすめ順 (Ollama による自動推薦) を取得し、vibeMapData をその順に並べ替える。
-// 取得失敗時は何もせず (API 返却順のまま)、既定の並び順 (おすすめ順) に影響しない。
-export async function applyRadarRecommendOrder() {
-    radarRecommendOrder = null;
-    radarRecommendTaste = '';
+// おすすめ順 (Ollama による自動推薦) を取得する。失敗時は null。
+// バックエンドは 12時間キャッシュしているため、通常は即座に返る。
+export async function fetchRadarRecommend() {
     try {
         const res = await tunedropFetch('api.php?action=radar_recommend');
         const rec = await res.json();
         if (rec && rec.success && Array.isArray(rec.order)) {
-            radarRecommendOrder = rec.order;
-            radarRecommendTaste = rec.taste || '';
-            const rank = new Map(rec.order.map((id, i) => [id, i]));
-            vibeMapData.sort((a, b) => {
-                const ai = rank.has(a.youtube_id) ? rank.get(a.youtube_id) : Number.MAX_SAFE_INTEGER;
-                const bi = rank.has(b.youtube_id) ? rank.get(b.youtube_id) : Number.MAX_SAFE_INTEGER;
-                return ai - bi;
-            });
+            return { order: rec.order, taste: rec.taste || '' };
         }
-    } catch (_) { /* おすすめ取得失敗時は従来の並びのまま */ }
+    } catch (_) { /* 取得失敗時は従来の並びのまま */ }
+    return null;
+}
+
+// 取得済みのおすすめ順で vibeMapData を並べ替える (order が無効なら何もしない)。
+export function applyRadarOrder(order, taste) {
+    radarRecommendOrder = Array.isArray(order) ? order : null;
+    radarRecommendTaste = taste || '';
+    if (!Array.isArray(order) || !order.length) return;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    vibeMapData.sort((a, b) => {
+        const ai = rank.has(a.youtube_id) ? rank.get(a.youtube_id) : Number.MAX_SAFE_INTEGER;
+        const bi = rank.has(b.youtube_id) ? rank.get(b.youtube_id) : Number.MAX_SAFE_INTEGER;
+        return ai - bi;
+    });
 }
 
 export async function loadRadarData() {
@@ -2145,8 +2150,10 @@ export async function loadRadarData() {
     if (statusBtn) statusBtn.innerText = '解析中...';
     if (hud) hud.textContent = 'AIで楽曲特徴量を推定中…';
     try {
-        const res = await tunedropFetch('api.php?action=radar_map');
-        const data = await res.json();
+        // マップとおすすめを並列に取得する (おすすめは12時間キャッシュで即返る)。
+        const mapPromise = tunedropFetch('api.php?action=radar_map').then(r => r.json());
+        const recPromise = fetchRadarRecommend();
+        const data = await mapPromise;
         if (!data.success && data.error) {
             if (hud) hud.textContent = data.error;
             drawRadarMap([]);
@@ -2162,9 +2169,9 @@ export async function loadRadarData() {
             added_at: p.added_at,       // 新着順 (ブックマークへ追加した日時)
             features: p.features || {},
         }));
-        // おすすめ順 (Ollama による自動推薦) を取得して既定の並び順にする。
-        // 取得できない場合は従来どおり API の返却順 (新着順) のまま。
-        await applyRadarRecommendOrder();
+        // おすすめ順を適用 (並列取得済みのため、ここでは待たずに反映できる)
+        const rec = await recPromise;
+        if (rec) applyRadarOrder(rec.order, rec.taste);
         const eng = data.points && data.points.length && data.points[0].features
             ? data.points[0].features.engine : null;
         const engLabel = eng === 'gemini' ? 'Gemini AI'

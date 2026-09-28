@@ -1147,9 +1147,50 @@ def radar_map():
 
 # ---- おすすめ順 (Ollama による自動推薦) ----
 
-# 推薦レシピのキャッシュ (好みプロファイル→レシピ)。ブックマーク/解析キャッシュが変わると無効化。
+# 推薦レシピのキャッシュ。12時間ごとに再計算し、それまでは保存済みの結果を即返す
+# (Ollama 呼び出しを挟まないため、Radar 画面の切り替えが速くなる)。
+# ブックマーク/解析キャッシュが変わった場合は 12時間待たずに再計算する。
 _RECOMMEND_CACHE = {'key': None, 'order': [], 'recipe': {}, 'fallback': False, 'at': 0.0}
-RECOMMEND_CACHE_TTL = float(os.environ.get('TUNEDROP_RECOMMEND_CACHE_TTL', '120') or '120')
+RECOMMEND_CACHE_TTL = float(os.environ.get('TUNEDROP_RECOMMEND_CACHE_TTL', '43200') or '43200')
+
+
+def _recommend_cache_file():
+    """おすすめ結果を保存する JSON ファイル (DB と別ファイルにして書込競合を避ける)。"""
+    return os.environ.get(
+        'TUNEDROP_RECOMMEND_CACHE',
+        os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), 'analysis_recommend.json'))
+
+
+def _load_recommend_cache():
+    """保存済みのおすすめキャッシュを読む (無ければ None)。"""
+    try:
+        with open(_recommend_cache_file(), 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _persist_recommend_cache():
+    """おすすめキャッシュをディスクへ保存する (12時間の再計算間隔をまたいで再利用)。"""
+    try:
+        tmp = _recommend_cache_file() + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(_RECOMMEND_CACHE, f, ensure_ascii=False)
+        os.replace(tmp, _recommend_cache_file())
+    except Exception:
+        pass
+
+
+def _restore_recommend_cache():
+    """起動時に保存済みのおすすめキャッシュを復元する。"""
+    saved = _load_recommend_cache()
+    if saved and saved.get('key') is not None:
+        _RECOMMEND_CACHE.update(saved)
+
+
+# 起動時に保存済みのおすすめを復元する (再起動後も 12時間内は再計算しない)。
+_restore_recommend_cache()
 
 # テンポ/エネルギー/明るさの3区分 (指標ごとに異なる値域)
 _BAND_RANGES = {
@@ -1203,8 +1244,9 @@ def radar_recommend():
     public_only = request.args.get('public') == '1'
     refresh = request.args.get('refresh') == '1'
 
-    # キャッシュキー (ブックマーク/プレイリスト/解析キャッシュの版)
-    cache_key = _map_cache_key(public_only, user_id)
+    # キャッシュキー (ブックマーク/プレイリスト/解析キャッシュの版)。
+    # 永続化で tuple→list 化して比較が壊れないよう、JSON 文字列で持つ。
+    cache_key = json.dumps(_map_cache_key(public_only, user_id), sort_keys=True)
     if not refresh and _RECOMMEND_CACHE['key'] == cache_key \
             and time.time() - _RECOMMEND_CACHE['at'] < RECOMMEND_CACHE_TTL:
         return jsonify(_RECOMMEND_CACHE['payload']), 200
@@ -1311,6 +1353,7 @@ def radar_recommend():
     }
     _RECOMMEND_CACHE.update({'key': cache_key, 'payload': payload, 'at': time.time(),
                              'order': payload['order'], 'recipe': recipe, 'fallback': fallback})
+    _persist_recommend_cache()
     return jsonify(payload), 200
 
 
