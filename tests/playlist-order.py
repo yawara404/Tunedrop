@@ -11,6 +11,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
@@ -34,11 +35,11 @@ with tempfile.TemporaryDirectory() as directory:
                    " VALUES (21,99,'Bravo','Other',0,1)")
 
     def request(action, body=None):
-        script = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]]; require $argv[3];'
+        script = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_SERVER["HTTP_AUTHORIZATION"]=$argv[4]; $_GET=["action"=>$argv[2]]; require $argv[3];'
         return json.loads(subprocess.check_output(
             [os.environ.get('PHP_BIN', 'php'), '-r', script,
-             'POST' if body is not None else 'GET', action, str(api)],
-            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body)}, text=True,
+             'POST' if body is not None else 'GET', action, str(api), bearer()],
+            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body), 'SECRET_KEY': SECRET}, text=True,
         ))
 
     def names():

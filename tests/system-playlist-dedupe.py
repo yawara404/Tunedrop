@@ -10,6 +10,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
@@ -20,17 +21,17 @@ with tempfile.TemporaryDirectory() as directory:
     api.write_text(source)
     with sqlite3.connect(database) as db:
         db.executescript((ROOT / 'setup.sql').read_text())
-        # 閲覧者 (ログインなしで使われる共通ゲストユーザー)
+        # 閲覧者
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
         db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (99,99,'Guest private',0)")
         # 他ユーザーが作成した公開リスト (固定タブではないので共有一覧に出る)
         db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (30,1,'Shared public',1)")
 
     def request(action, body=None):
-        script = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]]; require $argv[3];'
+        script = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_SERVER["HTTP_AUTHORIZATION"]=$argv[4]; $_GET=["action"=>$argv[2]]; require $argv[3];'
         return json.loads(subprocess.check_output(
-            [os.environ.get('PHP_BIN', 'php'), '-r', script, 'POST' if body is not None else 'GET', action, str(api)],
-            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body)}, text=True,
+            [os.environ.get('PHP_BIN', 'php'), '-r', script, 'POST' if body is not None else 'GET', action, str(api), bearer()],
+            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body), 'SECRET_KEY': SECRET}, text=True,
         ))
 
     # api.php が public_favorites テーブルを用意する

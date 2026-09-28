@@ -84,6 +84,20 @@ function flask_proxy_request(string $path, array $options = []): ?string {
             }
         }
     }
+    // Flask が HTML のエラーページ (未実装エンドポイントの404・例外ページなど) を返すと、
+    // api.php は先頭で Content-Type: application/json を送っているため、フロントの
+    // response.json() が「Unexpected token '<' ... is not valid JSON」で落ちてしまう。
+    // 原因が分かるよう、JSON 以外の本文は案内付きの JSON エラーへ置き換える。
+    json_decode($raw);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        http_response_code(502);
+        echo json_encode([
+            'success' => false,
+            'error' => $options['non_json_error']
+                ?? 'サーバー(app.py)がJSON以外を返しました。最新の状態で再起動してください。',
+        ], JSON_UNESCAPED_UNICODE);
+        return null;
+    }
     return $raw;
 }
 
@@ -149,9 +163,6 @@ function current_user_id(): ?int {
     }
     return null;
 }
-
-/** 全ゲスト共通で使うユーザー名。 */
-const TUNEDROP_GUEST_USERNAME = 'guest';
 
 /**
  * 全ユーザー共通の固定タブ定義。配列の順序がサイドバーでの並び順になる。
@@ -299,68 +310,17 @@ function migrate_unique_bookmarks(PDO $db): void {
     }
 }
 
-/** サイト初期データのサンプル楽曲入りデフォルトライブラリを作成する (app.py の insert_default_library と同一内容)。
-    「未整理」「公開用お気に入り」のどちらを開いてもサンプル2曲が見えるように、両方に配置する。
-    違うリストへの同じ曲の登録は許可するため、初期サンプルも両方に入れてよい。
-    「すべてのブックマーク」「お気に入り曲」などのまとめ表示では youtube_id ごとに1件にまとめる。 */
-function insert_default_library_php(PDO $db, int $user_id): int {
-    $samples = [
-        ['uSijY6BEMRE', 'Yellow', 'kz (livetune)'],
-        ['bPI0_YzOiEw', 'i wanna be your world', 'kz (livetune)'],
-    ];
-    $ins = $db->prepare("INSERT INTO playlists (user_id, name, category, is_public, cover_id, is_favorite, system_key, sort_order) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)");
-    $unorganized = TUNEDROP_SYSTEM_PLAYLISTS['inbox'];
-    $ins->execute([$user_id, $unorganized['name'], $unorganized['category'], $unorganized['is_public'], $unorganized['is_favorite'], 'inbox', 0]);
-    $unorganized_id = (int)$db->lastInsertId();
-    $public_favorites = TUNEDROP_SYSTEM_PLAYLISTS['public_favorites'];
-    $ins->execute([$user_id, $public_favorites['name'], $public_favorites['category'], $public_favorites['is_public'], $public_favorites['is_favorite'], 'public_favorites', 1]);
-    $fav_playlist_id = (int)$db->lastInsertId();
-    $bm = $db->prepare("INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, sort_order) VALUES (?, ?, ?, ?, ?)");
-    foreach ($samples as $sort_order => $s) {
-        $bm->execute([$unorganized_id, $s[0], $s[1], $s[2], $sort_order]);
-        $bm->execute([$fav_playlist_id, $s[0], $s[1], $s[2], $sort_order]);
-    }
-    return $fav_playlist_id;
-}
-
-/** 全ゲスト共通の 'guest' ユーザーを確保し、デフォルトライブラリがなければ作成して user_id を返す。 */
-function ensure_guest_user(PDO $db): int {
-    $select = $db->prepare("SELECT id FROM users WHERE username = ?");
-    $select->execute([TUNEDROP_GUEST_USERNAME]);
-    $id = (int)($select->fetchColumn() ?: 0);
-    if (!$id) {
-        try {
-            // ゲストにはログインできないランダムなパスワードハッシュを入れておく
-            $ins = $db->prepare("INSERT INTO users (username, password_hash, google_sub) VALUES (?, ?, NULL)");
-            $ins->execute([TUNEDROP_GUEST_USERNAME, '!guest-' . bin2hex(random_bytes(16))]);
-            $id = (int)$db->lastInsertId();
-        } catch (PDOException $e) {
-            // 同時起動で競合した場合は既存の guest を拾い直す
-            $select->execute([TUNEDROP_GUEST_USERNAME]);
-            $id = (int)($select->fetchColumn() ?: 0);
-        }
-    }
-    if (!$id) return 0;
-    // ゲストのデフォルトライブラリがまだ無い場合のみ作成する
-    $check = $db->prepare("SELECT COUNT(*) FROM playlists WHERE user_id = ?");
-    $check->execute([$id]);
-    if ((int)$check->fetchColumn() === 0) {
-        insert_default_library_php($db, $id);
-    }
-    return $id;
-}
-
-/** 認証済みユーザーがいればその user_id、未ログインなら全ゲスト共通の guest ユーザーの user_id を返す。 */
+/** 認証済みユーザーまたは Flask が発行した端末別ゲストの user_id を返す。 */
 function require_user_or_guest(PDO $db): int {
     $uid = current_user_id();
-    if ($uid) return $uid;
-    $guest_id = ensure_guest_user($db);
-    if (!$guest_id) {
-        http_response_code(500);
-        echo json_encode(['error' => 'ゲストユーザーの初期化に失敗しました。'], JSON_UNESCAPED_UNICODE);
-        exit;
+    if ($uid) {
+        $exists = $db->prepare('SELECT 1 FROM users WHERE id = ?');
+        $exists->execute([$uid]);
+        if ($exists->fetchColumn()) return $uid;
     }
-    return $guest_id;
+    http_response_code(401);
+    echo json_encode(['error' => 'ゲストセッションを初期化してください。'], JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 /** プレイリストのサムネイル (cover_id) を決める。
@@ -1256,7 +1216,7 @@ try {
         // ==========================================
         case 'auth':
             $endpoint = $_GET['endpoint'] ?? 'login';
-            if (!in_array($endpoint, ['login', 'register', 'google', 'me', 'profile'], true)) {
+            if (!in_array($endpoint, ['login', 'register', 'google', 'guest', 'me', 'profile'], true)) {
                 http_response_code(400);
                 echo json_encode(['error' => '無効な認証エンドポイントです。']);
                 break;
@@ -1274,6 +1234,8 @@ try {
                 'passthrough_status' => true,
                 'timeout' => 15,
                 'error' => '認証サーバーに接続できません。app.py が起動しているか確認してください。',
+                'non_json_error' => '認証サーバーの応答が不正です (古い app.py が動いている可能性があります)。'
+                    . './start.sh でサーバーを再起動してください。',
             ]);
             if ($auth_resp === null) break;
             echo $auth_resp;

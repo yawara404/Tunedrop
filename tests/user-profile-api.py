@@ -10,6 +10,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
@@ -40,12 +41,12 @@ with tempfile.TemporaryDirectory() as directory:
 
     def request(action, body=None, qs=''):
         # CLI では $_GET が空なので、action と追加パラメータ (qs) を組み立てて渡す
-        script = ('$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]];'
+        script = ('$_SERVER["REQUEST_METHOD"]=$argv[1]; $_SERVER["HTTP_AUTHORIZATION"]=$argv[5]; $_GET=["action"=>$argv[2]];'
                   'parse_str(ltrim($argv[4] ?? "", "&"), $extra); $_GET += $extra; require $argv[3];')
         return json.loads(subprocess.check_output(
             [os.environ.get('PHP_BIN', 'php'), '-r', script,
-             'POST' if body is not None else 'GET', action, str(api), qs],
-            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body)}, text=True,
+             'POST' if body is not None else 'GET', action, str(api), qs, bearer(500)],
+            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body), 'SECRET_KEY': SECRET}, text=True,
         ))
 
     # 公開お気に入りを1件付けて favorite_count に含まれることを確認する

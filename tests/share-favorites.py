@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
@@ -23,10 +24,10 @@ with tempfile.TemporaryDirectory() as directory:
         db.execute("INSERT INTO bookmarks (playlist_id,youtube_id) VALUES (1,'private-track')")
 
     def request(action, body=None, playlist='null', video=''):
-        script = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2],"playlist_id"=>$argv[3]]; if ($argv[5]) $_GET["youtube_id"]=$argv[5]; require $argv[4];'
+        script = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_SERVER["HTTP_AUTHORIZATION"]=$argv[6]; $_GET=["action"=>$argv[2],"playlist_id"=>$argv[3]]; if ($argv[5]) $_GET["youtube_id"]=$argv[5]; require $argv[4];'
         return json.loads(subprocess.check_output(
-            ['php', '-r', script, 'POST' if body is not None else 'GET', action, str(playlist), str(api), video],
-            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body)}, text=True,
+            ['php', '-r', script, 'POST' if body is not None else 'GET', action, str(playlist), str(api), video, bearer()],
+            env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body), 'SECRET_KEY': SECRET}, text=True,
         ))
 
     # 固定タブは各ユーザー専用のため、他人の固定タブ (id 2) はお気に入りに追加できない

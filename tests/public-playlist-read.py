@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
@@ -20,10 +21,10 @@ with tempfile.TemporaryDirectory() as directory:
             db.execute('INSERT INTO bookmarks (playlist_id,youtube_id,sort_order) VALUES (20,?,?)', (f'public-{i}', i))
 
     def read(playlist):
-        code = '$_SERVER["REQUEST_METHOD"]="GET"; $_GET=["action"=>"get_my_bookmarks","playlist_id"=>$argv[1]]; require $argv[2];'
+        code = '$_SERVER["REQUEST_METHOD"]="GET"; $_SERVER["HTTP_AUTHORIZATION"]=$argv[3]; $_GET=["action"=>"get_my_bookmarks","playlist_id"=>$argv[1]]; require $argv[2];'
         return json.loads(subprocess.check_output(
-            [os.environ.get('PHP_BIN', 'php'), '-r', code, str(playlist), str(ROOT / 'api.php')],
-            env={**os.environ, 'TUNEDROP_DB': str(database)}, text=True,
+            [os.environ.get('PHP_BIN', 'php'), '-r', code, str(playlist), str(ROOT / 'api.php'), bearer()],
+            env={**os.environ, 'TUNEDROP_DB': str(database), 'SECRET_KEY': SECRET}, text=True,
         ))
 
     assert [t['youtube_id'] for t in read(20)] == [f'public-{i}' for i in range(5)]

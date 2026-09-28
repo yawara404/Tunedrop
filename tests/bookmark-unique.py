@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 TMP = tempfile.mkdtemp()
@@ -45,12 +46,13 @@ con.close()
 
 
 def req(action, body=None):
-    code = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]]; require $argv[3];'
+    code = '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_SERVER["HTTP_AUTHORIZATION"]=$argv[4]; $_GET=["action"=>$argv[2]]; require $argv[3];'
     args = [os.environ.get("PHP_BIN", "php"), "-r", code,
-            "POST" if body is not None else "GET", action, str(api)]
+            "POST" if body is not None else "GET", action, str(api), bearer()]
     env = dict(os.environ)
     env["TUNEDROP_DB"] = str(database)
     env["TEST_BODY"] = json.dumps(body)
+    env["SECRET_KEY"] = SECRET
     out = subprocess.check_output(args, env=env, text=True)
     return json.loads(out)
 

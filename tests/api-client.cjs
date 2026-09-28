@@ -9,10 +9,11 @@ const source = bundled.slice(apiStart, appStart);
 
 async function scenario(page, replies, expected, options = {}) {
     const calls = [];
+    const saved = new Map();
     const context = vm.createContext({
         window: { location: { href: page }, TUNEDROP_CONFIG: options },
         URL, Headers, AbortController, setTimeout, clearTimeout,
-        localStorage: { getItem: () => null },
+        localStorage: { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value) },
         fetch: async (url, init) => {
             calls.push({ url: url.href, init });
             const reply = replies[url.href];
@@ -21,13 +22,19 @@ async function scenario(page, replies, expected, options = {}) {
         }
     });
     vm.runInContext(source, context);
+    const guestUrl = new URL(expected);
+    guestUrl.search = '?action=auth&endpoint=guest';
+    replies[guestUrl.href] = { data: { success: true, credential: '1.secret', token: 'guest-jwt' } };
     const result = await vm.runInContext("tunedropFetch('api.php?action=create_playlist', { method: 'POST', body: '{}'})", context);
     assert.equal(calls.at(-1).url, expected);
     assert.equal(calls.at(-1).init.method, 'POST');
     assert.deepEqual(await result.json(), { success: true });
+    assert.equal(calls.at(-1).init.headers.get('Authorization'), 'Bearer guest-jwt');
+    assert.equal(saved.get('tunedrop_guest_credential'), '1.secret');
     const healthCount = calls.filter(call => call.url.includes('action=health')).length;
     await vm.runInContext("tunedropFetch('api.php?action=create_playlist')", context);
     assert.equal(calls.filter(call => call.url.includes('action=health')).length, healthCount);
+    assert.equal(calls.filter(call => call.url.includes('endpoint=guest')).length, 1);
 }
 const health = { data: { status: 'ok', service: 'TuneDrop PHP API' } };
 (async () => {

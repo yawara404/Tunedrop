@@ -362,6 +362,45 @@ test('検索欄の Enter=先頭の曲を再生、Escape=クリア', () => {
     assert.equal(elementById('track-search').focused, true);
 });
 
+test('ゲスト初期化はHTML応答でも原因の分かるエラーにする', async () => {
+    run(`
+        tunedropGuestPromise = null;
+        tunedropGuestRefreshAt = 0;
+        window.__guestError = null;
+        // 古い app.py は /auth/guest を知らず HTML の 404 を返す (api.php は JSON の
+        // Content-Type を付けるため content-type だけでは防げない)
+        fetch = async () => ({
+            ok: false, status: 404,
+            headers: { get: () => 'text/html; charset=utf-8' },
+            json: async () => JSON.parse('<!doctype html><h1>404</h1>'),
+        });
+    `);
+    await run("ensureTunedropGuest(new URL('http://localhost:8888/api.php'))"
+        + ".catch(error => { window.__guestError = error.message; })");
+
+    const message = run('window.__guestError');
+    assert.match(message, /再起動/, `対処法が分かるエラーを出す: ${message}`);
+    assert.doesNotMatch(message, /is not valid JSON/, '内部のJSONパースエラーをそのまま出さない');
+});
+
+test('ゲスト初期化はサーバーが返したJSONエラーをそのまま伝える', async () => {
+    const reason = '認証サーバーの応答が不正です (古い app.py が動いている可能性があります)。./start.sh でサーバーを再起動してください。';
+    run(`
+        tunedropGuestPromise = null;
+        tunedropGuestRefreshAt = 0;
+        window.__guestError = null;
+        fetch = async () => ({
+            ok: false, status: 502,
+            headers: { get: () => 'application/json; charset=utf-8' },
+            json: async () => ({ success: false, error: ${JSON.stringify(reason)} }),
+        });
+    `);
+    await run("ensureTunedropGuest(new URL('http://localhost:8888/api.php'))"
+        + ".catch(error => { window.__guestError = error.message; })");
+
+    assert.equal(run('window.__guestError'), reason);
+});
+
 // ----------------------------------------------------------
 // 実行
 // ----------------------------------------------------------

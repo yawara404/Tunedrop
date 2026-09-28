@@ -15,6 +15,8 @@ import threading
 import urllib.request
 import urllib.parse
 import secrets
+import hashlib
+import hmac
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -242,6 +244,39 @@ def insert_default_library(cursor, user_id):
             (fav_playlist_id, youtube_id, title, channel, sort_order)
         )
     return fav_playlist_id
+
+
+@app.route('/auth/guest', methods=['POST'])
+def guest_session():
+    """Restore a browser's local guest or create one in the shared local SQLite DB."""
+    data = request.get_json(silent=True) or {}
+    credential = data.get('credential', '')
+    if credential is not None and not isinstance(credential, str):
+        return jsonify({'error': 'ゲスト認証情報が無効です。'}), 400
+    conn = get_db()
+    try:
+        if credential:
+            match = re.fullmatch(r'(\d+)\.([0-9a-f]{64})', credential)
+            if not match:
+                return jsonify({'error': 'ゲスト認証情報が無効です。'}), 401
+            user_id = int(match.group(1))
+            row = conn.execute('SELECT username, password_hash FROM users WHERE id=?', (user_id,)).fetchone()
+            digest = hashlib.sha256(match.group(2).encode('ascii')).hexdigest()
+            if not row or not row['username'].startswith('guest_') or not hmac.compare_digest(row['password_hash'], '!guest:' + digest):
+                return jsonify({'error': 'ゲスト認証情報が無効です。'}), 401
+        else:
+            secret = secrets.token_hex(32)
+            digest = hashlib.sha256(secret.encode('ascii')).hexdigest()
+            with conn:
+                cursor = conn.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)',
+                                      ('guest_' + secrets.token_hex(16), '!guest:' + digest))
+                user_id = cursor.lastrowid
+                insert_default_library(conn.cursor(), user_id)
+            credential = f'{user_id}.{secret}'
+        return jsonify({'success': True, 'credential': credential,
+                        'token': generate_token(user_id, 'guest'), 'user': {'id': user_id, 'guest': True}})
+    finally:
+        conn.close()
 
 
 def generate_token(user_id, username):

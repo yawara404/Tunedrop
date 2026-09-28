@@ -5,13 +5,14 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'covers.sqlite'
     db = sqlite3.connect(database)
     db.executescript((ROOT / 'setup.sql').read_text())
-    # 閲覧者 (ログインなしで使われる共通ゲストユーザー) の固定タブ
+    # 閲覧者の固定タブ
     db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
     db.execute("INSERT INTO playlists (id,user_id,name,category,is_public,cover_id,is_favorite,sort_order,system_key) "
                "VALUES (50,99,'未整理','Other',0,NULL,0,0,'inbox')")
@@ -26,10 +27,10 @@ with tempfile.TemporaryDirectory() as directory:
     db.commit()
 
     def playlists(action='get_playlists'):
-        script = '$_SERVER["REQUEST_METHOD"]="GET"; $_GET["action"]=$argv[1]; require $argv[2];'
+        script = '$_SERVER["REQUEST_METHOD"]="GET"; $_SERVER["HTTP_AUTHORIZATION"]=$argv[3]; $_GET["action"]=$argv[1]; require $argv[2];'
         output = subprocess.check_output(
-            [os.environ.get('PHP_BIN', 'php'), '-r', script, action, str(ROOT / 'api.php')],
-            env={**os.environ, 'TUNEDROP_DB': str(database)}, text=True,
+            [os.environ.get('PHP_BIN', 'php'), '-r', script, action, str(ROOT / 'api.php'), bearer()],
+            env={**os.environ, 'TUNEDROP_DB': str(database), 'SECRET_KEY': SECRET}, text=True,
         )
         return {row['id']: row for row in json.loads(output)}
 

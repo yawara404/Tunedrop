@@ -1,6 +1,8 @@
 // ===== api-client (旧 frontend/api-client.js を統合: API接続先の自動検出) =====
 // Live Serverは静的配信専用。PHPが実行される接続先を確認してからAPIを呼ぶ。
 let tunedropApiPromise;
+let tunedropGuestPromise;
+let tunedropGuestRefreshAt = 0;
 
 async function resolveTunedropApi() {
     const config = window.TUNEDROP_CONFIG || {};
@@ -42,7 +44,9 @@ async function tunedropFetch(path, options) {
     url.search = new URL(path, window.location.href).search;
     // JWT (app.py が発行) を自動付与する。api.php はこれでユーザーごとのデータ分離を行う。
     const headers = new Headers(options && options.headers ? options.headers : undefined);
-    const token = localStorage.getItem('tunedrop_token');
+    const accountToken = localStorage.getItem('tunedrop_token');
+    const isAuthRequest = new URL(path, window.location.href).searchParams.get('action') === 'auth';
+    const token = accountToken || (isAuthRequest ? null : await ensureTunedropGuest(url));
     if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
     const response = await fetch(url, Object.assign({}, options, { headers }));
     if (!response.headers.get('content-type')?.includes('application/json')) {
@@ -50,6 +54,37 @@ async function tunedropFetch(path, options) {
         throw new Error('APIからJSONが返りません。MAMPのPHP設定とconfig.jsを確認してください。');
     }
     return response;
+}
+
+async function ensureTunedropGuest(apiUrl) {
+    if (tunedropGuestRefreshAt && Date.now() >= tunedropGuestRefreshAt) tunedropGuestPromise = null;
+    if (!tunedropGuestPromise) {
+        tunedropGuestPromise = (async () => {
+            const url = new URL(apiUrl.href);
+            url.search = '?action=auth&endpoint=guest';
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credential: localStorage.getItem('tunedrop_guest_credential') || '' })
+            });
+            // 古い app.py が動いていると /auth/guest が無く、HTML の 404 が返る
+            // (api.php が JSON の Content-Type を付けているため content-type だけでは防げない)。
+            // そのまま response.json() を呼ぶと「<!doctype ... is not valid JSON」という
+            // 原因の分からないエラーになるため、対処法の分かるエラーへ置き換える。
+            if (!response.headers.get('content-type')?.includes('application/json')) {
+                throw new Error('認証サーバーの応答が不正です (古い app.py が動いている可能性があります)。./start.sh でサーバーを再起動してください。');
+            }
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'ゲスト情報を読み込めませんでした。');
+            localStorage.setItem('tunedrop_guest_credential', data.credential);
+            tunedropGuestRefreshAt = Date.now() + 23 * 60 * 60 * 1000;
+            return data.token;
+        })().catch(error => {
+            tunedropGuestPromise = null;
+            throw error;
+        });
+    }
+    return tunedropGuestPromise;
 }
 
 // ==========================================================

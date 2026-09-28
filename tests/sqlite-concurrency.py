@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 import tempfile
 import time
+from php_auth_fixture import bearer, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
 # api.php の TUNEDROP_SCHEMA_VERSION と同期させる (ベタ書きだと更新時にずれる)
@@ -33,7 +34,7 @@ MAX_ACCEPTABLE_SECONDS = 15  # FastCGI idle timeout (30秒) より十分短い�
 def php_request(api, action, database, body=None, timeout=30):
     """api.php を CLI で実行し、HTTPステータスと JSON ボディを返す。"""
     script = (
-        '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]];'
+        '$_SERVER["REQUEST_METHOD"]=$argv[1]; $_SERVER["HTTP_AUTHORIZATION"]=$argv[4]; $_GET=["action"=>$argv[2]];'
         'ob_start(); require $argv[3]; $out = ob_get_clean();'
         # CLI では未設定時の http_response_code() が false になるため 200 に読み替える
         '$code = http_response_code();'
@@ -42,8 +43,8 @@ def php_request(api, action, database, body=None, timeout=30):
     started = time.monotonic()
     completed = subprocess.run(
         [os.environ.get('PHP_BIN', 'php'), '-r', script,
-         'POST' if body is not None else 'GET', action, str(api)],
-        env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body)},
+         'POST' if body is not None else 'GET', action, str(api), bearer()],
+        env={**os.environ, 'TUNEDROP_DB': str(database), 'TEST_BODY': json.dumps(body), 'SECRET_KEY': SECRET},
         text=True, capture_output=True, timeout=timeout, check=True,
     )
     elapsed = time.monotonic() - started
