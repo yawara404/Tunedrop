@@ -126,6 +126,21 @@ check("AI pass は tempo_method を壊さない", m.get("tempo_method") == "octa
 check("AI pass は tempo_candidates を壊さない",
       m.get("tempo_candidates") == [{"bpm": 64.0, "score": 0.1}], m.get("tempo_candidates"))
 
+print("[9] 手動設定した BPM (manual_bpm) は AI推定・音源実測のどちらからも守られる")
+manual = {"tempo": 143.0, "tempo_source": "manual", "manual_bpm": True,
+          "feature_vector": [0.715] * 8, "mood": "energetic"}
+m = ac.write_merged(db, "eeeeeeeeeee", manual)
+check("手動 BPM 保存", m.get("tempo") == 143.0 and m.get("tempo_source") == "manual",
+      (m.get("tempo"), m.get("tempo_source")))
+# 音源実測 pass でも上書きされない
+audio_override = {"tempo": 150.0, "tempo_source": "audio", "tempo_algo": 7,
+                  "feature_vector": [0.75] * 8, "mood": "calm", "energy": 0.5}
+m = ac.write_merged(db, "eeeeeeeeeee", audio_override)
+check("手動 BPM は音源実測でも維持", m.get("tempo") == 143.0 and m.get("tempo_source") == "manual",
+      (m.get("tempo"), m.get("tempo_source")))
+check("feature_vector も維持", m.get("feature_vector") == [0.715] * 8, m.get("feature_vector"))
+check("mood は更新される (手動BPMは tempo 系のみ保護)", m.get("mood") == "calm", m.get("mood"))
+
 os.remove(db)
 print("-" * 60)
 if failures:

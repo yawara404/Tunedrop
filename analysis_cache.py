@@ -37,6 +37,11 @@ MEASURED_KEYS = (
     "mood", "mood_source", "mood_confidence",
     "vibe_tags", "vibe_scores", "vibe_clap", "feature_vector",
 )
+# 管理画面で手動設定した BPM (tempo_source = "manual") を AI推定・音源実測のどちらからも守るキー
+MANUAL_BPM_KEYS = (
+    "tempo", "tempo_source", "tempo_raw", "tempo_raw_full", "tempo_confidence",
+    "tempo_method", "tempo_candidates", "tempo_algo", "feature_vector",
+)
 
 
 def connect(db_path, timeout_seconds=5):
@@ -90,9 +95,13 @@ def protect_measured(existing, fields):
     音源解析済みの行は音源解析 pass (tempo_source が実測値) でのみ更新し、
     Gemini のみの再解析 (--no-audio 等) では実測値を保持する。
     音源解析が未実施の行や音源由来の fields はそのまま返す。
+
+    管理画面で手動設定した BPM (manual_bpm) は、AI推定・音源実測のどちらからも守る。
     """
     if not isinstance(fields, dict):
         return fields
+    if isinstance(existing, dict) and existing.get("manual_bpm"):
+        return {k: v for k, v in fields.items() if k not in MANUAL_BPM_KEYS}
     if not isinstance(existing, dict) or not existing.get("audio_engine"):
         return fields
     src = fields.get("tempo_source") or fields.get("engine")
