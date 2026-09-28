@@ -335,8 +335,9 @@ def _build_prompt(title, channel, category):
         "Calibrate your BPM scale with these real examples: 夜に駆ける=130, 紅蓮華=135, "
         "Tell Your World=140, 千本桜=154, メルト=170, Lemon=87, One Last Kiss=112, "
         "炎=152, 廻廻奇譚=185, アイドル=166.\n"
-        "Each song has a specific BPM; never emit a generic default (120/140/145/150) for a "
-        "song you don't know. If you do not actually know this song's BPM, output 0.\n"
+        "Vocaloid and J-pop songs have widely varying BPMs (85〜200); there is no single "
+        "default. Output the exact BPM only if you actually know this specific song, "
+        "otherwise output 0.\n"
         "For \"genre\", classify the song itself into exactly one of: "
         "Vocaloid, J-POP, Anime, Lo-Fi, Other.\n"
         "  - Vocaloid: only when a voice synthesizer sings (初音ミク, 可不, 歌愛ユキ, "
@@ -521,22 +522,34 @@ def _call_llm_genre(title, channel, engine):
                 last_err = f"{model}: {str(exc)[:120]}"
         raise RuntimeError("Gemini genre call failed: " + last_err)
 
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.1, "num_predict": 96},
-    }
-    if not OLLAMA_THINK:
-        payload["think"] = False   # 思考モデル (qwen3) は思考を無効化して JSON を確実に返す
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/generate", data=body,
-        headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as res:
-        text = (json.load(res).get("response") or "").strip()
-    return _extract_json(text)
+    return _ollama_json_call(prompt, temperature=0.1, num_predict=96)
+
+
+# BPM 専用の短いプロンプト。特徴量と同時に聞くと、ボカロ曲が「140」に固まりやすい
+# (実測: 未知のボカロ曲まで 140 と回答)。BPM だけを聞き、未知なら 0 を返させる。
+_BPM_PROMPT = (
+    "You are a musicologist who knows official BPM data. Output the song's official "
+    "BPM (beats per minute) as an integer.\n"
+    "Calibrate with these real BPMs: 夜に駆ける=130, 紅蓮華=135, Tell Your World=140, "
+    "千本桜=154, メルト=170, Lemon=87, One Last Kiss=112, 炎=152, 廻廻奇譚=185, アイドル=166.\n"
+    "Vocaloid and J-pop songs have widely varying BPMs (85〜200); there is no single default. "
+    "Output the exact BPM only if you actually know this specific song, otherwise output 0.\n"
+    'Respond with JSON only: {"tempo": <integer or 0>}\n'
+)
+
+
+def _call_llm_bpm(title, channel, engine):
+    """BPM だけを LLM に聞く (engine: gemini / ollama)。不明なら 0。失敗時は RuntimeError。"""
+    prompt = _BPM_PROMPT + f"Title: {title}\nArtist: {channel}"
+    if engine == "gemini":
+        last_err = ""
+        for model in GEMINI_MODELS:
+            try:
+                return _extract_json(_gemini_generate(prompt, model, False))
+            except Exception as exc:
+                last_err = f"{model}: {str(exc)[:120]}"
+        raise RuntimeError("Gemini BPM call failed: " + last_err)
+    return _ollama_json_call(prompt, temperature=0.1, num_predict=48)
 
 
 def _ollama_json_call(prompt, temperature=0.3, num_predict=256):
@@ -649,6 +662,19 @@ def analyze(title, channel, category):
             vals[k] = rb[k]
 
     cleaned = {k: _sanitize_value(vals.get(k), k) for k in FEATURE_KEYS}
+    # BPM は専用の短いプロンプトで聞き直す (特徴量と同時に聞くとボカロ曲が「140」に固まる)。
+    # 明確に分かる曲だけ採用し、不明 (0) ならルールベースのばらついた値へ戻す。
+    if engine in ("gemini", "ollama"):
+        try:
+            bpm = int(float((_call_llm_bpm(title, channel, engine) or {}).get("tempo") or 0))
+            if 40 <= bpm <= 220:
+                cleaned["tempo"] = _sanitize_value(bpm, "tempo")
+                tempo_source = engine
+            else:
+                cleaned["tempo"] = _sanitize_value(rb["tempo"], "tempo")
+                tempo_source = "rules"
+        except Exception:
+            pass   # 失敗時は feature 呼び出しの tempo をそのまま使う
     mood = (vals.get("mood") or "").strip().lower()
     if mood not in MOODS:
         mood = _guess_mood(cleaned)

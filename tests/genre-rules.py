@@ -99,17 +99,24 @@ with tempfile.TemporaryDirectory() as directory:
     previous_engine = ai_analyzer.AI_ENGINE
     original_ollama = ai_analyzer._call_ollama
     original_genre = ai_analyzer._call_llm_genre
+    original_bpm = ai_analyzer._call_llm_bpm
     ai_analyzer.AI_ENGINE = 'ollama'
-    ai_analyzer._call_ollama = lambda *_: {'tempo': 120, 'genre': 'J-POP'}
+    ai_analyzer._call_ollama = lambda *_: {'tempo': 155, 'genre': 'J-POP'}
+    ai_analyzer._call_llm_bpm = lambda *_: {'tempo': 140}
     ai_analyzer._call_llm_genre = lambda *_: {
         'genre': 'Vocaloid', 'vocal_type': 'human'}
     try:
         result = ai_analyzer.analyze('作品名 TV size OP', 'Artist', 'Other')
         assert result['ai_category'] == 'Anime', result
+        assert result['tempo'] == 140.0, result        # 専用BPM呼び出しの値が採用される
         result = ai_analyzer.analyze('サニーサイドへようこそ', '笹川真生', 'Other')
         assert result['ai_category'] == 'J-POP', result
         result = ai_analyzer.analyze('無名の曲', '無名の人間アーティスト', 'Other')
         assert result['ai_category'] == 'J-POP', result
+        # BPM 不明 (0) ならルールベースへフォールバックする
+        ai_analyzer._call_llm_bpm = lambda *_: {'tempo': 0}
+        result = ai_analyzer.analyze('無名の曲', '無名の人間アーティスト', 'Other')
+        assert result['tempo_source'] == 'rules', result
         ai_analyzer._call_llm_genre = lambda *_: {
             'genre': 'J-POP', 'vocal_type': 'synthetic'}
         result = ai_analyzer.analyze('合成音声の曲', 'Producer', 'Other')
@@ -118,6 +125,7 @@ with tempfile.TemporaryDirectory() as directory:
         ai_analyzer.AI_ENGINE = previous_engine
         ai_analyzer._call_ollama = original_ollama
         ai_analyzer._call_llm_genre = original_genre
+        ai_analyzer._call_llm_bpm = original_bpm
 
     # --- 表示カテゴリの優先順位 ---
     items = {item['youtube_id']: item for item in app._db_bookmarks()}
