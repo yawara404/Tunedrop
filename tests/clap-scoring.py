@@ -114,6 +114,20 @@ check("明確 (0.9) は CLAP を採用", va.resolve_instrumentalness(0.2, 0.9) =
 check("明確 (0.1) も CLAP を採用", va.resolve_instrumentalness(0.8, 0.1) == 0.1)
 check("librosa 側が無くてもれない", va.resolve_instrumentalness(None, 0.9) == 0.9)
 
+print("[2b] CLAP の mood が曖昧な場合は音響特徴の判定へ戻す")
+check("均等に近いスコアは fallback", va.resolve_mood(
+    {name: 0.125 for name in va.MOODS}, "calm") == ("calm", "features", 0.0))
+clear_mood = {name: 0.02 for name in va.MOODS}
+clear_mood["dark"] = 0.86
+mood, source, confidence = va.resolve_mood(clear_mood, "calm")
+check("明確な1位は CLAP を採用", mood == "dark" and source == "clap" and confidence > 0.5,
+      (mood, source, confidence))
+close_mood = {name: 0.08 for name in va.MOODS}
+close_mood["happy"] = 0.22
+close_mood["warm"] = 0.20
+check("1位と2位が僅差なら fallback", va.resolve_mood(close_mood, "dreamy")[0:2]
+      == ("dreamy", "features"))
+
 print("[3] クリップ選定 (音量の大きい区間 = サビ候補を優先)")
 clips = va._clap_clips(audio, SR)
 check("クリップは 1..3 個", 1 <= len(clips) <= 3, len(clips))

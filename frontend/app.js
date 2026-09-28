@@ -2022,6 +2022,8 @@ export async function reorderBookmarks(orderedIds) {
 // ==========================================================
 let vibeMapData = [];    // APIから取得した全プロット
 let vibeFiltered = [];   // 検索/カテゴリ絞り込み後
+let radarRecommendOrder = null;  // おすすめ順 (Ollama 自動推薦) の youtube_id 配列
+let radarRecommendTaste = '';    // おすすめの好み説明 (HUD 表示用)
 let radarZoom = 1.0;
 let radarPan = { x: 0, y: 0 };   // 正規化空間(0..1)でのパン量
 let radarDragging = false;
@@ -2046,6 +2048,7 @@ export function radarCategoryColor(cat) {
 // 特徴量を生成したエンジンの表示ラベル
 export function radarEngineLabel(engine) {
     if (engine === 'gemini') return 'AI(Gemini)';
+    if (engine === 'ollama') return 'AI(Ollama)';
     if (engine === 'rules') return 'AI推定(ルール)';
     return engine || '—';
 }
@@ -2115,6 +2118,27 @@ export function radarTooltipHtml(track) {
         + `${vibe ? ' · ' + escapeHtml(vibe) : ''}${engine ? ' · ' + escapeHtml(engine) : ''}</span>`;
 }
 
+// おすすめ順 (Ollama による自動推薦) を取得し、vibeMapData をその順に並べ替える。
+// 取得失敗時は何もせず (API 返却順のまま)、既定の並び順 (おすすめ順) に影響しない。
+export async function applyRadarRecommendOrder() {
+    radarRecommendOrder = null;
+    radarRecommendTaste = '';
+    try {
+        const res = await tunedropFetch('api.php?action=radar_recommend');
+        const rec = await res.json();
+        if (rec && rec.success && Array.isArray(rec.order)) {
+            radarRecommendOrder = rec.order;
+            radarRecommendTaste = rec.taste || '';
+            const rank = new Map(rec.order.map((id, i) => [id, i]));
+            vibeMapData.sort((a, b) => {
+                const ai = rank.has(a.youtube_id) ? rank.get(a.youtube_id) : Number.MAX_SAFE_INTEGER;
+                const bi = rank.has(b.youtube_id) ? rank.get(b.youtube_id) : Number.MAX_SAFE_INTEGER;
+                return ai - bi;
+            });
+        }
+    } catch (_) { /* おすすめ取得失敗時は従来の並びのまま */ }
+}
+
 export async function loadRadarData() {
     const hud = document.getElementById('radar-map-hud');
     const statusBtn = document.getElementById('btn-vibe-radar');
@@ -2138,14 +2162,20 @@ export async function loadRadarData() {
             added_at: p.added_at,       // 新着順 (ブックマークへ追加した日時)
             features: p.features || {},
         }));
+        // おすすめ順 (Ollama による自動推薦) を取得して既定の並び順にする。
+        // 取得できない場合は従来どおり API の返却順 (新着順) のまま。
+        await applyRadarRecommendOrder();
         const eng = data.points && data.points.length && data.points[0].features
             ? data.points[0].features.engine : null;
-        const engLabel = eng === 'gemini' ? 'Gemini AI' : (eng === 'rules' ? 'AI推定(ルール)' : '');
+        const engLabel = eng === 'gemini' ? 'Gemini AI'
+            : (eng === 'ollama' ? 'Ollama AI' : (eng === 'rules' ? 'AI推定(ルール)' : ''));
         const pendingCount = (data.pending && data.pending.length) || 0;
         const pendingLabel = pendingCount ? ` · ${pendingCount} 曲は解析待ち` : '';
+        // おすすめ順 (Ollama 自動推薦) の好み説明があれば末尾に添える
+        const tasteLabel = radarRecommendTaste ? ` · おすすめ: ${radarRecommendTaste}` : '';
         if (hud) hud.textContent = data.method === 'umap'
-            ? `${data.count} 曲を AI×UMAP で表示${engLabel ? ' · ' + engLabel : ''}${pendingLabel}`
-            : `${data.count} 曲を表示${pendingLabel}`;
+            ? `${data.count} 曲を AI×UMAP で表示${engLabel ? ' · ' + engLabel : ''}${pendingLabel}${tasteLabel}`
+            : `${data.count} 曲を表示${pendingLabel}${tasteLabel}`;
         radarPendingCount = pendingCount;
         radarLastTotal = vibeMapData.length;
         radarStripLimit = 30;
@@ -2196,6 +2226,10 @@ export async function loadVibeRadar() {
         // 未解析曲なし (かつ実行中バッチなし) はポーリングせずそのまま再読込する。
         // 実行中バッチがある場合はポーリングして完了を待つ。
         if ((!started.queued || started.queued.length === 0) && !started.running) {
+            const skipped = (started.skipped_gemini || []).length;
+            if (skipped && hud) {
+                hud.textContent = `Gemini解析済みの ${skipped} 曲は対象外です（管理者ページから再解析できます）`;
+            }
             await loadRadarData();
             return;
         }
@@ -2645,9 +2679,10 @@ export function bindRadarControls() {
     const zoomFit = document.getElementById('btn-radar-zoom-fit');
     if (zoomFit) zoomFit.onclick = () => fitRadarToFiltered();
     if (analyzeAll) analyzeAll.onclick = async () => {
-        if (!confirm("全曲を再解析します。\n\nGemini AI 推定に加えて、音源解析 (librosa/CLAP) で実測BPM・雰囲気を取得します。\n曲数が多いと数分〜数十分かかります。\n\n実行しますか？")) return;
+        if (!confirm("全曲を再解析します。\n\nGemini AI 推定に加えて、音源解析 (librosa/CLAP) で実測BPM・雰囲気を取得します。\nGemini で解析済みの曲は対象外です（上書きしません）。\n曲数が多いと数分〜数十分かかります。\n\n実行しますか？")) return;
         analyzeAll.disabled = true; analyzeAll.innerText = '再解析開始...';
         // 全曲を Gemini(AI) + 音源解析(librosa/CLAP) で再解析する
+        // (Gemini解析済みの曲はサーバー側で対象外にされる)
         let started = null;
         try {
             const res = await tunedropFetch('api.php?action=radar_analyze_all&force=1&audio=1');
@@ -2660,6 +2695,11 @@ export function bindRadarControls() {
             return;
         }
         if (!started.queued || started.queued.length === 0) {
+            const hud = document.getElementById('radar-map-hud');
+            const skipped = (started.skipped_gemini || []).length;
+            if (hud && skipped) {
+                hud.textContent = `Gemini解析済みの ${skipped} 曲は対象外です（管理者ページから再解析できます）`;
+            }
             analyzeAll.innerText = '対象曲なし';
             await loadRadarData();
             setTimeout(() => { analyzeAll.disabled = false; analyzeAll.innerText = '⟳ 全曲解析'; }, 1500);

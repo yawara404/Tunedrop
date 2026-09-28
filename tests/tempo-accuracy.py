@@ -142,6 +142,24 @@ check("165.8 に補正", abs(bpm - 165.8) < 1.0, (bpm, info))
 check("方法は octave か reference", info["method"] in ("octave", "reference"),
       info["method"])
 
+print("[8b] 別のオンセット系列から得た候補も証拠で評価")
+env = click_env(150.0)
+bpm, info = va.resolve_tempo(env, SR, HOP, 91.0, extra_bpms=[150.0])
+check("追加テンポ候補を選択", abs(bpm - 150.0) < 1.0, (bpm, info))
+bpm, info = va.resolve_tempo(env, SR, HOP, 150.0, extra_onset_envs=[click_env(150.0, noise=0.1)])
+check("全帯域オンセットの証拠も候補スコアに含む",
+      "secondary_score" in info["candidates"][0], info["candidates"][0])
+
+print("[8c] 参照BPMが正しく、実測が数%外れた非オクターブ誤りを補正する")
+env = click_env(140.0)
+bpm, info = va.resolve_tempo(env, SR, HOP, 152.0, reference_bpm=140.0)
+check("実測152でも参照140を候補に加えて140を選ぶ", abs(bpm - 140.0) < 1.0, (bpm, info))
+
+print("[8d] 参照BPMが誤っていても実測の証拠を優先する")
+env = click_env(140.0)
+bpm, info = va.resolve_tempo(env, SR, HOP, 140.0, reference_bpm=170.0)
+check("実測140を維持 (誤った参照170に引っ張られない)", abs(bpm - 140.0) < 1.0, (bpm, info))
+
 print("[9] ノイズが混ざった信号でもオクターブを誤らない")
 env = click_env(165.8, noise=0.25)
 bpm, info = va.resolve_tempo(env, SR, HOP, 165.8)

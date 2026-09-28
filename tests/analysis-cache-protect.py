@@ -81,14 +81,24 @@ check("tempo 変化なし", m["tempo"] == 165.0, m.get("tempo"))
 check("mood 変化なし", m["mood"] == "warm", m.get("mood"))
 
 print("[7] audio_fields は tempo>0 のとき tempo_source を付与する")
-res7 = {"tempo": 98.6, "duration": 100, "engine": "librosa",
+res7 = {"tempo": 98.6, "tempo_raw_full": 99.1, "duration": 100, "engine": "librosa",
         "feature_vector": [9, 8, 7, 6, 5, 4, 3, 2],
-        "beats": [1], "chorus": [], "chords": []}
+        "beats": [1], "chorus": [], "chords": [], "energy": 0.73,
+        "danceability": 0.61, "mood": "energetic", "mood_source": "clap",
+        "mood_confidence": 0.82}
 out = ac.audio_fields({}, res7)
 check("audio tempo_source", out.get("tempo_source") == "audio", out.get("tempo_source"))
+check("全帯域の生テンポを保存", out.get("tempo_raw_full") == 99.1,
+      out.get("tempo_raw_full"))
 check("AI vector が無い行は音源 vector を採用", out.get("feature_vector") == [9, 8, 7, 6, 5, 4, 3, 2],
       out.get("feature_vector"))
 check("measured=True", out["measured"] is True, out.get("measured"))
+check("音源の雰囲気特徴も保存", out.get("energy") == 0.73
+      and out.get("danceability") == 0.61 and out.get("mood") == "energetic",
+      (out.get("energy"), out.get("danceability"), out.get("mood")))
+check("mood の判定元と確信度を保存", out.get("mood_source") == "clap"
+      and out.get("mood_confidence") == 0.82,
+      (out.get("mood_source"), out.get("mood_confidence")))
 out2 = ac.audio_fields({"feature_vector": [0.9, 0, 0, 0, 0, 0, 0, 0]}, res7)
 check("既存 AI vector[0] を実測 tempo で差し替え", out2["feature_vector"][0] == 0.493,
       out2.get("feature_vector"))

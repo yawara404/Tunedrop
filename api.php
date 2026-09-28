@@ -1189,7 +1189,7 @@ try {
         }
 
         case 'radar_analyze_all': {
-            // force / audio / limit / wait を Flask へ転送する
+            // force / audio / limit / wait / reset / resume を Flask へ転送する
             // (旧パラメータ名 essentia も audio として受付)
             $qs = http_build_query([
                 'force' => isset($_GET['force']) ? (int)$_GET['force'] : 0,
@@ -1197,6 +1197,8 @@ try {
                     : (isset($_GET['essentia']) ? (int)$_GET['essentia'] : 1),
                 'limit' => isset($_GET['limit']) ? (int)$_GET['limit'] : 0,
                 'wait' => isset($_GET['wait']) ? (int)$_GET['wait'] : 0,
+                'reset' => isset($_GET['reset']) ? (int)$_GET['reset'] : 0,
+                'resume' => isset($_GET['resume']) ? (int)$_GET['resume'] : 0,
             ]);
             // wait=1 は全曲解析の完了まで待つため、接続タイムアウトを長く取る
             $raw = flask_proxy_request("/radar/analyze_all?{$qs}", [
@@ -1211,6 +1213,22 @@ try {
         case 'radar_analyze_status': {
             $raw = flask_proxy_request('/radar/analyze_status', [
                 'timeout' => 20,
+                'error' => '再解析サーバー(app.py)に接続できません。',
+            ]);
+            if ($raw === null) break;
+            echo $raw;
+            break;
+        }
+
+        case 'radar_recommend': {
+            // おすすめ順 (Ollama による自動推薦)。user_id / public / refresh を転送する。
+            $qs = http_build_query([
+                'user_id' => isset($_GET['user_id']) ? (int)$_GET['user_id'] : 0,
+                'public' => isset($_GET['public']) ? (int)$_GET['public'] : 0,
+                'refresh' => isset($_GET['refresh']) ? (int)$_GET['refresh'] : 0,
+            ]);
+            $raw = flask_proxy_request("/radar/recommend?{$qs}", [
+                'timeout' => 60,
                 'error' => '再解析サーバー(app.py)に接続できません。',
             ]);
             if ($raw === null) break;

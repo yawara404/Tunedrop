@@ -7,7 +7,9 @@ requests>=2.31,<3
 python-dotenv>=1.0,<2
 
 # Radar map (app.py embed()): numpy is required. UMAP is optional (falls back to PCA).
+# umap-learn を入れると UMAP が使われ、PCA より曲同士が広く散る (numba/llvmlite/pynndescent も入る)。
 numpy>=1.26
+# umap-learn>=0.5
 
 # 音源解析 (vibe_analyzer.py) は任意。入れると実測BPM・雰囲気・mood が使えるようになる。
 #   librosa + soundfile        … 実測BPM/ビート/雰囲気の必須依存 (pip install librosa soundfile)

@@ -38,6 +38,26 @@ JWT_EXPIRATION_HOURS = 24
 # 待ち続けて FastCGI の idle timeout (30秒) を超えないよう短くしておく。
 DB_BUSY_TIMEOUT_SECONDS = float(os.environ.get('TUNEDROP_DB_TIMEOUT', '5'))
 
+# ---- 負荷対策 (重い解析でマシンを占有しない) ----
+# 音源解析 (librosa/CLAP・torch) は全コアを使い切ると操作が重くなるため、
+# 使うスレッド数を制限できる。既定は「コア数の半分 (最低2)」。
+#   TUNEDROP_CPU_THREADS=4  → 4スレッドに制限 / 0 や unset で自動 (半分) / "all" で制限なし
+_cpu_threads_env = os.environ.get('TUNEDROP_CPU_THREADS', '').strip().lower()
+if _cpu_threads_env == 'all':
+    CPU_THREADS = 0
+elif _cpu_threads_env.isdigit() and int(_cpu_threads_env) > 0:
+    CPU_THREADS = int(_cpu_threads_env)
+else:
+    CPU_THREADS = max(2, (os.cpu_count() or 4) // 2)
+# numpy/BLAS は import 時にスレッド数を読むため、numpy を読み込む前に設定する
+# (app.py は numpy を関数内で遅延 import しているので、ここで間に合う)。
+if CPU_THREADS:
+    for _thread_env in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+                        'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
+        os.environ.setdefault(_thread_env, str(CPU_THREADS))
+# 解析バッチの1曲ごとの待ち時間 (秒)。連続で回し続けても操作が重くならないように少し空ける。
+ANALYZE_THROTTLE_SECONDS = float(os.environ.get('TUNEDROP_ANALYZE_THROTTLE', '0.5'))
+
 # Google OAuth 2.0 (Google Identity Services)
 # Google Cloud Console で「OAuth 2.0 クライアントID (ウェブアプリケーション)」を作成し、
 # 承認済みの JavaScript 生成元とリダイレクト URI を設定してください。
@@ -670,6 +690,8 @@ def _apply_audio_result(res, va, source="audio"):
         return False
     res["tempo"] = round(bpm, 1)
     res["tempo_raw"] = va.get("tempo_raw") or round(bpm, 1)
+    if va.get("tempo_raw_full") is not None:
+        res["tempo_raw_full"] = va["tempo_raw_full"]
     res["tempo_source"] = source
     res["tempo_confidence"] = va.get("tempo_confidence", 0)
     # どの証拠でテンポを決めたか (UI/デバッグ用) とアルゴリズム版を残す
@@ -685,7 +707,8 @@ def _apply_audio_result(res, va, source="audio"):
     res["beats"] = va.get("beats") or []
     res["chords"] = va.get("chords") or []
     for key in ("energy", "danceability", "valence", "acousticness",
-                "instrumentalness", "speechiness", "liveness", "mood"):
+                "instrumentalness", "speechiness", "liveness", "mood",
+                "mood_source", "mood_confidence"):
         if va.get(key) is not None:
             res[key] = va[key]
     if va.get("vibe_tags"):
@@ -732,6 +755,13 @@ def reanalyze_bookmark(video_id, title, channel, category, use_audio=True):
 
     # 2) 音源解析 (librosa + 任意で CLAP) で実測値を取得。
     #    オクターブ補正は vibe_analyzer 内部で行う。
+    #    負荷対策: torch は自前のスレッド数を持つため、OMP と同じ上限へ合わせる。
+    if CPU_THREADS:
+        try:
+            import torch
+            torch.set_num_threads(CPU_THREADS)
+        except Exception:
+            pass
     try:
         from vibe_analyzer import analyze as analyze_vibe
         va = analyze_vibe(video_id, DB_PATH, force=True,
@@ -748,6 +778,30 @@ def reanalyze_bookmark(video_id, title, channel, category, use_audio=True):
     return res
 
 
+def reanalyze_audio_only(video_id, title, channel):
+    """既存のAI推定を保持したまま、音源由来の特徴量だけを再測定する。"""
+    res = _analysis_cache_entry(video_id) or {}
+    if audio_engine_name() in ("none", "off", "0"):
+        return res
+    if CPU_THREADS:
+        try:
+            import torch
+            torch.set_num_threads(CPU_THREADS)
+        except Exception:
+            pass
+    try:
+        from vibe_analyzer import analyze as analyze_vibe
+        va = analyze_vibe(video_id, DB_PATH, force=True,
+                          reference_tempo=res.get("tempo"))
+        if _apply_audio_result(res, va, "audio"):
+            _save_analysis_cache(video_id, res, merge=True)
+        elif va.get("error"):
+            res["audio_error"] = str(va["error"])[:200]
+    except Exception as exc:
+        res["audio_error"] = str(exc)[:200]
+    return res
+
+
 
 
 def _db_bookmarks(include_cache=True):
@@ -755,7 +809,7 @@ def _db_bookmarks(include_cache=True):
 
     各曲に analysis_cache の feature_vector / tempo / chorus / beats も付与。
     """
-    from ai_analyzer import detect_vocaloid
+    from ai_analyzer import explicit_metadata_category
     conn = get_db()
     try:
         rows = conn.execute("""
@@ -795,6 +849,8 @@ def _db_bookmarks(include_cache=True):
             "mood": None,
             "energy": None,
         }
+        ai_category = None
+        vocal_type = None
         if include_cache:
             d = _analysis_cache_entry(r["youtube_id"])
             if d:
@@ -811,9 +867,16 @@ def _db_bookmarks(include_cache=True):
                 item["audio_engine"] = d.get("audio_engine")
                 item["mood"] = d.get("mood")
                 item["energy"] = d.get("energy")
-        # ボカロシンガー名を含む曲は表示カテゴリを Vocaloid に補正 (解析結果が無くても即時反映)
-        if detect_vocaloid(item["title"], item["channel"]):
-            item["category"] = "Vocaloid"
+                ai_category = d.get("ai_category")
+                vocal_type = d.get("vocal_type")
+        # 表示カテゴリの優先順位: 明示された合成音声/タイアップ情報 → LLMの曲別判定。
+        # 人声/合成音声の判定も保存値で補正し、プレイリストカテゴリには依存しない。
+        item["category"] = ai_category or "Other"
+        metadata_category = explicit_metadata_category(item["title"], item["channel"])
+        if metadata_category:
+            item["category"] = metadata_category
+        elif vocal_type == "human" and item["category"] == "Vocaloid":
+            item["category"] = "J-POP"
         out.append(item)
     return out
 
@@ -899,6 +962,58 @@ def _pca2d(X):
         return X[:, :2]
 
 
+# UMAP (numba) はスレッドセーフではない。embed() を同時に走らせると
+# 「Numba workqueue threading layer is terminating: Concurrent access has been detected」
+# でプロセスごと落ちる (実際に運用で発生した) ため、埋め込み計算はロックで直列化する。
+_EMBED_LOCK = threading.Lock()
+
+# /radar/map の応答キャッシュ。UIは画面を開くたび・解析中に何度も呼ぶため、
+# 毎回UMAPを回すと重い (負荷対策)。ブックマークや解析キャッシュが変わったら作り直す。
+_MAP_CACHE = {'key': None, 'payload': None, 'at': 0.0}
+MAP_CACHE_TTL = float(os.environ.get('TUNEDROP_MAP_CACHE_TTL', '60') or '60')
+# 解析バッチ中は内容が数秒ごとに変わるため、変更直後でも最低この秒数は作り直さない
+# (古いキャッシュを返してでもUMAPの連続再計算を防ぐ = 負荷対策)。
+MAP_MIN_INTERVAL = float(os.environ.get('TUNEDROP_MAP_MIN_INTERVAL', '10') or '10')
+
+
+def _map_cache_key(public_only, user_id):
+    """マップの見た目が変わる条件を表すキー (ブックマーク/プレイリスト/解析キャッシュの版)。"""
+    conn = get_db()
+    try:
+        bookmarks = conn.execute(
+            "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM bookmarks").fetchone()
+        playlists = conn.execute(
+            "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM playlists").fetchone()
+        cache = conn.execute(
+            "SELECT COUNT(*), COALESCE(MAX(updated_at), 0) FROM analysis_cache").fetchone()
+    finally:
+        conn.close()
+    return (bool(public_only), int(user_id), tuple(bookmarks), tuple(playlists), tuple(cache))
+
+
+def _dedup_bookmarks(items):
+    """bookmarks の重複 (同一曲が複数プレイリストに属する) を除外する。
+
+    同一曲が複数プレイリストに属する場合は「Other 以外」のカテゴリを優先する
+    (未整理=Other に重複登録されていても本来のカテゴリを表示)。無効な video_id も除く。
+    """
+    from audio_download import VIDEO_ID_RE
+    seen = {}   # youtube_id -> cleaned 内のインデックス
+    cleaned = []
+    for it in items:
+        vid = it.get("youtube_id") or ""
+        if not VIDEO_ID_RE.match(vid):
+            continue
+        idx = seen.get(vid)
+        if idx is None:
+            seen[vid] = len(cleaned)
+            cleaned.append(it)
+        elif (cleaned[idx].get("category") or "Other") == "Other" \
+                and (it.get("category") or "Other") != "Other":
+            cleaned[idx] = it
+    return cleaned
+
+
 def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
     """(coords, method) を返す。coords は各曲の [x, y] ([0,1])。"""
     import numpy as np
@@ -932,12 +1047,14 @@ def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
     nn = max(2, min(n_neighbors, n - 1))
     method = "umap"
     try:
-        import umap  # noqa: F401
-        reducer = umap.UMAP(
-            n_components=2, n_neighbors=nn, min_dist=min_dist,
-            metric="euclidean", random_state=random_state, n_epochs=200,
-        )
-        emb = reducer.fit_transform(Z)
+        # 同時実行でプロセスが落ちるため、埋め込み計算は直列化する
+        with _EMBED_LOCK:
+            import umap  # noqa: F401
+            reducer = umap.UMAP(
+                n_components=2, n_neighbors=nn, min_dist=min_dist,
+                metric="euclidean", random_state=random_state, n_epochs=200,
+            )
+            emb = reducer.fit_transform(Z)
         if np.asarray(emb).shape[0] != n:
             raise RuntimeError("bad embedding shape")
     except Exception:
@@ -959,10 +1076,18 @@ def radar_map():
       public=1   → 公開ブックマークのみ
       user_id=N  → 対象ユーザーを絞る (未指定は全ユーザー)
     """
-    from audio_download import VIDEO_ID_RE
-
     public_only = request.args.get('public') == '1'
     user_id = _num(request.args.get('user_id'), 0)
+
+    # 同じ内容ならキャッシュを返す (UIは解析中に何度も呼ぶため、毎回UMAPを回さない)。
+    # 内容が変わっていても MAP_MIN_INTERVAL 秒は古いキャッシュを返し、
+    # 解析バッチ中の連続再計算を防ぐ (次に呼ばれたときに作り直す)。
+    cache_key = _map_cache_key(public_only, user_id)
+    if _MAP_CACHE['payload'] is not None:
+        age = time.time() - _MAP_CACHE['at']
+        if (_MAP_CACHE['key'] == cache_key and age < MAP_CACHE_TTL) or age < MAP_MIN_INTERVAL:
+            return jsonify(_MAP_CACHE['payload']), 200
+
     items = _db_bookmarks()
     if user_id:
         items = [i for i in items if i.get("user_id") == int(user_id)]
@@ -970,21 +1095,8 @@ def radar_map():
         items = [i for i in items if i["is_public"] == 1]
 
     # 無効ID・重複を除外。同一曲が複数プレイリストに属する場合は
-    # 「Other 以外」のカテゴリを優先する (未整理=Other に重複登録されていても本来のカテゴリを表示)。
-    seen = {}   # youtube_id -> cleaned 内のインデックス
-    cleaned = []
-    for it in items:
-        vid = it["youtube_id"] or ""
-        if not VIDEO_ID_RE.match(vid):
-            continue
-        idx = seen.get(vid)
-        if idx is None:
-            seen[vid] = len(cleaned)
-            cleaned.append(it)
-        elif (cleaned[idx].get("category") or "Other") == "Other" \
-                and (it.get("category") or "Other") != "Other":
-            cleaned[idx] = it
-    items = cleaned
+    # 「Other 以外」のカテゴリを優先する。
+    items = _dedup_bookmarks(items)
 
     vectors = [it["feature_vector"] for it in items]
     coords, method = embed(vectors)
@@ -1022,13 +1134,201 @@ def radar_map():
         else:
             pending.append({"youtube_id": it["youtube_id"], "title": it["title"]})
 
-    return jsonify({
+    payload = {
         "success": True,
         "method": method,
         "count": len(points),
         "pending": pending,
         "points": points,
-    }), 200
+    }
+    _MAP_CACHE.update({'key': cache_key, 'payload': payload, 'at': time.time()})
+    return jsonify(payload), 200
+
+
+# ---- おすすめ順 (Ollama による自動推薦) ----
+
+# 推薦レシピのキャッシュ (好みプロファイル→レシピ)。ブックマーク/解析キャッシュが変わると無効化。
+_RECOMMEND_CACHE = {'key': None, 'order': [], 'recipe': {}, 'fallback': False, 'at': 0.0}
+RECOMMEND_CACHE_TTL = float(os.environ.get('TUNEDROP_RECOMMEND_CACHE_TTL', '120') or '120')
+
+# テンポ/エネルギー/明るさの3区分 (指標ごとに異なる値域)
+_BAND_RANGES = {
+    'tempo':   {'slow': (0, 100), 'mid': (100, 140), 'fast': (140, 1e9)},
+    'energy':  {'low': (0, 0.4), 'mid': (0.4, 0.65), 'high': (0.65, 1e9)},
+    'valence': {'low': (0, 0.4), 'mid': (0.4, 0.6), 'high': (0.6, 1e9)},
+}
+
+
+def _band_match(metric, value, band):
+    """value が band (slow/mid/fast や low/mid/high, 'any'/None) に該当すれば 1.0。"""
+    if band in (None, '', 'any'):
+        return 0.5
+    lo, hi = _BAND_RANGES.get(metric, {}).get(band, (None, None))
+    if lo is None or value is None:
+        return 0.0
+    try:
+        return 1.0 if lo <= float(value) < hi else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _rank_weight(value, ranked):
+    """ranked リスト内の順位ほど高い重み (0..1)。含まれなければ 0。空なら 0.5。"""
+    if not ranked:
+        return 0.5
+    try:
+        idx = ranked.index(value)
+    except ValueError:
+        return 0.0
+    return (len(ranked) - idx) / max(1, len(ranked))
+
+
+@app.route('/radar/recommend', methods=['GET'])
+def radar_recommend():
+    """Ollama による自動おすすめ順を返す。
+
+    - 好みプロファイル (ジャンル/ムード分布・テンポ・エネルギー概況) を作り、
+      Ollama に「どのジャンル/ムード/テンポを優先するか」のレシピを出させる。
+    - レシピへの一致度 + お気に入り + 新着を決定的スコア化して曲を並べる。
+
+    query params:
+      user_id=N  → 対象ユーザーを絞る (未指定は全ユーザー)
+      public=1   → 公開ブックマークのみ
+      refresh=1  → キャッシュを無視して再計算
+    """
+    from collections import Counter
+    from ai_analyzer import recommend_recipe, CATEGORIES
+
+    user_id = _num(request.args.get('user_id'), 0)
+    public_only = request.args.get('public') == '1'
+    refresh = request.args.get('refresh') == '1'
+
+    # キャッシュキー (ブックマーク/プレイリスト/解析キャッシュの版)
+    cache_key = _map_cache_key(public_only, user_id)
+    if not refresh and _RECOMMEND_CACHE['key'] == cache_key \
+            and time.time() - _RECOMMEND_CACHE['at'] < RECOMMEND_CACHE_TTL:
+        return jsonify(_RECOMMEND_CACHE['payload']), 200
+
+    items = _db_bookmarks()
+    if user_id:
+        items = [i for i in items if i.get("user_id") == int(user_id)]
+    if public_only:
+        items = [i for i in items if i["is_public"] == 1]
+    # 同一曲が複数プレイリストに属する重複を除外する (radar_map と同様)
+    items = _dedup_bookmarks(items)
+
+    # 好みプロファイルの要約
+    genres = Counter(i.get('category') or 'Other' for i in items)
+    moods = Counter(i.get('mood') for i in items if i.get('mood'))
+    tempos = [i.get('tempo') for i in items if i.get('tempo') and i.get('tempo') > 0]
+    energies = [i.get('energy') for i in items if i.get('energy') is not None]
+
+    lines = []
+    if genres:
+        lines.append('Genres: ' + ', '.join(f'{g} {c}曲' for g, c in genres.most_common(5)))
+    if moods:
+        lines.append('Moods: ' + ', '.join(f'{m} {c}曲' for m, c in moods.most_common(5)))
+    if tempos:
+        lines.append('Tempo: 平均 %.0f BPM (%.0f〜%.0f)' % (sum(tempos) / len(tempos), min(tempos), max(tempos)))
+    if energies:
+        lines.append('Energy: 平均 %.2f (0〜1)' % (sum(energies) / len(energies)))
+    profile_text = '\n'.join(lines) or 'No analyzed tracks yet.'
+
+    recipe = recommend_recipe(profile_text) or {}
+    fallback = not recipe
+
+    # Ollama 失敗時は分布上位を既定の好みにする
+    prefer_genres = [g for g in (recipe.get('prefer_genres') or []) if g in CATEGORIES]
+    if not prefer_genres:
+        prefer_genres = [g for g, _c in genres.most_common(3)]
+    prefer_moods = list(recipe.get('prefer_moods') or [])
+    if not prefer_moods:
+        prefer_moods = [m for m, _c in moods.most_common(3)]
+    tempo_pref = recipe.get('tempo') or 'any'
+    energy_pref = recipe.get('energy') or 'any'
+    valence_pref = recipe.get('valence') or 'any'
+
+    # 曲ごとのおすすめスコア
+    # お気に入りプレイリストに属する曲は加点 (公開用お気に入り etc.)
+    fav_ids = _favorite_video_ids()
+    # 新着の基準 (最新 added_at を 1.0 に正規化)
+    added_times = []
+    for i in items:
+        try:
+            added_times.append((i['youtube_id'], datetime.datetime.strptime(
+                str(i.get('added_at') or ''), '%Y-%m-%d %H:%M:%S').timestamp()))
+        except (ValueError, TypeError):
+            pass
+    newest = max((t for _vid, t in added_times), default=time.time())
+    oldest = min((t for _vid, t in added_times), default=newest)
+    span = max(1e-6, newest - oldest)
+
+    # 発掘ボーナス用: ジャンル/ムードの占有率 (均質なコレクションでは
+    # 好み一致だけでは全曲が同点になり新着順と区別が付かないため、
+    # 少数派のジャンル/ムードの曲を「忘れずに聴ける」よう加点する)
+    total = max(1, len(items))
+    genre_share = {g: c / total for g, c in genres.items()}
+    mood_share = {m: c / total for m, c in moods.items()}
+
+    scored = []
+    for it in items:
+        vid = it['youtube_id']
+        cat = it.get('category') or 'Other'
+        mood = it.get('mood')
+        tempo = it.get('tempo') or 0
+        energy = it.get('energy')
+        valence = it.get('valence')
+        recency = 0.0
+        for v, t in added_times:
+            if v == vid:
+                recency = (t - oldest) / span
+                break
+        fav = 1.0 if vid in fav_ids else 0.0
+        # 少数派ほど高い発掘点 (0..2)
+        variety = ((1.0 - genre_share.get(cat, 0.0))
+                   + (1.0 - mood_share.get(mood, 0.0) if mood else 1.0))
+        score = (fav * 10.0
+                 + _rank_weight(cat, prefer_genres) * 3.0
+                 + _rank_weight(mood, prefer_moods) * 2.0
+                 + variety * 3.0
+                 + _band_match('tempo', tempo, tempo_pref) * 1.0
+                 + _band_match('energy', energy, energy_pref) * 1.0
+                 + _band_match('valence', valence, valence_pref) * 1.0
+                 + recency * 0.15)
+        scored.append((vid, score))
+    scored.sort(key=lambda x: (-x[1], x[0]))
+
+    payload = {
+        'success': True,
+        'taste': recipe.get('taste') or '',
+        'order': [vid for vid, _s in scored],
+        'prefer_genres': prefer_genres,
+        'prefer_moods': prefer_moods,
+        'tempo': tempo_pref,
+        'energy': energy_pref,
+        'valence': valence_pref,
+        'fallback': fallback,
+    }
+    _RECOMMEND_CACHE.update({'key': cache_key, 'payload': payload, 'at': time.time(),
+                             'order': payload['order'], 'recipe': recipe, 'fallback': fallback})
+    return jsonify(payload), 200
+
+
+def _favorite_video_ids():
+    """お気に入り (is_favorite=1) のプレイリストに属する曲の youtube_id 集合を返す。"""
+    out = set()
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT b.youtube_id FROM bookmarks b "
+            "JOIN playlists p ON p.id = b.playlist_id WHERE p.is_favorite = 1").fetchall()
+        for r in rows:
+            out.add(r["youtube_id"])
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return out
 
 
 _ANALYZE_STATE = {
@@ -1044,20 +1344,87 @@ _ANALYZE_STATE = {
     'engine': 'librosa',
     'started_at': None,
     'finished_at': None,
+    'interrupted': False,
 }
+
+# _ANALYZE_STATE はワーカースレッドとリクエストスレッドの両方から触るためロックで保護する。
+_ANALYZE_LOCK = threading.Lock()
+
+
+def _batch_state_file():
+    """再解析バッチの進捗を保存する JSON ファイル (DB と別ファイルにして書込競合を避ける)。"""
+    return os.environ.get(
+        'TUNEDROP_BATCH_STATE',
+        os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), 'analysis_batch_state.json'))
+
+
+def _persist_batch_state():
+    """現在のバッチ状態をディスクへ保存する (途中保存・再開用)。原子置換で壊れにくくする。"""
+    try:
+        with _ANALYZE_LOCK:
+            snapshot = json.dumps(_ANALYZE_STATE, ensure_ascii=False)
+        tmp = _batch_state_file() + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write(snapshot)
+        os.replace(tmp, _batch_state_file())
+    except Exception:
+        pass
+
+
+def _load_batch_state():
+    """保存済みのバッチ状態を読む (無ければ None)。"""
+    try:
+        with open(_batch_state_file(), 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _restore_batch_state():
+    """起動時に中断したバッチ状態を復元する (running=True のまま落ちた分は中断扱い)。
+
+    各曲の解析結果自体は analysis_cache に逐次保存されているため、ここで復元するのは
+    進捗・結果・エラーの表示用の状態。running は必ず False に戻す (スレッドは死んでいる)。
+    """
+    saved = _load_batch_state()
+    if not saved:
+        return
+    with _ANALYZE_LOCK:
+        for key in ('total', 'done', 'queued', 'results', 'errors',
+                    'force', 'audio', 'engine', 'started_at', 'finished_at'):
+            if key in saved:
+                _ANALYZE_STATE[key] = saved[key]
+        _ANALYZE_STATE['interrupted'] = bool(saved.get('running'))
+        _ANALYZE_STATE['running'] = False
+        _ANALYZE_STATE['current'] = None
+
+
+# 起動時に中断したバッチ状態を復元する (再起動後も進捗表示・再開ができる)。
+_restore_batch_state()
 
 
 def _run_reanalyze_batch(targets, use_audio, force):
-    """再解析バッチを実行する (バックグラウンドスレッド用)。"""
+    """再解析バッチを実行する (バックグラウンドスレッド用)。
+
+    - 1曲ごとに進捗を _ANALYZE_STATE へ反映し、_persist_batch_state() で途中保存する。
+    - 各曲の解析結果は reanalyze_bookmark / reanalyze_audio_only が analysis_cache に逐次保存する。
+    - 中断しても analysis_cache と state ファイルの両方から再開できる。
+    """
     import analysis_cache
     st = _ANALYZE_STATE
-    st.update({'running': True, 'total': len(targets), 'done': 0, 'results': [],
-               'errors': [], 'audio': use_audio, 'force': force,
-               'engine': audio_engine_name(),
-               'started_at': time.time(), 'finished_at': None})
+    with _ANALYZE_LOCK:
+        st.update({'running': True, 'total': len(targets), 'done': 0, 'results': [],
+                   'errors': [], 'audio': use_audio, 'force': force,
+                   'engine': audio_engine_name(), 'interrupted': False,
+                   'queued': [t['youtube_id'] for t in targets],
+                   'started_at': time.time(), 'finished_at': None})
+    _persist_batch_state()
     for it in targets:
         vid = it['youtube_id']
-        st['current'] = vid
+        with _ANALYZE_LOCK:
+            st['current'] = vid
+        _persist_batch_state()
         # 最適化: 全曲再解析 (force=1) でも、実測BPMが既にある曲は音源DLを省略し、
         # AI推定のみを再実行する (曲数が多い場合の処理時間を大幅に短縮)。
         # ただしテンポ推定アルゴリズムが更新された行 (bpm_algo が古い) は、
@@ -1067,29 +1434,43 @@ def _run_reanalyze_batch(targets, use_audio, force):
             and it.get('bpm_algo') == analysis_cache.TEMPO_ALGO_VERSION)
         audio_for_song = use_audio and not (force and already_measured)
         try:
-            res = reanalyze_bookmark(vid, it['title'], it['channel'],
-                                     it['category'], use_audio=audio_for_song)
-            st['results'].append({
-                'youtube_id': vid,
-                'title': it.get('title'),
-                'tempo': res.get('tempo'),
-                'tempo_raw': res.get('tempo_raw'),
-                'tempo_source': res.get('tempo_source'),
-                'tempo_method': res.get('tempo_method'),
-                'engine': res.get('engine'),
-                'audio_engine': res.get('audio_engine'),
-                'vibe_tags': res.get('vibe_tags'),
-                'mood': res.get('mood'),
-                'measured': bool(res.get('measured')),
-                'error': res.get('audio_error'),
-            })
+            if it.get('_audio_only'):
+                res = reanalyze_audio_only(vid, it['title'], it['channel'])
+            else:
+                res = reanalyze_bookmark(vid, it['title'], it['channel'],
+                                         it['category'], use_audio=audio_for_song)
+            with _ANALYZE_LOCK:
+                st['results'].append({
+                    'youtube_id': vid,
+                    'title': it.get('title'),
+                    'tempo': res.get('tempo'),
+                    'tempo_raw': res.get('tempo_raw'),
+                    'tempo_source': res.get('tempo_source'),
+                    'tempo_method': res.get('tempo_method'),
+                    'engine': res.get('engine'),
+                    'audio_engine': res.get('audio_engine'),
+                    'vibe_tags': res.get('vibe_tags'),
+                    'mood': res.get('mood'),
+                    'measured': bool(res.get('measured')),
+                    'error': res.get('audio_error'),
+                })
         except Exception as exc:
-            st['errors'].append({'youtube_id': vid, 'error': str(exc)[:200]})
+            with _ANALYZE_LOCK:
+                st['errors'].append({'youtube_id': vid, 'error': str(exc)[:200]})
         finally:
-            st['done'] += 1
-    st['current'] = None
-    st['running'] = False
-    st['finished_at'] = time.time()
+            with _ANALYZE_LOCK:
+                st['done'] += 1
+                if vid in st['queued']:
+                    st['queued'].remove(vid)
+            _persist_batch_state()
+            # 負荷対策: 連続実行でマシンを占有し続けないよう、曲間に少し待ちを入れる
+            if ANALYZE_THROTTLE_SECONDS > 0:
+                time.sleep(ANALYZE_THROTTLE_SECONDS)
+    with _ANALYZE_LOCK:
+        st['current'] = None
+        st['running'] = False
+        st['finished_at'] = time.time()
+    _persist_batch_state()
 
 
 @app.route('/radar/analyze_all', methods=['GET'])
@@ -1102,7 +1483,14 @@ def radar_analyze_all():
       audio=0    → 音源解析をスキップしてAIのみ (既定 1 = 両方。旧名 essentia も受付)
       limit=N    → 先頭 N 曲だけを処理
       wait=1     → バックグラウンドではなく同期実行し、結果を返す
+      reset=1    → 中断状態 (途中保存) を破棄して最初からやり直す
+      resume=1   → 前回中断した残りの曲を優先して再開する (未指定でも未解析曲は自動で対象)
+      include_gemini=1 → Gemini解析済みの曲も対象に含める (管理者用。既定は保護)
     既定は確認のため非同期で開始し、進捗は /radar/analyze_status で取得する。
+
+    Gemini (engine=gemini) のAI推定値は既定で保護する。音源が未解析または旧版なら
+    AI推定を保持したまま音源特徴のみ再測定し、AI自体をやり直す場合は
+    include_gemini=1 または管理者ページ (解析キャッシュ → 該当曲を削除) を使う。
     """
     from audio_download import VIDEO_ID_RE
 
@@ -1110,7 +1498,29 @@ def radar_analyze_all():
     use_audio = (request.args.get('audio', '1') != '0'
                  and request.args.get('essentia', '1') != '0')
     wait = request.args.get('wait') == '1'
+    reset = request.args.get('reset') == '1'
+    resume = request.args.get('resume') == '1'
     limit = _num(request.args.get('limit'), 0)
+    # Gemini解析済みの曲を対象に含めるか (既定 0 = 保護)。UI は常に 0 を送る。
+    include_gemini = request.args.get('include_gemini') == '1'
+
+    # 中断状態の破棄 (最初からやり直す)
+    if reset:
+        with _ANALYZE_LOCK:
+            _ANALYZE_STATE.update({'running': False, 'total': 0, 'done': 0,
+                                   'current': None, 'queued': [], 'results': [],
+                                   'errors': [], 'interrupted': False,
+                                   'started_at': None, 'finished_at': None})
+        try:
+            os.remove(_batch_state_file())
+        except OSError:
+            pass
+
+    # 前回の中断から再開: 保存済みの残キューを先頭に寄せる
+    resume_ids = []
+    if resume:
+        with _ANALYZE_LOCK:
+            resume_ids = list(_ANALYZE_STATE.get('queued') or [])
 
     user_id = _num(request.args.get('user_id'), 0)
     items = _db_bookmarks()
@@ -1118,10 +1528,25 @@ def radar_analyze_all():
         items = [i for i in items if i.get("user_id") == int(user_id)]
     import analysis_cache
     targets = []
+    skipped_gemini = []
+    audio_refresh_enabled = (use_audio and audio_engine_name() not in ("none", "off", "0"))
     for it in items:
         vid = it["youtube_id"]
         if not (vid and VIDEO_ID_RE.match(vid)):
             continue
+        # Gemini のAI推定値は保護するが、未測定/旧版の音源特徴は音源だけ再解析する。
+        # AI出力まで再実行してGemini結果をローカル推定で上書きしない。
+        is_gemini = (it.get("engine") == "gemini" or it.get("bpm_source") == "gemini")
+        if not include_gemini and is_gemini:
+            measured_current = (
+                it.get("bpm_source") in analysis_cache.MEASURED_SOURCES
+                and it.get("bpm_algo") == analysis_cache.TEMPO_ALGO_VERSION)
+            if audio_refresh_enabled and not measured_current:
+                it = dict(it)
+                it["_audio_only"] = True
+            else:
+                skipped_gemini.append(vid)
+                continue
         if not force and it["feature_vector"]:
             # force=0 (未解析のみ) は「AI推定済みかつ音源実測済み(現行アルゴリズム版)」だけ除外する。
             # 登録時 (/analysis/async) はAI推定のみで feature_vector が付くため、
@@ -1138,6 +1563,11 @@ def radar_analyze_all():
     if limit > 0:
         targets = targets[:int(limit)]
 
+    # 再開指定時は、前回中断した残キューを先頭に並べ替える (未解析曲は後ろに続く)
+    if resume_ids:
+        resume_set = set(resume_ids)
+        targets.sort(key=lambda t: 0 if t["youtube_id"] in resume_set else 1)
+
     if wait:
         _run_reanalyze_batch(targets, use_audio, force)
         return jsonify({'success': True, 'state': _ANALYZE_STATE}), 200
@@ -1149,6 +1579,8 @@ def radar_analyze_all():
     return jsonify({
         'success': True,
         'queued': [t["youtube_id"] for t in targets],
+        # Gemini解析済みで対象外にした曲 (UIのメッセージ用)
+        'skipped_gemini': skipped_gemini,
         'force': force,
         'audio': use_audio,
         'engine': audio_engine_name(),
@@ -1158,10 +1590,16 @@ def radar_analyze_all():
 
 @app.route('/radar/analyze_status', methods=['GET'])
 def radar_analyze_status():
-    """再解析バッチの進捗を返す (フロントのポーリング用)。"""
-    st = dict(_ANALYZE_STATE)
+    """再解析バッチの進捗を返す (フロントのポーリング用)。
+
+    - running=True なら解析中、False で interrupted=True なら前回中断した状態 (再開可能)。
+    - resumable は「残りの曲が途中保存されている」ことを示す。
+    """
+    with _ANALYZE_LOCK:
+        st = dict(_ANALYZE_STATE)
     started = st.get('started_at')
     st['elapsed'] = round(time.time() - started, 1) if started else 0
+    st['resumable'] = bool(st.get('interrupted') and st.get('queued'))
     return jsonify({'success': True, 'state': st}), 200
 
 

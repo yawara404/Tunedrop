@@ -65,18 +65,22 @@ TEMPO_REF_MAX_MARGIN = 0.05
 TEMPO_REF_SAME_OCTAVE = 0.3
 # 打楽器成分がこの割合未満の曲 (アカペラ/環境音など) は全帯域のオンセットで解析する
 PERCUSSIVE_MIN_RATIO = 0.02
+# 打楽器オンセットを主軸にしつつ、全帯域オンセットの証拠も候補評価へ加える。
+TEMPO_FULL_ENV_WEIGHT = 0.35
 
 # CLAP で使うムード判定プロンプト (音声とテキストの類似度で選ぶ)。
 # プロンプトは音楽の「曲」を指すよう song/track/singing を明記する。
 CLAP_PROMPTS = {
-    "happy": "a happy, joyful and upbeat pop song",
-    "sad": "a sad, melancholic and emotional ballad",
-    "calm": "a calm, quiet and relaxing song",
-    "energetic": "an energetic, driving and exciting rock track",
-    "dark": "a dark, eerie and mysterious track",
-    "dreamy": "a dreamy, floating and ethereal song",
-    "aggressive": "an aggressive, intense and heavy metal track",
-    "warm": "a warm, cozy and gentle acoustic song",
+    # 同じ構文・似た長さに揃え、pop/ballad/metal/acoustic などのジャンル差を
+    # mood 差と取り違えにくくする。
+    "happy": "A bright, cheerful and joyful song with an uplifting mood",
+    "sad": "A melancholy, sorrowful and sad song with a downcast mood",
+    "calm": "A peaceful, calm and relaxing song with a gentle mood",
+    "energetic": "A lively, energetic and upbeat song with a driving mood",
+    "dark": "A dark, ominous and brooding song with a tense mood",
+    "dreamy": "A dreamy, ethereal and floating song with a hazy mood",
+    "aggressive": "An intense, forceful and aggressive song with a confrontational mood",
+    "warm": "A warm, tender and comforting song with an intimate mood",
 }
 # インストゥルメンタル判定用プロンプト (librosa だけでは精度が出にくいため)
 CLAP_INSTRUMENTAL_PROMPTS = {
@@ -303,7 +307,7 @@ def autocorr_evidence(acf, sr, hop_length, bpm):
     return _clamp01(float(acf[index]) / TEMPO_ACF_FULL)
 
 
-def refine_tempo(onset_env, sr, hop_length, bpm):
+def refine_tempo(onset_env, sr, hop_length, bpm, extra_onset_envs=None):
     """候補BPMの近傍 (±TEMPO_REFINE_SPAN) を走査し、格子が最も合う値に寄せる。
 
     ビートトラッカーの出力 (または倍率を掛けた候補) は真のテンポから数%ずれる。
@@ -321,10 +325,18 @@ def refine_tempo(onset_env, sr, hop_length, bpm):
         cand = base * float(factor)
         if not tempo_in_range(cand):
             continue
-        coverage, strength, _mid, beats = grid_evidence(onset_env, sr, hop_length, cand)
-        if beats < 4 or strength <= 0.0:
+        envs = [onset_env] + list(extra_onset_envs or [])
+        fits = []
+        for env in envs:
+            coverage, strength, _mid, beats = grid_evidence(env, sr, hop_length, cand)
+            if beats >= 4 and strength > 0.0:
+                fits.append(coverage * strength)
+        if not fits:
             continue
-        score = coverage * strength      # 局所探索なので bpm に依存しない項は除く
+        # 同じ重みで平均しない。主オンセットを維持しつつ、別系列の拍証拠も利用する。
+        score = fits[0] if len(fits) == 1 else (
+            (1.0 - TEMPO_FULL_ENV_WEIGHT) * fits[0]
+            + TEMPO_FULL_ENV_WEIGHT * sum(fits[1:]) / (len(fits) - 1))
         if best_score is None or score > best_score:
             best_bpm, best_score = cand, score
     return best_bpm, best_score
@@ -374,8 +386,30 @@ def tempo_evidence(onset_env, sr, hop_length, bpm, tempo_probs=None, acf=None):
     return float(score), detail
 
 
+def combined_tempo_evidence(onset_env, extra_onset_envs, sr, hop_length, bpm,
+                            tempo_probs=None, acf=None, extra_acfs=None):
+    """主オンセットと補助オンセットの証拠を重み付きでまとめる。"""
+    primary_score, detail = tempo_evidence(onset_env, sr, hop_length, bpm,
+                                           tempo_probs, acf)
+    extras = list(extra_onset_envs or [])
+    if not extras:
+        return primary_score, detail
+    acfs = list(extra_acfs or [])
+    extra_results = [tempo_evidence(
+        env, sr, hop_length, bpm, tempo_probs,
+        acfs[index] if index < len(acfs) else None)
+        for index, env in enumerate(extras)]
+    extra_score = sum(item[0] for item in extra_results) / len(extra_results)
+    score = ((1.0 - TEMPO_FULL_ENV_WEIGHT) * primary_score
+             + TEMPO_FULL_ENV_WEIGHT * extra_score)
+    detail["primary_score"] = round(primary_score, 4)
+    detail["secondary_score"] = round(extra_score, 4)
+    detail["score"] = round(score, 4)
+    return float(score), detail
+
+
 def resolve_tempo(onset_env, sr, hop_length, raw_bpm, reference_bpm=None,
-                  tempo_probs=None):
+                  tempo_probs=None, extra_bpms=None, extra_onset_envs=None):
     """実測テンポのオクターブ誤り (半速/倍速) を複数の証拠で解消する。
 
     ビートトラッカーは 82.9 BPM の曲をそのまま返すことがある (例: KING は実際 165.8)。
@@ -395,16 +429,25 @@ def resolve_tempo(onset_env, sr, hop_length, raw_bpm, reference_bpm=None,
     raw = _num(raw_bpm)
     ref = _num(reference_bpm)
     acf = onset_periodicity(onset_env, sr, hop_length)
-    # 候補は実測値から作る (AI推定値は候補そのものにはせず、系列の選択にのみ使う。
-    # AI推定の数値を候補に混ぜると、証拠が団子になったとき数値の一致だけで勝ってしまう)
+    # 候補は実測値から作る。打楽器成分と楽曲全体でテンポ推定が食い違う曲も拾えるよう、
+    # 別系列の beat tracker が返した BPM (extra_bpms) も候補の種にする。
+    # AI 推定 BPM (参照値) も候補に加える: ビートトラッカーがオクターブ以外の
+    # 数%の誤り (例: 実測152に対して真値140) を起こすと、実測由来の倍率候補だけでは
+    # 真値に届かないため。採点は格子証拠ベースなので、誤った参照値は証拠が無く選ばれない。
     scored, added = [], []
-    for cand in tempo_candidates(raw):
-        refined, _fit = refine_tempo(onset_env, sr, hop_length, cand)
+    bases = [raw] + list(extra_bpms or [])
+    if ref > 0:
+        bases.append(ref)
+    extra_envs = list(extra_onset_envs or [])
+    extra_acfs = [onset_periodicity(env, sr, hop_length) for env in extra_envs]
+    for cand in tempo_candidates(*bases):
+        refined, _fit = refine_tempo(onset_env, sr, hop_length, cand,
+                                     extra_onset_envs=extra_envs)
         if any(abs(refined - prev) < 0.5 for prev in added):
             continue
         added.append(refined)
-        scored.append(tempo_evidence(onset_env, sr, hop_length, refined,
-                                     tempo_probs, acf))
+        scored.append(combined_tempo_evidence(onset_env, extra_envs, sr, hop_length,
+                                              refined, tempo_probs, acf, extra_acfs))
     scored.sort(key=lambda item: (-item[0], item[1]["bpm"]))
     if not scored or scored[0][0] <= 0.0:
         # どの候補も証拠が無い → 参照BPMに寄せるだけにする (旧動作との互換)
@@ -510,25 +553,71 @@ def engine_name():
     return "librosa+clap" if has_clap() else "librosa"
 
 
-def _mode_scores(chroma):
-    """クロマから長調らしさ・短調らしさを求める (12調のうち最も相関が高いもの)。"""
+# Krumhansl 風の長調/短調プロファイル (12半音の出現頻度)。単体テストから参照できるよう
+# モジュール定数にしておく。
+_MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
+                  2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+_MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
+                  2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+
+
+def _corr_with_profiles(chroma_2d):
+    """12半音×フレームのクロマから、フレームごとの長調/短調相関 (各 0..1 でなく相関値) を返す。
+
+    各フレームを12回転のプロファイルと照合し、最も高い相関をそのフレームのスコアとする。
+    """
     import numpy as np
 
-    major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
-                              2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
-    minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
-                              2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+    c = np.asarray(chroma_2d, dtype="float64")
+    if c.ndim != 2 or c.shape[0] != 12 or c.shape[1] == 0:
+        return None, None
+    sums = c.sum(axis=0)
+    keep = sums > 1e-9
+    if not keep.any():
+        return None, None
+    c = c[:, keep] / sums[keep]
+    c = c - c.mean(axis=0, keepdims=True)
+    c_norm = np.linalg.norm(c, axis=0)
+
+    def best(profile):
+        p = np.asarray(profile, dtype="float64")
+        p = p - p.mean()
+        p_norm = float(np.linalg.norm(p))
+        top = np.full(c.shape[1], -1.0)
+        for i in range(12):
+            r = (np.roll(p, i) @ c) / (p_norm * c_norm + 1e-12)
+            top = np.maximum(top, r)
+        return top
+
+    try:
+        return best(_MAJOR_PROFILE), best(_MINOR_PROFILE)
+    except Exception:
+        return None, None
+
+
+def _mode_scores(chroma):
+    """クロマ (12次元ベクトル) から長調らしさ・短調らしさを求める。"""
+    import numpy as np
+
     c = np.asarray(chroma, dtype="float64")
     if c.size != 12 or float(c.std()) < 1e-9:
         return 0.5, 0.5
-
-    def best(profile):
-        return max(float(np.corrcoef(c, np.roll(profile, i))[0, 1]) for i in range(12))
-
-    try:
-        return best(major_profile), best(minor_profile)
-    except Exception:
+    major, minor = _corr_with_profiles(c.reshape(12, 1))
+    if major is None:
         return 0.5, 0.5
+    return float(major[0]), float(minor[0])
+
+
+def _mode_scores_frames(chroma_2d):
+    """フレーム単位で長調/短調らしさを求め、フレーム平均を返す。
+
+    曲全体でクロマを平均すると転調やセクションの違いで調性がぼやけるため、
+    各フレームで判定してから平均する方が安定する。
+    """
+    major, minor = _corr_with_profiles(chroma_2d)
+    if major is None or major.size == 0:
+        return 0.5, 0.5
+    return float(major.mean()), float(minor.mean())
 
 
 def _beat_track(onset_env, sr, hop_length, bpm=None, start_bpm=120.0, tightness=100.0):
@@ -587,9 +676,16 @@ def analyze_acoustics(y, sr, reference_tempo=None, tempo_probs=None):
         beat_env_source = "percussive"
 
     tempo_raw, beat_frames = _beat_track(beat_env, sr, hop)
+    tempo_raw_full = tempo_raw
+    if beat_env_source != "full":
+        tempo_raw_full, _ = _beat_track(onset_env, sr, hop)
     tempo, tempo_info = resolve_tempo(beat_env, sr, hop, tempo_raw,
                                       reference_bpm=reference_tempo,
-                                      tempo_probs=tempo_probs)
+                                      tempo_probs=tempo_probs,
+                                      extra_bpms=([tempo_raw_full]
+                                                  if beat_env_source != "full" else None),
+                                      extra_onset_envs=([onset_env]
+                                                        if beat_env_source != "full" else None))
     if abs(tempo - tempo_raw) >= 0.5:
         # オクターブを補正したので、確定テンポで拍を取り直す (拍数・位置を揃える)
         _, beat_frames = _beat_track(beat_env, sr, hop, bpm=tempo)
@@ -617,12 +713,10 @@ def analyze_acoustics(y, sr, reference_tempo=None, tempo_probs=None):
     flatness = float(librosa.feature.spectral_flatness(S=S).mean())
     zcr = float(librosa.feature.zero_crossing_rate(y, hop_length=hop).mean())
 
-    chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr).mean(axis=1)
-    chroma_sum = float(chroma.sum())
-    if chroma_sum > 0:
-        chroma = chroma / chroma_sum
-    # メジャー/マイナー判定: クロマと長調/短調プロファイルの相関 (Krumhansl 風)
-    major_score, minor_score = _mode_scores(chroma)
+    chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr)
+    # メジャー/マイナー判定: フレーム単位でクロマと長調/短調プロファイルを照合して平均。
+    # 全体平均より転調・セクション差に強く、調性の推定が安定する (Krumhansl 風)。
+    major_score, minor_score = _mode_scores_frames(chroma)
 
     # ボーカル帯域 (250-4000Hz) のエネルギー変動 → 歌ものらしさの代理指標
     freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
@@ -640,6 +734,7 @@ def analyze_acoustics(y, sr, reference_tempo=None, tempo_probs=None):
         "onset_rate": round(onset_rate, 3),
         "tempo": round(tempo, 2),
         "tempo_raw": round(tempo_raw, 2),
+        "tempo_raw_full": round(tempo_raw_full, 2),
         "tempo_method": tempo_info.get("method"),
         "tempo_candidates": tempo_info.get("candidates", []),
         "tempo_score_margin": tempo_info.get("score_margin"),
@@ -669,23 +764,25 @@ def vibe_features(a):
 
     すべて音源から直接計算するため、曲名からの推測ではなく実測ベースになる。
     各値の算出根拠:
-      energy          : 平均音量(dBFS) とオンセット密度
-      danceability    : パルス明確度 + ビート規則性 + 120BPM 付近への近さ
+      energy          : 音の密度・リズム駆動力・音量 (音量は弱め=録音音量への依存を抑える)
+      danceability    : パルス明確度 + ビート規則性
       valence         : 長調らしさ(メジャー3度とマイナー3度の比) + 明るさ + エネルギー
       acousticness    : 倍音成分の多さ(HPSS) + ノイズ成分の少なさ
       speechiness     : ゼロ交差率とスペクトル平坦度 (ラップ/語り)
       instrumentalness: ボーカル帯域(250-4000Hz)の変動が小さいほど高い
       liveness        : 高域ノイズフロア + ビートの不規則さ (歓声/残響の代理)
     """
-    energy_base = _clamp01((a.get("rms_db", -40.0) + 38.0) / 33.0)
-    energy = _clamp01(0.72 * energy_base
-                      + 0.28 * _clamp01((a.get("onset_rate", 0.0) - 1.2) / 5.5))
+    # 録音/マスタリングの音量差に引きずられにくくするため、絶対音量 (rms_db) の重みを
+    # 抑え、ゲイン不変なオンセット密度とリズム駆動力 (pulse_clarity) を主軸にする。
+    energy = _clamp01(0.30 * _clamp01((a.get("rms_db", -40.0) + 38.0) / 33.0)
+                      + 0.40 * _clamp01((a.get("onset_rate", 0.0) - 1.2) / 5.5)
+                      + 0.30 * _clamp01(a.get("pulse_clarity", 0.0) / 0.25))
 
     tempo = _num(a.get("tempo")) or 120.0
-    tempo_fit = _clamp01(1.0 - abs(tempo - 122.0) / 85.0)
-    danceability = _clamp01(0.45 * _clamp01(a.get("pulse_clarity", 0.0) / 0.25)
-                            + 0.30 * a.get("regularity", 0.5)
-                            + 0.25 * tempo_fit)
+    # 「踊りやすさ」は120 BPMに近いかではなく、拍が明瞭で安定しているかで推定する。
+    # 以前の tempo_fit は同じ規則性でも120 BPM付近を機械的に高くしていた。
+    danceability = _clamp01(0.60 * _clamp01(a.get("pulse_clarity", 0.0) / 0.25)
+                            + 0.40 * a.get("regularity", 0.5))
 
     brightness = _clamp01((a.get("centroid", 1500.0) - 1200.0) / 2600.0)
     mode = _clamp01((a.get("major_score", 0.0) - a.get("minor_score", 0.0)) * 2.0 + 0.5)
@@ -788,6 +885,10 @@ _CLAP = {"model": None, "error": None, "ready": False, "attempts": 0,
 # 温度なし (1.0) では全ラベルがほぼ等確率、逆に小さすぎると1ラベルへ張り付いて
 # 不安定になる。0.07 を既定にし TUNEDROP_CLAP_TEMPERATURE で調整できるようにする。
 CLAP_TEMPERATURE = 0.07
+# CLAP がムードを決めきれていない場合は、1位を無理に採用せず音響特徴へ戻す。
+# softmax は確率として厳密に校正されていないため、上位との差も併せて見る。
+CLAP_MOOD_MIN_PROB = 0.17
+CLAP_MOOD_MIN_MARGIN = 0.035
 # CLAP の「テンポ感」判定プロンプト (英語)。
 # CLAP は BPM を直接測るモデルではないが、「速い/遅い」という曲全体の印象は
 # 英語プロンプトとの類似度で判定できる。ドラムが薄い・打ち込みが細かいなどで
@@ -829,6 +930,32 @@ def clap_temperature():
         return CLAP_TEMPERATURE
     val = _num(raw, 0.0)
     return val if val > 0 else 1.0
+
+
+def resolve_mood(mood_probs, fallback):
+    """CLAP の首位が十分明確な場合だけ採用し、曖昧なら音響特徴へ戻す。
+
+    1位の確率だけでは、全ラベルがほぼ同点でも必ず mood が選ばれてしまう。
+    ここでは一様分布より高いことと、2位との差の両方を要求する。
+    """
+    if not isinstance(mood_probs, dict):
+        return fallback, "features", 0.0
+    ranked = sorted(
+        ((name, _clamp01(score)) for name, score in mood_probs.items() if name in MOODS),
+        key=lambda item: item[1], reverse=True)
+    if not ranked:
+        return fallback, "features", 0.0
+    best_name, best_score = ranked[0]
+    second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+    margin = best_score - second_score
+    min_prob = _clamp01(_num(os.environ.get("TUNEDROP_CLAP_MOOD_MIN_PROB"),
+                             CLAP_MOOD_MIN_PROB))
+    min_margin = _clamp01(_num(os.environ.get("TUNEDROP_CLAP_MOOD_MIN_MARGIN"),
+                               CLAP_MOOD_MIN_MARGIN))
+    confidence = _clamp01(margin / max(1e-9, 1.0 - second_score))
+    if best_score < min_prob or margin < min_margin:
+        return fallback, "features", round(confidence, 3)
+    return best_name, "clap", round(confidence, 3)
 
 
 def _load_clap():
@@ -1106,16 +1233,15 @@ def analyze_wav(wav_path, reference_tempo=None, use_clap=None):
     feats["tempo"] = round(tempo, 1)
 
     mood_probs = (scores or {}).get("mood") or None
+    fallback_mood = mood_from_features(feats)
+    mood, mood_source, mood_confidence = resolve_mood(mood_probs, fallback_mood)
     if mood_probs:
-        mood = max(mood_probs.items(), key=lambda kv: kv[1])[0]
         # インスト判定は CLAP の方が信頼できるため上書きする。
         # ただし CLAP が僅差で決めた場合 (確信度が低い) は librosa の推定を残す。
         clap_instr = scores.get("instrumentalness")
         if clap_instr is not None:
             feats["instrumentalness"] = resolve_instrumentalness(
                 feats.get("instrumentalness"), clap_instr)
-    else:
-        mood = mood_from_features(feats)
 
     beats = [{"start": t, "position": 1 if i % 4 == 0 else 2}
              for i, t in enumerate(acoustics.get("beat_times", []))]
@@ -1128,6 +1254,7 @@ def analyze_wav(wav_path, reference_tempo=None, use_clap=None):
         "duration": round(acoustics.get("duration", 0.0), 2),
         "tempo": round(tempo, 1),
         "tempo_raw": round(tempo_raw, 1) if tempo_raw else 0.0,
+        "tempo_raw_full": round(_num(acoustics.get("tempo_raw_full")) or tempo, 1),
         "tempo_source": "audio",
         "tempo_method": acoustics.get("tempo_method"),
         "tempo_candidates": acoustics.get("tempo_candidates", []),
@@ -1137,6 +1264,8 @@ def analyze_wav(wav_path, reference_tempo=None, use_clap=None):
         "chorus": chorus_segments(y, sr),
         "chords": [],
         "mood": mood,
+        "mood_source": mood_source,
+        "mood_confidence": mood_confidence,
         "vibe_tags": vibe_tags(feats),
         "vibe_scores": mood_probs,
         "vibe_clap": {"instrumentalness": (scores or {}).get("instrumentalness"),
@@ -1238,4 +1367,3 @@ if __name__ == "__main__":
         print(_json.dumps(out, ensure_ascii=False, indent=1))
     else:
         ap.print_help()
-

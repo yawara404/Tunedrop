@@ -3,6 +3,8 @@
 *.sqlite-*
 *.db
 *.db-*
+analysis_batch_state.json
+analysis_batch_state.json.tmp
 .admin_token
 .jwt_secret
 .auth_port

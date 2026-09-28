@@ -82,7 +82,7 @@
         window.initGoogleAuth = window.initGoogleAuth || function () { window.__gsiReadyQueued = true; };
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" crossorigin src="./assets/index-G2Au7lGb.js"></script>
+  <script type="module" crossorigin src="./assets/index-C0DY9dbg.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-rHf9bxIG.css">
 </head>
 
@@ -182,7 +182,7 @@
                             title="未解析の楽曲を音源実測で解析し、雰囲気マップへ反映します">🔍
                             雰囲気検索</button></div>
                     <div class="filters"><button class="draw-btn" id="btn-radar-analyze-all"
-                            title="全曲を Gemini AI + 音源実測で再解析します（処理が重いため確認があります）">⟳
+                            title="全曲を Gemini AI + 音源実測で再解析します（Gemini解析済みの曲は対象外。処理が重いため確認があります）">⟳
                             全曲解析</button></div>
                 </div>
             </aside>
@@ -475,7 +475,7 @@
                         <li>曲名・アーティスト検索、カテゴリ、雰囲気、BPM、並び順で絞り込めます。「条件クリア」で解除します。</li>
                         <li>「🔍 雰囲気検索」は未解析の曲を音源から解析してマップへ反映します（曲数によっては時間がかかります）。</li>
                         <li>「📡 Radar」は表示中のマップからランダムに3曲を選んで再生します。</li>
-                        <li>「⟳ 全曲解析」は全曲を再解析する重い処理です。実行前に確認が表示されます。</li>
+                        <li>「⟳ 全曲解析」は全曲を再解析する重い処理です。実行前に確認が表示されます。<strong>Gemini（AI(Gemini)）で解析済みの曲は対象外</strong>で、ローカルのAI（Ollama）で上書きしません。そうした曲をやり直すときは管理者ページの「解析キャッシュ」から該当曲を削除してから実行してください。</li>
                     </ul>
                     <p class="help-note">雰囲気やBPMは、タイトルからの推測ではなく実際の音源から算出しています。ツールチップに「実測」か「推定」かが表示されます。</p>
                 </section>

@@ -17,20 +17,25 @@ BUSY_TIMEOUT_MS = 5000
 # 「実測 BPM」とみなす tempo_source の値
 # ("essentia" は旧エンジンで測った既存行のための互換値)
 MEASURED_SOURCES = ("audio", "librosa", "clap", "essentia")
-# 実測 BPM を算出したアルゴリズムの版 (vibe_analyzer.TEMPO_ALGO_VERSION と同値)。
-# 版が上がったら既存の実測 BPM も測り直す (app.py の再解析バッチが判定に使う)。
+# 音源解析アルゴリズムの版 (過去互換のため tempo_algo というキー名を使う)。
+# 版が上がったら app.py の再解析バッチが音源特徴量も含めて測り直す。
 # v2: 打楽器成分のオンセット + オクターブ候補の証拠採点
 # v3: 付点/3連候補 (3:2 / 2:3) ・周期 (自己相関) の証拠 ・BPM の微調整 ・CLAP のテンポ感
-TEMPO_ALGO_VERSION = 3
+# v4: CLAP mood の確信度判定、テンポに依存しない danceability、音源特徴の完全保存
+# v5: 打楽器成分と楽曲全体の独立テンポ候補を統合
+# v6: energy の録音音量依存を低減、調性判定をフレーム単位へ
+# v7: AI 推定 BPM (参照値) をテンポ候補に加え、非オクターブ誤りも補正
+TEMPO_ALGO_VERSION = 7
 # AI 推定由来の tempo_source / engine の値
 AI_TEMPO_SOURCES = ("gemini", "rules")
 # 音源解析済み (audio_engine あり) の行で AI 上書きから守る実測フィールド
 MEASURED_KEYS = (
-    "tempo", "tempo_source", "tempo_raw", "tempo_confidence",
+    "tempo", "tempo_source", "tempo_raw", "tempo_raw_full", "tempo_confidence",
     "tempo_method", "tempo_candidates", "tempo_algo",
     "energy", "danceability", "valence", "acousticness",
     "instrumentalness", "speechiness", "liveness",
-    "mood", "vibe_tags", "vibe_scores", "vibe_clap", "feature_vector",
+    "mood", "mood_source", "mood_confidence",
+    "vibe_tags", "vibe_scores", "vibe_clap", "feature_vector",
 )
 
 
@@ -146,8 +151,11 @@ def audio_fields(existing, result, tempo_source="audio"):
         "audio_engine": result.get("engine"),
         "measured": True,
     }
-    for key in ("vibe_scores", "vibe_tags", "tempo_confidence", "tempo_raw",
-                "tempo_method", "tempo_candidates", "vibe_clap"):
+    for key in ("energy", "danceability", "valence", "acousticness",
+                "instrumentalness", "speechiness", "liveness", "mood",
+                "mood_source", "mood_confidence", "vibe_scores", "vibe_tags",
+                "tempo_confidence", "tempo_raw", "tempo_raw_full", "tempo_method",
+                "tempo_candidates", "vibe_clap"):
         if result.get(key) is not None:
             out[key] = result[key]
     tempo = num(result.get("tempo"))
