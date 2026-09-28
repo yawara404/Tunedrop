@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory() as directory:
         db.executescript((ROOT / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (500,'guest','x')")
         db.execute("INSERT INTO users (id,username,password_hash,created_at)"
-                   " VALUES (501,'wawa404','x','2026-01-02 03:04:05')")
+                   " VALUES (501,'demo-user','x','2026-01-02 03:04:05')")
         # 公開リスト (2件) と非公開リスト、固定タブ
         db.execute("INSERT INTO playlists (id,user_id,name,category,is_public,sort_order)"
                    " VALUES (510,501,'Public A','J-POP',1,2)")
@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory() as directory:
 
     data = request('get_user_profile', qs='&user_id=501')
     assert data['user']['id'] == 501, data
-    assert data['user']['name'] == 'wawa404', data
+    assert data['user']['name'] == 'demo-user', data
     assert data['user']['created_at'] == '2026-01-02 03:04:05', data
     names = [p['name'] for p in data['playlists']]
     assert names == ['Public B', 'Public A'], names          # 新しい順 (id 降順)
