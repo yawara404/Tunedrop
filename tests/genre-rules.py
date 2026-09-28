@@ -220,4 +220,21 @@ with tempfile.TemporaryDirectory() as directory:
     finally:
         ai_analyzer.recommend_recipe = original_recommend
 
-print('PASS: ジャンル判定・Gemini保護・途中保存・おすすめ順。')
+    # --- ブックマーク登録時に音源解析 (librosa/CLAP) をキューへ積む ---
+    calls = []
+    original_reanalyze_audio_only = app.reanalyze_audio_only
+    app.reanalyze_audio_only = lambda vid, title, channel: calls.append(vid) or {}
+    previous_audio = app.audio_engine_name
+    app.audio_engine_name = lambda: 'librosa'
+    try:
+        app._queue_audio_measure('ccccccccccc', 'テスト曲 feat.初音ミク', 'Prod')
+        # ワーカーがキューを処理して reanalyze_audio_only を呼ぶまで待つ
+        deadline = time.time() + 3
+        while time.time() < deadline and 'ccccccccccc' not in calls:
+            time.sleep(0.05)
+        assert 'ccccccccccc' in calls, calls
+    finally:
+        app.reanalyze_audio_only = original_reanalyze_audio_only
+        app.audio_engine_name = previous_audio
+
+print('PASS: ジャンル判定・Gemini保護・途中保存・おすすめ順・音源解析キュー。')

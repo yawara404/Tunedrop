@@ -802,6 +802,45 @@ def reanalyze_audio_only(video_id, title, channel):
     return res
 
 
+# ブックマーク登録時の音源解析キュー (librosa/CLAP で実測BPM・雰囲気を取得する)。
+# AI推定は即時反映しつつ、バックグラウンドで音源を取得して正確なBPMへ置き換える。
+_AUDIO_QUEUE = []
+_AUDIO_QUEUE_LOCK = threading.Lock()
+_AUDIO_WORKER_ACTIVE = {'v': False}
+
+
+def _audio_measure_worker():
+    """キューを順に音源解析するバックグラウンドワーカー (1曲ずつ、負荷対策の待ちを挟む)。"""
+    import analysis_cache
+    while True:
+        with _AUDIO_QUEUE_LOCK:
+            if not _AUDIO_QUEUE:
+                _AUDIO_WORKER_ACTIVE['v'] = False
+                return
+            vid, title, channel = _AUDIO_QUEUE.pop(0)
+        try:
+            existing = _analysis_cache_entry(vid) or {}
+            if existing.get('bpm_source') in analysis_cache.MEASURED_SOURCES \
+                    and existing.get('bpm_algo') == analysis_cache.TEMPO_ALGO_VERSION:
+                continue   # 既に実測済みならスキップ
+            reanalyze_audio_only(vid, title, channel)
+        except Exception:
+            pass
+        if ANALYZE_THROTTLE_SECONDS > 0:
+            time.sleep(ANALYZE_THROTTLE_SECONDS)
+
+
+def _queue_audio_measure(video_id, title, channel):
+    """音源解析 (librosa/CLAP) をバックグラウンドでキューに入れる。"""
+    with _AUDIO_QUEUE_LOCK:
+        if any(v == video_id for v, _t, _c in _AUDIO_QUEUE):
+            return
+        _AUDIO_QUEUE.append((video_id, title, channel))
+        if not _AUDIO_WORKER_ACTIVE['v']:
+            _AUDIO_WORKER_ACTIVE['v'] = True
+            threading.Thread(target=_audio_measure_worker, daemon=True).start()
+
+
 
 
 def _db_bookmarks(include_cache=True):
@@ -911,6 +950,10 @@ def analysis_async(video_id):
         return jsonify({'status': 'queued', 'note': 'bookmark not found'}), 202
 
     ai_analyze_bookmark(video_id, bm.get("title"), bm.get("channel"), bm.get("category"))
+    # AI推定を即時反映しつつ、バックグラウンドで音源解析 (librosa/CLAP) を行い、
+    # 実測BPM・雰囲気で上書きする (正確なBPMを自動取得する)。
+    if audio_engine_name() not in ("none", "off", "0"):
+        _queue_audio_measure(video_id, bm.get("title"), bm.get("channel"))
     return jsonify({'status': 'done'}), 200
 
 
