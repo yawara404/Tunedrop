@@ -82,8 +82,8 @@
         window.initGoogleAuth = window.initGoogleAuth || function () { window.__gsiReadyQueued = true; };
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" crossorigin src="./assets/index-DCb0rar5.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BKN9dHrF.css">
+  <script type="module" crossorigin src="./assets/index-DeLezbtC.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-q1KXG4_6.css">
 </head>
 
 <body>
@@ -252,6 +252,7 @@
                         </div>
                     </div>
                 </div>
+                <div class="radar-map-hud" id="radar-map-hud" role="status">読み込み中…</div>
                 <div class="radar-map-container" id="radar-map-container">
                     <canvas id="radar-map-canvas" class="radar-map-canvas" tabindex="0" role="application"
                         aria-label="雰囲気楽曲マップ。矢印キーで移動、プラス・マイナスでズーム、0でリセット、Enterで選択中の曲を再生"></canvas>
@@ -261,12 +262,11 @@
                         <button type="button" onclick="fitRadarToFiltered()" title="表示中の曲にフィット" aria-label="表示中の曲にフィット">⤢</button>
                         <button type="button" onclick="resetRadarView()" title="リセット" aria-label="ズームと位置をリセット">⤾</button>
                     </div>
-                    <div class="radar-map-legend" id="radar-map-legend"></div>
-                    <div class="radar-map-hud" id="radar-map-hud">解析中…</div>
                     <div class="radar-map-tooltip" id="radar-map-tooltip"></div>
                     <div class="radar-selected-panel" id="radar-selected-panel" hidden></div>
                     <div class="radar-overlap-popup" id="radar-overlap-popup" hidden></div>
                 </div>
+                <div class="radar-map-legend" id="radar-map-legend" aria-label="ジャンルで絞り込み"></div>
                 <div class="vibe-track-strip" id="vibe-track-strip"></div>
             </section>
         </div>

@@ -100,7 +100,7 @@ check("mood の判定元と確信度を保存", out.get("mood_source") == "clap"
       and out.get("mood_confidence") == 0.82,
       (out.get("mood_source"), out.get("mood_confidence")))
 out2 = ac.audio_fields({"feature_vector": [0.9, 0, 0, 0, 0, 0, 0, 0]}, res7)
-check("既存 AI vector[0] を実測 tempo で差し替え", out2["feature_vector"][0] == 0.493,
+check("既存 AI vector を音源の全8次元で差し替え", out2["feature_vector"] == res7["feature_vector"],
       out2.get("feature_vector"))
 
 print("[8] tempo_algo / tempo_method / tempo_candidates は実測フィールドとして保護される")
@@ -147,3 +147,19 @@ if failures:
     print(f"FAILED: {failures}")
     sys.exit(1)
 print("ALL PROTECTION TESTS PASSED")
+
+# 再解析時に CLAP が使えなくても前回のスコアを残さない。
+cleared = ac.audio_fields({}, {"tempo": 120, "vibe_scores": None, "vibe_tags": [],
+                               "vibe_clap": None, "audio_feature_vector": [1, 2],
+                               "feature_vector": [0.6] * 8})
+assert cleared['vibe_scores'] is None and cleared['vibe_tags'] == []
+assert cleared['vibe_clap'] is None
+assert cleared['audio_feature_vector'] == [1, 2]
+legacy = ac.audio_fields({'feature_vector': [0.9] * 8}, {'tempo': 100})
+assert legacy['feature_vector'] == [0.5] + [0.9] * 7
+
+# 旧形式でも source / measured から実測を保護する。
+for old in ({'tempo': 130, 'tempo_source': 'audio'}, {'tempo': 130, 'measured': True}):
+    assert 'tempo' not in ac.protect_measured(old, {'tempo': 160, 'tempo_source': 'rules'})
+assert 'tempo' not in ac.protect_measured({'tempo_source': 'manual'}, {'tempo': 160, 'tempo_source': 'audio'})
+print('PASS: 旧形式の実測値・手動BPMも保護')

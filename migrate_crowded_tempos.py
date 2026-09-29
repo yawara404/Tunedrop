@@ -4,11 +4,10 @@
 
 - measured=True (音源実測済み) の曲は 100% 保護 (変更しません)
 - manual_bpm=True (管理画面での手動入力) の曲も 100% 保護 (変更しません)
-- 音源未実測の曲のみ、既知曲公式BPMまたは自然に分散した整数BPMへ更新
+- ルール推定の曲のみ、既知曲公式BPMまたは自然に分散した整数BPMへ更新
 """
 import json
 import os
-import shutil
 import sqlite3
 import sys
 import time
@@ -31,7 +30,8 @@ def main():
     # 1. バックアップの作成
     BACKUP_DIR.mkdir(exist_ok=True)
     backup_file = BACKUP_DIR / f"database.sqlite.before_tempo_fix_{int(time.time())}"
-    shutil.copy2(DB_PATH, backup_file)
+    with sqlite3.connect(DB_PATH) as source, sqlite3.connect(backup_file) as backup:
+        source.backup(backup)
     print(f"Backup created at: {backup_file}")
 
     conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -79,7 +79,7 @@ def main():
             before_tempos.append(round(float(orig_tempo), 1))
 
         # 実測済みの曲は保護
-        if d.get("measured") or d.get("tempo_source") in ("audio", "librosa", "clap", "essentia"):
+        if d.get("measured") or d.get("audio_engine") or d.get("tempo_source") in ("audio", "librosa", "clap", "essentia"):
             skipped_measured += 1
             if orig_tempo is not None:
                 after_tempos.append(round(float(orig_tempo), 1))
@@ -92,11 +92,17 @@ def main():
                 after_tempos.append(round(float(orig_tempo), 1))
             continue
 
+        # LLM/辞書値は分布だけを理由に変更しない。
+        if d.get("tempo_source") != "rules":
+            if orig_tempo is not None:
+                after_tempos.append(round(float(orig_tempo), 1))
+            continue
+
         # 未実測曲の情報を取得
         info = song_info.get(vid, {})
         title = info.get("title") or d.get("title") or ""
         channel = info.get("channel") or d.get("channel") or ""
-        category = info.get("category") or d.get("category") or "Other"
+        category = d.get("ai_category") or d.get("category") or info.get("category") or "Other"
 
         # 新しい推定ロジックでBPMを算出
         known = ai_analyzer.lookup_known_tempo(title, channel)
@@ -114,11 +120,11 @@ def main():
             d["feature_vector"][0] = round(max(0.0, min(1.0, new_tempo / 200.0)), 4)
 
         after_tempos.append(round(new_tempo, 1))
-        to_update.append((json.dumps(d, ensure_ascii=False), vid))
+        to_update.append((json.dumps(d, ensure_ascii=False), vid, r["data"]))
         updated_count += 1
 
     # DBへ一括書き込み
-    conn.executemany("UPDATE analysis_cache SET data = ? WHERE youtube_id = ?", to_update)
+    conn.executemany("UPDATE analysis_cache SET data = ? WHERE youtube_id = ? AND data = ?", to_update)
     conn.commit()
     conn.close()
 
@@ -135,8 +141,6 @@ def main():
     for bpm, count in Counter(after_tempos).most_common(10):
         print(f"  BPM {bpm:5.1f}: {count:3d} songs ({count/len(after_tempos)*100:.1f}%)")
 
-    max_after_count = Counter(after_tempos).most_common(1)[0][1]
-    print(f"\nResult: Highest peak reduced from {Counter(before_tempos).most_common(1)[0][1]} songs ({Counter(before_tempos).most_common(1)[0][1]/len(before_tempos)*100:.1f}%) to {max_after_count} songs ({max_after_count/len(after_tempos)*100:.1f}%)!")
     return 0
 
 

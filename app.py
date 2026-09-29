@@ -711,12 +711,9 @@ def _apply_audio_result(res, va, source="audio"):
                 "mood_source", "mood_confidence"):
         if va.get(key) is not None:
             res[key] = va[key]
-    if va.get("vibe_tags"):
-        res["vibe_tags"] = va["vibe_tags"]
-    if va.get("vibe_scores"):
-        res["vibe_scores"] = va["vibe_scores"]
-    if va.get("vibe_clap"):
-        res["vibe_clap"] = va["vibe_clap"]
+    for key in ("vibe_tags", "vibe_scores", "vibe_clap"):
+        if key in va:
+            res[key] = va[key]
     fv = va.get("feature_vector")
     if isinstance(fv, list) and len(fv) == len(FEATURE_KEYS):
         # 音源から算出した 8次元ベクトル (UMAP用) をそのまま採用
@@ -1000,9 +997,11 @@ def _pca2d(X):
     X = X - X.mean(axis=0)
     try:
         _, _, vt = np.linalg.svd(X, full_matrices=False)
-        return X @ vt[:2].T
+        result = X @ vt[:2].T
+        return np.pad(result, ((0, 0), (0, max(0, 2 - result.shape[1]))))
     except Exception:
-        return X[:, :2]
+        result = X[:, :2]
+        return np.pad(result, ((0, 0), (0, max(0, 2 - result.shape[1]))))
 
 
 # UMAP (numba) はスレッドセーフではない。embed() を同時に走らせると
@@ -1104,7 +1103,8 @@ def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
         method = "pca"
         emb = _pca2d(Z)
 
-    coords = _normalize(emb)
+    from radar_layout import spread_map_points
+    coords = spread_map_points(_normalize(emb))
     if len(coords) != n:   # 最終保険
         coords = [[0.5, 0.5] for _ in range(n)]
         method = "none"
@@ -1180,6 +1180,7 @@ def radar_map():
     payload = {
         "success": True,
         "method": method,
+        "layout_version": 3,
         "count": len(points),
         "pending": pending,
         "points": points,

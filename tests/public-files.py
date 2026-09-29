@@ -61,6 +61,8 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
             try:
                 with urllib.request.urlopen(base+path) as response:
                     status = response.status
+                    if path in ('/tunedrop/', '/tunedrop/index.html'):
+                        assert response.headers.get('Cache-Control') == 'no-cache, must-revalidate', response.headers
             except urllib.error.HTTPError as error:
                 status = error.code
             assert status == expected, (command[0], path, status, expected)

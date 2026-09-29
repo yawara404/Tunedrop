@@ -1235,7 +1235,7 @@ def analyze_wav(wav_path, reference_tempo=None, use_clap=None):
     mood_probs = (scores or {}).get("mood") or None
     fallback_mood = mood_from_features(feats)
     mood, mood_source, mood_confidence = resolve_mood(mood_probs, fallback_mood)
-    if mood_probs:
+    if scores:
         # インスト判定は CLAP の方が信頼できるため上書きする。
         # ただし CLAP が僅差で決めた場合 (確信度が低い) は librosa の推定を残す。
         clap_instr = scores.get("instrumentalness")

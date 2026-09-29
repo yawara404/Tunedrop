@@ -244,6 +244,21 @@ else:
     sys.modules.pop("laion_clap", None)
 os.environ.pop("TUNEDROP_CLAP_RETRY", None)
 
+# moodだけ失敗してもインスト判定の成功結果は採用する。
+from unittest.mock import patch
+import types
+fake_librosa = types.ModuleType("librosa")
+fake_librosa.load = lambda *args, **kwargs: (np.ones(100), 22050)
+with patch.dict(sys.modules, {"librosa": fake_librosa}), \
+     patch.object(va, "has_librosa", return_value=True), \
+     patch.object(va, "clap_scores", return_value={"instrumentalness": 0.95}), \
+     patch.object(va, "analyze_acoustics", return_value={"tempo": 120}), \
+     patch.object(va, "chorus_segments", return_value=[]):
+    partial = va.analyze_wav("unused.wav", use_clap=True)
+    check("mood失敗時もインスト判定を反映", partial["instrumentalness"] == 0.95)
+    check("部分成功時もベクトルに反映", partial["feature_vector"][5] == 0.95)
+    check("moodは特徴量へフォールバック", partial["mood_source"] == "features")
+
 print("-" * 60)
 if failures:
     print(f"FAILED: {failures}")

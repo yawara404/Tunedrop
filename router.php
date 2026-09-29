@@ -72,7 +72,7 @@ header('Content-Type: ' . tunedrop_asset_mime($file));
 // .htaccess と同じキャッシュ方針 (assets/ はファイル名が内容に紐づくので長く持たせる)。
 if (str_starts_with($path, '/assets/')) {
     header('Cache-Control: public, max-age=31536000, immutable');
-} elseif (str_ends_with($path, '.html')) {
+} elseif ($path === '/' || str_ends_with($path, '.html')) {
     header('Cache-Control: no-cache, must-revalidate');
 } elseif ($path === '/robots.txt' || $path === '/sitemap.xml') {
     header('Cache-Control: public, max-age=3600');   // クローラーが定期取得する

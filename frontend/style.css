@@ -1379,7 +1379,7 @@ body.player-in-sidebar .youtube-popup.is-active {
 .radar-map-container {
     position: relative;
     flex: 1;
-    min-height: 360px;
+    min-height: clamp(220px, 36vh, 360px);
     background: #050508;
     border: 1px solid #333;
     border-radius: 10px;
@@ -4800,3 +4800,20 @@ body.player-in-sidebar .youtube-popup.is-active {
     }
 }
 
+
+/* ステータスと凡例は描画領域の外へ置き、端の楽曲を隠さない。 */
+.radar-content-area > .radar-map-hud,
+.radar-content-area > .radar-map-legend {
+    position: static;
+    flex: 0 0 auto;
+    max-width: 100%;
+    margin: 0;
+    background: transparent;
+    backdrop-filter: none;
+}
+.radar-content-area > .radar-map-hud {
+    padding: 0 2px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+.radar-content-area > .radar-map-legend { padding: 0; }

@@ -2144,19 +2144,41 @@ export function applyRadarOrder(order, taste) {
     });
 }
 
+// 旧サーバーの座標も、全体が狭い場合だけ拡大。局所的な密集や不規則な間隔は残す。
+export function spreadLegacyRadarMap(data) {
+    if (Number(data.layout_version) >= 3) return data;
+    const points = (data.points || []).map(p => ({ ...p, features: { ...p.features } }));
+    const valid = points.filter(p => Number.isFinite(p.features.x) && Number.isFinite(p.features.y));
+    if (valid.length >= 3) {
+        const lo = ['x', 'y'].map(key => Math.min(...valid.map(p => p.features[key])));
+        const hi = ['x', 'y'].map(key => Math.max(...valid.map(p => p.features[key])));
+        const span = Math.max(hi[0] - lo[0], hi[1] - lo[1]);
+        if (span > 1e-12 && span < 0.65) {
+            const scale = 0.8 / span;
+            valid.forEach(p => ['x', 'y'].forEach((key, axis) => {
+                p.features[key] = 0.5 + (p.features[key] - (lo[axis] + hi[axis]) / 2) * scale;
+            }));
+        }
+    }
+    return { ...data, points, layout_version: 3 };
+}
+
+let radarLoadGeneration = 0;
+
 export async function loadRadarData() {
+    const generation = ++radarLoadGeneration;
     const hud = document.getElementById('radar-map-hud');
     const statusBtn = document.getElementById('btn-vibe-radar');
-    if (statusBtn) statusBtn.innerText = '解析中...';
-    if (hud) hud.textContent = 'AIで楽曲特徴量を推定中…';
+    if (statusBtn) statusBtn.innerText = '読み込み中...';
+    if (hud) hud.textContent = '楽曲マップを読み込み中…';
     try {
         // マップとおすすめを並列に取得する (おすすめは12時間キャッシュで即返る)。
         const mapPromise = tunedropFetch('api.php?action=radar_map').then(r => r.json());
         const recPromise = fetchRadarRecommend();
-        const data = await mapPromise;
+        const data = spreadLegacyRadarMap(await mapPromise);
+        if (generation !== radarLoadGeneration) return;
         if (!data.success && data.error) {
             if (hud) hud.textContent = data.error;
-            drawRadarMap([]);
             return;
         }
         vibeMapData = (data.points || []).map(p => ({
@@ -2169,9 +2191,7 @@ export async function loadRadarData() {
             added_at: p.added_at,       // 新着順 (ブックマークへ追加した日時)
             features: p.features || {},
         }));
-        // おすすめ順を適用 (並列取得済みのため、ここでは待たずに反映できる)
-        const rec = await recPromise;
-        if (rec) applyRadarOrder(rec.order, rec.taste);
+        // おすすめを待たず、取得できた座標を先に表示する。
         const eng = data.points && data.points.length && data.points[0].features
             ? data.points[0].features.engine : null;
         const engLabel = eng === 'gemini' ? 'Gemini AI'
@@ -2191,12 +2211,21 @@ export async function loadRadarData() {
         radarOptionsSig = radarDataSig();
         updateRadarAnalyzeButton();
         applyRadarFilter(false);
+        void recPromise.then(rec => {
+            if (!rec || generation !== radarLoadGeneration) return;
+            applyRadarOrder(rec.order, rec.taste);
+            if (hud && hud.textContent.startsWith(`${data.count} 曲`)) {
+                hud.textContent = hud.textContent.split(' · おすすめ:')[0]
+                    + (rec.taste ? ` · おすすめ: ${rec.taste}` : '');
+            }
+            applyRadarFilter(false);
+        }).catch(() => {});
     } catch (err) {
+        if (generation !== radarLoadGeneration) return;
         console.error('Radar map error:', err);
-        if (hud) hud.textContent = 'Flaskサーバー (app.py) に接続できません。';
-        drawRadarMap([]);
+        if (hud) hud.textContent = 'マップを読み込めませんでした。時間をおいて再度開いてください。';
     } finally {
-        updateRadarAnalyzeButton();
+        if (generation === radarLoadGeneration) updateRadarAnalyzeButton();
     }
 }
 
@@ -2744,7 +2773,11 @@ export async function pollAnalyzeStatus(btn) {
         }
         await new Promise(r => setTimeout(r, 2000));
     }
-    if (state && hud) {
+    if (hud && (!state || state.running || state.interrupted)) {
+        hud.textContent = !state ? '解析状況を取得できませんでした。時間をおいて確認してください。'
+            : state.running ? '解析は継続中です。時間をおいて進捗を確認してください。'
+            : '解析が中断されています。完了した曲の結果は保存されています。';
+    } else if (state && hud) {
         const results = state.results || [];
         const measured = results.filter(r => r.measured).length;
         hud.textContent = `再解析完了: ${results.length} 曲中 ${measured} 曲で実測BPMを取得`

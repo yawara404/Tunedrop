@@ -87,9 +87,28 @@ finally:
     ai_analyzer._call_llm_bpm = original_bpm
     ai_analyzer._call_llm_genre = original_genre
 
+# 単一値だけでなく狭い帯域への集中・キーワード補正後の端点集中を検出する。
+from statistics import pstdev
+large = [ai_analyzer.estimate_tempo_rule_based(f"未知_{i}", "Producer", "Vocaloid") for i in range(2000)]
+check("標準偏差が18 BPM以上", pstdev(large) > 18, pstdev(large))
+for keyword in ("ballad", "fast", "dance"):
+    values = [ai_analyzer.estimate_tempo_rule_based(f"未知_{i} {keyword}", "Producer", "Lo-Fi") for i in range(2000)]
+    check(f"{keyword} の端点集中を防ぐ", Counter(values).most_common(1)[0][1] / len(values) < 0.1)
+from unittest.mock import patch
+with patch.object(ai_analyzer, "AI_ENGINE", "ollama"), \
+     patch.object(ai_analyzer, "_call_ollama", return_value={}), \
+     patch.object(ai_analyzer, "_call_llm_genre", return_value={"genre": "Lo-Fi"}):
+    with patch.object(ai_analyzer, "_call_llm_bpm", return_value={"tempo": 0}):
+        result = ai_analyzer.analyze("未知曲", "Producer", "Vocaloid")
+        expected = ai_analyzer.estimate_tempo_rule_based("未知曲", "Producer", "Lo-Fi")
+        check("曲別ジャンルでBPMを推定", result["tempo"] == expected)
+        check("マップ用BPMも同期", result["feature_vector"][0] == round(expected / 200, 4))
+    with patch.object(ai_analyzer, "_call_llm_bpm", return_value={"tempo": 165.8}):
+        check("LLMの小数BPMを保持", ai_analyzer.analyze("未知曲", "Producer", "Other")["tempo"] == 165.8)
+
 print("-" * 60)
 if failures:
     print(f"FAILED: {len(failures)} checks failed")
     sys.exit(1)
 else:
-    print("PASS: BPM密集問題が完全に解消され、自然な分散と正確性が検証されました。")
+    print("PASS: 推定BPMの分布・再現性・既知値の保持を検証しました。")

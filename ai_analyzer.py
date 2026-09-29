@@ -23,6 +23,7 @@ import json
 import math
 import os
 import random
+from statistics import NormalDist
 import re
 import time
 import unicodedata
@@ -282,11 +283,18 @@ def estimate_tempo_rule_based(title, channel, category, rnd=None):
     elif any(w in text for w in ("dance", "club", "edm", "house", "techno", "4つ打ち")):
         shift += 6.0
 
-    # 3つの一様乱数を足して中央が自然に盛り上がる三角〜ガウス的分布 (-1.0 〜 +1.0)
-    jitter = (rnd.random() + rnd.random() + rnd.random() - 1.5) / 1.5
-    raw_bpm = center + (jitter * spread) + shift
-    clamped = max(min_b, min(max_b, raw_bpm))
-    return float(round(clamped))
+    # spread は標準偏差として扱う。3乱数の平均は標準偏差を約1/3に縮め、
+    # ジャンル中心へ集中させていた。切断正規分布なら端点への張り付きもない。
+    # これはメタデータからの推定であり、音源実測の精度を保証する値ではない。
+    if shift < 0:
+        min_b, max_b = 55.0, 110.0
+    elif shift >= 24:
+        min_b, max_b = 140.0, 220.0
+    shifted_center = max(min_b + spread, min(max_b - spread, center + shift))
+    distribution = NormalDist(shifted_center, spread)
+    lo, hi = distribution.cdf(min_b), distribution.cdf(max_b)
+    quantile = lo + (hi - lo) * rnd.random()
+    return float(round(distribution.inv_cdf(max(1e-12, min(1 - 1e-12, quantile)))))
 
 
 
@@ -635,13 +643,13 @@ def _call_llm_genre(title, channel, engine):
 # (実測: 未知のボカロ曲まで 140 と回答)。BPM だけを聞き、未知なら 0 を返させる。
 _BPM_PROMPT = (
     "You are a musicologist who knows official BPM data. Output the song's official "
-    "BPM (beats per minute) as an integer.\n"
+    "BPM (beats per minute), preserving known decimal values.\n"
     "Calibrate with these real BPMs across genres: Lemon=87, One Last Kiss=112, "
     "夜に駆ける=130, 紅蓮華=135, Tell Your World=140, 千本桜=154, メルト=170, 廻廻奇譚=185.\n"
     "Songs have widely varying BPMs (85〜200); there is no single default. "
     "Do NOT guess a generic default like 140, 143, or 145 for unknown songs. "
     "Output the exact BPM only if you actually know this specific song with certainty, otherwise output 0.\n"
-    'Respond with JSON only: {"tempo": <integer or 0>}\n'
+    'Respond with JSON only: {"tempo": <number or 0>}\n'
 )
 
 
@@ -780,7 +788,7 @@ def analyze(title, channel, category):
         tempo_source = "known"
     elif engine in ("gemini", "ollama"):
         try:
-            bpm = int(float((_call_llm_bpm(title, channel, engine) or {}).get("tempo") or 0))
+            bpm = float((_call_llm_bpm(title, channel, engine) or {}).get("tempo") or 0)
             if 40 <= bpm <= 220:
                 cleaned["tempo"] = _sanitize_value(bpm, "tempo")
                 tempo_source = engine
@@ -835,6 +843,10 @@ def analyze(title, channel, category):
         result["vocal_type"] = vocal_type
     if ai_category:
         result["ai_category"] = ai_category
+    if tempo_source == "rules":
+        # プレイリスト分類でなく、最終的な曲別ジャンルで推定する。
+        result["tempo"] = estimate_tempo_rule_based(title, channel, ai_category or category)
+        result["feature_vector"] = _feature_vector(result)
     if warn:
         result["warn"] = warn
     return result

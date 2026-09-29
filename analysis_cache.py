@@ -25,7 +25,8 @@ MEASURED_SOURCES = ("audio", "librosa", "clap", "essentia")
 # v5: 打楽器成分と楽曲全体の独立テンポ候補を統合
 # v6: energy の録音音量依存を低減、調性判定をフレーム単位へ
 # v7: AI 推定 BPM (参照値) をテンポ候補に加え、非オクターブ誤りも補正
-TEMPO_ALGO_VERSION = 7
+# v8: 音源の雰囲気ベクトルを全次元更新・CLAP再解析時の古いスコアを消去
+TEMPO_ALGO_VERSION = 8
 # AI 推定・辞書推定由来の tempo_source / engine の値
 AI_TEMPO_SOURCES = ("gemini", "rules", "ollama", "known")
 # 音源解析済み (audio_engine あり) の行で AI 上書きから守る実測フィールド
@@ -100,9 +101,10 @@ def protect_measured(existing, fields):
     """
     if not isinstance(fields, dict):
         return fields
-    if isinstance(existing, dict) and existing.get("manual_bpm"):
+    if isinstance(existing, dict) and (existing.get("manual_bpm") or existing.get("tempo_source") == "manual"):
         return {k: v for k, v in fields.items() if k not in MANUAL_BPM_KEYS}
-    if not isinstance(existing, dict) or not existing.get("audio_engine"):
+    if not isinstance(existing, dict) or not (existing.get("audio_engine")
+            or existing.get("measured") or existing.get("tempo_source") in MEASURED_SOURCES):
         return fields
     src = fields.get("tempo_source") or fields.get("engine")
     if src not in AI_TEMPO_SOURCES:
@@ -148,7 +150,7 @@ def audio_fields(existing, result, tempo_source="audio"):
     """音源解析結果 (librosa / CLAP) からキャッシュ反映フィールドを作る。
 
     - tempo があれば実測値として上書き (tempo_source を付与)
-    - AI 側の 8次元 feature_vector は次元数を変えず、tempo 要素のみ更新
+    - 音源の8次元 feature_vector を優先し、旧形式のみ tempo 要素を更新
     - 音響特徴ベクトルは audio_feature_vector として保持
     """
     out = {
@@ -156,7 +158,7 @@ def audio_fields(existing, result, tempo_source="audio"):
         "chorus": result.get("chorus", []),
         "beats": result.get("beats", []),
         "chords": result.get("chords", []),
-        "audio_feature_vector": result.get("feature_vector", []),
+        "audio_feature_vector": result.get("audio_feature_vector") or result.get("feature_vector", []),
         "audio_engine": result.get("engine"),
         "measured": True,
     }
@@ -165,7 +167,7 @@ def audio_fields(existing, result, tempo_source="audio"):
                 "mood_source", "mood_confidence", "vibe_scores", "vibe_tags",
                 "tempo_confidence", "tempo_raw", "tempo_raw_full", "tempo_method",
                 "tempo_candidates", "vibe_clap"):
-        if result.get(key) is not None:
+        if key in result:
             out[key] = result[key]
     tempo = num(result.get("tempo"))
     if tempo > 0:
@@ -175,7 +177,10 @@ def audio_fields(existing, result, tempo_source="audio"):
         out["tempo_algo"] = int(num(result.get("tempo_algo"), TEMPO_ALGO_VERSION)
                                 or TEMPO_ALGO_VERSION)
         fv = existing.get("feature_vector")
-        if isinstance(fv, list) and fv:
+        audio_fv = result.get("feature_vector")
+        if isinstance(audio_fv, list) and len(audio_fv) == 8:
+            out["feature_vector"] = list(audio_fv)
+        elif isinstance(fv, list) and fv:
             # feature_vector[0] は tempo 正規化値 (分母 200, 0..1 clamp)
             vec = list(fv)
             vec[0] = round(max(0.0, min(1.0, tempo / 200.0)), 4)

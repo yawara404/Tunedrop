@@ -31,6 +31,10 @@ with tempfile.TemporaryDirectory() as directory:
     import app
 
     app.init_db_if_needed()
+    import numpy as np
+    projected = app._pca2d(np.array([[0.1], [0.2], [0.8]]))
+    assert projected.shape == (3, 2) and np.isfinite(projected).all()
+
 
     # analysis_cache は app.py ではなく api.php / setup.sql 側が作るため、ここで用意する
     with sqlite3.connect(db_path) as db:
@@ -161,6 +165,12 @@ with tempfile.TemporaryDirectory() as directory:
         app.audio_engine_name = previous_audio_engine
         app.CPU_THREADS = previous_threads
         sys.modules.pop('vibe_analyzer', None)
+
+    stale = {'vibe_tags': ['old'], 'vibe_scores': {'happy': 0.9}, 'vibe_clap': {'clips': 3}}
+    assert app._apply_audio_result(stale, {'tempo': 120, 'vibe_tags': [],
+                                           'vibe_scores': None, 'vibe_clap': None})
+    assert stale['vibe_tags'] == [] and stale['vibe_scores'] is None
+    assert stale['vibe_clap'] is None
 
     # --- Gemini 解析済みの曲は「全曲解析」の対象外 ---
     client = app.app.test_client()
