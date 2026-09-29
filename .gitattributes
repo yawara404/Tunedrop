@@ -1,0 +1,38 @@
+# 改行コードをOSに依存させない (Windows で clone しても .sh/.py/.php がそのまま動く)
+* text=auto
+
+# ソースと設定は LF 固定
+*.sh   text eol=lf
+*.py   text eol=lf
+*.php  text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.sql  text eol=lf
+*.xml  text eol=lf
+*.txt  text eol=lf
+*.svg  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Windows 用スクリプトは CRLF (cmd.exe が LF の .cmd で誤動作することがあるため)
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# バイナリ (改行変換しない)
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.otf    binary
+*.pt     binary
+*.sqlite binary

@@ -884,6 +884,7 @@ def _db_bookmarks(include_cache=True):
             "audio_engine": None,
             "mood": None,
             "energy": None,
+            "valence": None,
         }
         ai_category = None
         vocal_type = None
@@ -903,6 +904,7 @@ def _db_bookmarks(include_cache=True):
                 item["audio_engine"] = d.get("audio_engine")
                 item["mood"] = d.get("mood")
                 item["energy"] = d.get("energy")
+                item["valence"] = d.get("valence")
                 ai_category = d.get("ai_category")
                 vocal_type = d.get("vocal_type")
         # 表示カテゴリの優先順位: 明示された合成音声/タイアップ情報 → LLMの曲別判定。
@@ -1159,7 +1161,8 @@ def radar_map():
             # 新着順の並べ替えに使う追加日時 (同一曲が複数リストにある場合は最新の1件)
             "added_at": it.get("added_at"),
             # radar_map の応答は描画・検索に使う field のみに絞る。
-            # chorus_start / beats / energy / audio_engine はフロントが参照しないため送らない。
+            # chorus_start / beats / audio_engine はフロントが参照しないため送らない。
+            # energy / valence は4象限ガイド（エネルギー×明るさ）の向き推定に使う。
             "features": {
                 "tempo": it["tempo"],
                 "mood": it["mood"],
@@ -1167,6 +1170,8 @@ def radar_map():
                 "bpm_source": it.get("bpm_source"),
                 "bpm_method": it.get("bpm_method"),
                 "vibe_tags": it.get("vibe_tags") or [],
+                "energy": it["energy"],
+                "valence": it.get("valence"),
                 "x": round(coords_for_item[0], 4) if coords_for_item else None,
                 "y": round(coords_for_item[1], 4) if coords_for_item else None,
             },

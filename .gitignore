@@ -29,6 +29,10 @@ backups/
 # Node / Vite (ビルド成果物の index.html と assets/ はコミットする)
 /node_modules/
 .vite/
+# オフライン導入用の wheel 置き場 (pip download の出力。コミットしない)
+/wheelhouse/
+# pip が壊れているとき用の bootstrap スクリプト (ダウンロードして置く。コミットしない)
+/get-pip.py
 # Admin panel: local-only, not published on GitHub
 /admin/
 /tests/admin-page.py

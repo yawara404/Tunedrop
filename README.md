@@ -39,7 +39,7 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 ├─ フロントエンド: Vanilla JS (Vite でビルドした ES Modules) + Canvas マップ描画
 ├─ データ管理API: PHP + SQLite (PDO, WAL)
 └─ 認証・解析サーバー: Python (Flask + Waitress) + 楽曲解析エンジン
-配信: PHPビルトインサーバー (./start.sh :8888) + Cloudflare Tunnel。開発は Vite開発サーバー (npm run dev :5173、APIはstart.shへプロキシ)
+配信: PHPビルトインサーバー (./start.sh / Windows は start.cmd・start.py :8888) + Cloudflare Tunnel。開発は Vite開発サーバー (npm run dev :5173、APIはstart.pyへプロキシ)。Windows 本サーバーへの移行は docs/WINDOWS_SETUP.md を参照
 ビルド: Vite (ソースは frontend/、成果物はプロジェクト直下の index.html + assets/)
 ```
 
@@ -48,7 +48,7 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 - フレームワークなしのVanilla JavaScript。ソースは `frontend/main.js`（エントリ）+ `frontend/config.js` + `frontend/app.js` + `frontend/style.css`
   （旧 `api-client.js` / `manager-lists.js` / `text-marquee.js` は `app.js` に統合済み、vendored Vueは削除しVue依存なし）
 - Vite でビルドし、成果物はプロジェクト直下の `index.html` と `assets/`（内容ハッシュ付きファイル名）。
-  テンプレートは `frontend/index.html`。`./start.sh` と `./sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
+  テンプレートは `frontend/index.html`。`start.py`（`./start.sh` / `start.cmd`）と `./sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
 - `app.js` のトップレベル関数は `main.js` の `Object.assign(window, app)` で window に公開し、
   マークアップの `onclick="..."` と外部スクリプト（YouTube IFrame API / Google Identity Services）のコールバックから呼べる
 - API接続先の自動検出（同一originの `api.php` → `fallbackApiUrl` のhealthプローブ）とJWTの自動付与
