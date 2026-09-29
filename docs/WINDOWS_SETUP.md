@@ -93,15 +93,70 @@ AI推定／ルールベースで動作します。
 - CLAP の重み（数百MB〜1.8GB）は初回実行時にダウンロードされます。
   `TUNEDROP_VIBE_ENGINE=librosa` にすると CLAP を使わず軽く動きます。
 
-### PHP の拡張（`php.ini`）
+### PHP の設定（`php.ini`）
 
-`php -m` で以下が有効か確認してください。有効化は `php.ini` の
-`;extension=...` のコメントを外します。
+**ZIP版の PHP には `php.ini` が同梱されていません**（`php.ini-development` のみ）。
+まず `php --ini` を実行し、「Loaded Configuration File: (none)」なら作成します。
+
+```powershell
+$phpDir = Split-Path (Get-Command php).Source
+Copy-Item "$phpDir\php.ini-development" "$phpDir\php.ini"
+php --ini
+```
+
+次に必要な拡張を有効化します（`php.ini` の `;extension=...` のコメントを外す）。
+`pdo_sqlite` / `sqlite3` は**必須**、残りは推奨です:
 
 - `pdo_sqlite` / `sqlite3` … SQLite データベース（必須）
 - `openssl` / `mbstring` / `curl` / `fileinfo` … 文字列・通信・OGP（推奨）
 
-`php.ini` の場所は `php --ini` で確認できます。
+`extension_dir` もコメント解除して `ext` を指すようにします:
+
+```ini
+extension_dir = "ext"
+extension=pdo_sqlite
+extension=sqlite3
+extension=openssl
+extension=mbstring
+extension=curl
+extension=fileinfo
+```
+
+まとめて設定する PowerShell（既存のコメントを外し、無い行は追加します）:
+
+```powershell
+$phpDir = Split-Path (Get-Command php).Source
+$ini = Join-Path $phpDir 'php.ini'
+if (-not (Test-Path $ini)) {
+    if (Test-Path (Join-Path $phpDir 'php.ini-development')) {
+        Copy-Item (Join-Path $phpDir 'php.ini-development') $ini
+    } else {
+        'extension_dir = "ext"' | Set-Content $ini -Encoding ASCII
+    }
+}
+$lines = Get-Content $ini
+if ($lines -match '^\s*;?\s*extension_dir\s*=') {
+    $lines = $lines -replace '^\s*;\s*extension_dir\s*=\s*"ext"', 'extension_dir = "ext"'
+} else {
+    $lines = @('extension_dir = "ext"') + $lines
+}
+foreach ($e in 'pdo_sqlite', 'sqlite3', 'openssl', 'mbstring', 'curl', 'fileinfo') {
+    if ($lines -match "^\s*extension\s*=\s*$e\s*$") { continue }
+    if ($lines -match "^\s*;\s*extension\s*=\s*$e\s*$") {
+        $lines = $lines -replace "^\s*;\s*extension\s*=\s*$e\s*$", "extension=$e"
+    } else {
+        $lines += "extension=$e"
+    }
+}
+$lines | Set-Content $ini -Encoding ASCII
+
+php --ini
+php -m | Select-String 'PDO|sqlite|mbstring|openssl|curl|fileinfo'
+```
+
+> `php --ini` が `C:\php\php.ini` を指し、`php -m` に `pdo_sqlite` / `sqlite3` が出ればOKです。
+> `php.ini` を別の場所に置いた場合は、環境変数 `PHPRC` にそのフォルダを指定します。
+> 拡張を有効化しないと API が「could not find driver」で失敗します（SQLite接続不可）。
 
 ---
 
