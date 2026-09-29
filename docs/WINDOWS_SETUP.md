@@ -46,6 +46,48 @@ Windows / macOS / Linux 共通の `start.py` にまとめてあり、Windows で
 > 「Add python.exe to PATH」と（Server の場合）「Install launcher for all users」にチェックします。
 > インストール後は **新しいターミナルを開いて** `python --version` / `py --version` を確認してください。
 
+### PHP のインストール
+
+winget を使う場合:
+
+```powershell
+winget install --id PHP.PHP.8.3 -e
+php --version
+```
+
+winget が無い（一部の Windows Server など）場合は ZIP 版を使います:
+
+1. https://windows.php.net/download/ から「VS16 x64 Thread Safe」の ZIP を取得
+2. `C:\php` に展開
+3. `C:\php` をシステムの PATH に追加（設定 → システム → 詳細情報 → 環境変数）
+4. `C:\php\php.ini-development` を `C:\php\php.ini` にコピーして編集（下の「PHP の拡張」を参照）
+5. 新しいターミナルで `php --version` / `php -m`
+
+> 配信は PHP ビルトインサーバー（`start.py` が起動）を使うため、**Apache / IIS は不要**です。
+
+### 音源解析ツール（任意・Radar 用）
+
+Radar の「実測BPM・雰囲気・mood」を使う場合だけ必要です。未導入でもマップは
+AI推定／ルールベースで動作します。
+
+| ツール | インストール | 確認 |
+|---|---|---|
+| ffmpeg | `winget install --id Gyan.FFmpeg -e`（または `choco install ffmpeg`） | `ffmpeg -version` |
+| yt-dlp | `winget install --id yt-dlp.yt-dlp -e` または `python -m pip install yt-dlp` | `yt-dlp --version` |
+| librosa | `.\.venv\Scripts\python.exe -m pip install librosa soundfile` | `python -c "import librosa"` |
+
+- `ffmpeg` / `yt-dlp` は **PATH に通して**ください（アプリは `shutil.which` で探します）。
+- 高精度な mood 判定（CLAP）を使う場合は追加で（重い・任意）:
+
+  ```powershell
+  .\.venv\Scripts\python.exe -m pip install torch torchvision
+  .\.venv\Scripts\python.exe -m pip install --no-deps laion-clap
+  .\.venv\Scripts\python.exe -m pip install torchlibrosa transformers ftfy regex pyyaml wcwidth progressbar2 webdataset wget h5py pandas
+  ```
+
+- CLAP の重み（数百MB〜1.8GB）は初回実行時にダウンロードされます。
+  `TUNEDROP_VIBE_ENGINE=librosa` にすると CLAP を使わず軽く動きます。
+
 ### PHP の拡張（`php.ini`）
 
 `php -m` で以下が有効か確認してください。有効化は `php.ini` の
@@ -172,8 +214,26 @@ setx PHP_BIN 'C:\php\php.exe'
 | `.web_port` / `.auth_port` | 使用中ポートの記録 | 起動時 |
 | `analysis_batch_state.json` / `analysis_recommend.json` | 解析進捗・おすすめキャッシュ | 解析実行時 |
 
-> **注意**: 管理者ページ（`admin/`）と詳細マニュアル（`README.local.md`）は Git 管理外です。
-> clone には含まれないため、必要な場合は別途コピーしてください。
+### 手動でコピーするもの（Git 管理外）
+
+既存環境のデータを Windows サーバーへ引き継ぐ場合、次のファイルは clone に含まれないため
+**手でコピー**します（新規構築なら不要。初回起動で自動生成されます）。
+
+| ファイル / フォルダ | 内容 | 補足 |
+|---|---|---|
+| `database.sqlite` | ユーザー・プレイリスト・ブックマーク・解析キャッシュ | 引き継ぐなら必須。**サーバー停止中にコピー**（`-wal` / `-shm` があれば一緒に） |
+| `.env` | API キー・設定 | 引き継ぐと再設定が不要 |
+| `.jwt_secret` | JWT 署名鍵 | コピーすると既存のログインセッションが維持される |
+| `admin/` | 管理者ページ | 使う場合のみ（`admin.sh` / `admin.php` / `admin.js` / `admin.css`） |
+| `.admin_token` | 管理者トークン | `admin/` とセットでコピー |
+| `README.local.md` | 詳細マニュアル | 参照用 |
+| `analysis_batch_state.json` | 全曲解析の進捗 | 途中再開したいとき |
+| `analysis_recommend.json` | おすすめキャッシュ | コピーしなくても再計算される |
+| `wheelhouse/` | オフライン用の pip wheel | オフライン導入する場合のみ |
+| `get-pip.py` | pip 復旧用スクリプト | 置いてある場合のみ |
+
+コピー不要（再生成される）: `.venv/`（マシン固有）、`node_modules/`、`.web_port`、`.auth_port`、`__pycache__/`。
+解析キャッシュは `database.sqlite` 内のテーブルなので、DB をコピーすれば一緒に移ります。
 
 ---
 
