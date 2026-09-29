@@ -82,8 +82,8 @@
         window.initGoogleAuth = window.initGoogleAuth || function () { window.__gsiReadyQueued = true; };
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script type="module" crossorigin src="./assets/index-auGt52WQ.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DaOAM040.css">
+  <script type="module" crossorigin src="./assets/index-CjuiouAV.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-73_rGsZd.css">
 </head>
 
 <body>
@@ -210,10 +210,10 @@
                         <button class="ctrl-chip radar-filters-toggle" id="btn-radar-filters-toggle" type="button"
                             aria-expanded="false" aria-haspopup="dialog" aria-controls="radar-subcontrols" onclick="toggleRadarFilters()"
                             title="雰囲気・BPM・並び順の絞り込みを開く">絞り込み</button>
-                        <button class="ctrl-chip" id="btn-radar-zoom-in" title="ズームイン" aria-label="ズームイン">＋</button>
-                        <button class="ctrl-chip" id="btn-radar-zoom-out" title="ズームアウト" aria-label="ズームアウト">－</button>
-                        <button class="ctrl-chip" id="btn-radar-zoom-fit" title="表示中の曲が収まるよう調整" aria-label="表示中の曲にフィット">⤢</button>
-                        <button class="ctrl-chip" id="btn-radar-zoom-reset" title="リセット" aria-label="ズームと位置をリセット">⤾</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-in" title="ズームイン（:）" aria-label="ズームイン（ショートカット: コロン）">＋</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-out" title="ズームアウト（;）" aria-label="ズームアウト（ショートカット: セミコロン）">－</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-fit" title="表示中の曲を全体表示（F）" aria-label="表示中の曲にフィット（ショートカット: F）">⤢</button>
+                        <button class="ctrl-chip" id="btn-radar-zoom-reset" title="ズームと位置をリセット（0）" aria-label="ズームと位置をリセット（ショートカット: 0）">⤾</button>
                     </div>
                     <!-- 絞り込み: PCはツールバー内に横並び、モバイルはボトムシートのモーダル
                          (class を切り替えるだけで両方に対応できるよう、ラッパーは display: contents) -->
@@ -255,12 +255,16 @@
                 <div class="radar-map-hud" id="radar-map-hud" role="status">読み込み中…</div>
                 <div class="radar-map-container" id="radar-map-container">
                     <canvas id="radar-map-canvas" class="radar-map-canvas" tabindex="0" role="application"
-                        aria-label="雰囲気楽曲マップ。矢印キーで移動、プラス・マイナスでズーム、0でリセット、Enterで選択中の曲を再生"></canvas>
+                        aria-describedby="radar-keyboard-guide"
+                        aria-label="雰囲気楽曲マップ。矢印キーで移動、コロンでズームイン、セミコロンでズームアウト、Fで全体表示、0でリセット、Enterで選択中の曲を再生"></canvas>
+                    <div class="radar-keyboard-guide" id="radar-keyboard-guide">
+                        <span>キー操作</span><kbd>矢印</kbd> 移動 <kbd>:</kbd><kbd>;</kbd> ズーム <kbd>F</kbd> 全体表示 <kbd>0</kbd> リセット
+                    </div>
                     <div class="radar-map-zoom" role="group" aria-label="マップのズーム">
-                        <button type="button" onclick="radarZoomAtCenter(1.25)" title="ズームイン" aria-label="ズームイン">＋</button>
-                        <button type="button" onclick="radarZoomAtCenter(0.8)" title="ズームアウト" aria-label="ズームアウト">－</button>
-                        <button type="button" onclick="fitRadarToFiltered()" title="表示中の曲にフィット" aria-label="表示中の曲にフィット">⤢</button>
-                        <button type="button" onclick="resetRadarView()" title="リセット" aria-label="ズームと位置をリセット">⤾</button>
+                        <button type="button" onclick="radarZoomAtCenter(1.25)" title="ズームイン（:）" aria-label="ズームイン（ショートカット: コロン）">＋</button>
+                        <button type="button" onclick="radarZoomAtCenter(0.8)" title="ズームアウト（;）" aria-label="ズームアウト（ショートカット: セミコロン）">－</button>
+                        <button type="button" onclick="fitRadarToFiltered()" title="表示中の曲を全体表示（F）" aria-label="表示中の曲にフィット（ショートカット: F）">⤢</button>
+                        <button type="button" onclick="resetRadarView()" title="ズームと位置をリセット（0）" aria-label="ズームと位置をリセット（ショートカット: 0）">⤾</button>
                     </div>
                     <div class="radar-map-tooltip" id="radar-map-tooltip"></div>
                     <div class="radar-selected-panel" id="radar-selected-panel" hidden></div>
@@ -529,13 +533,15 @@
                     </div>
                     <h3>Radarマップ</h3>
                     <div class="help-keys">
-                        <div><kbd>＋</kbd> / <kbd>－</kbd><span>ズームイン / ズームアウト</span></div>
+                        <div><kbd>:</kbd> / <kbd>;</kbd><span>ズームイン / ズームアウト</span></div>
+                        <div><kbd>F</kbd><span>表示中の曲をマップ全体に表示</span></div>
                         <div><kbd>0</kbd><span>ズームと位置をリセット</span></div>
                         <div><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd><span>マップを移動</span></div>
                         <div><kbd>Enter</kbd><span>選択中の曲を再生</span></div>
                         <div><kbd>Esc</kbd><span>曲の選択や重なった曲の一覧を閉じる</span></div>
                     </div>
                     <p class="help-note">マップをクリックするか、<kbd>Tab</kbd>キーでマップにフォーカスを移してから操作してください。</p>
+                    <p class="help-note"><kbd>Ctrl</kbd>または<kbd>⌘</kbd>と組み合わせたズーム・移動キーはブラウザ側で動作します。</p>
                     <h3>Radar下部の楽曲一覧</h3>
                     <div class="help-keys">
                         <div><kbd>←</kbd> / <kbd>→</kbd><span>一覧を左右にスクロール</span></div>

@@ -3156,6 +3156,8 @@ export function bindRadarStripScroll() {
     }, { passive: false });
 
     strip.addEventListener('keydown', (event) => {
+        // Cmd/Ctrl+矢印など、ブラウザやOSが持つショートカットは奪わない。
+        if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
         const amount = Math.max(160, strip.clientWidth * 0.75);
         if (event.key === 'ArrowLeft') strip.scrollBy({ left: -amount, behavior: 'smooth' });
         else if (event.key === 'ArrowRight') strip.scrollBy({ left: amount, behavior: 'smooth' });
@@ -3247,6 +3249,9 @@ export function bindRadarPointer() {
 
     canvas.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
+        // マップを操作した直後からキー操作を使えるようにする。
+        // preventScroll でフォーカス時のページ位置の飛びを防ぐ。
+        if (document.activeElement !== canvas) canvas.focus({ preventScroll: true });
         hideRadarOverlap();
         const [x, y] = localPos(e);
         if (!pointers.size) radarMoved = false;
@@ -3341,28 +3346,28 @@ export function bindRadarPointer() {
         radarZoomToPoint(mx, my, e.shiftKey ? 0.7 : 1.4);
     });
 
-    // キーボード操作: +/-/0/矢印/Escape/Enter
+    // キーボード操作: :;/F/0/矢印/Escape/Enter
     canvas.addEventListener('keydown', (e) => {
-        const W = Math.max(1, container.clientWidth);
-        const H = Math.max(1, container.clientHeight);
+        const action = radarKeyboardAction(e);
+        if (!action) return;
         const step = 0.08;
-        if (e.key === '+' || e.key === '=') { radarZoomAtCenter(1.2); e.preventDefault(); }
-        else if (e.key === '-' || e.key === '_') { radarZoomAtCenter(0.85); e.preventDefault(); }
-        else if (e.key === '0') { resetRadarView(); e.preventDefault(); }
-        else if (e.key === 'ArrowLeft') { radarPan.x += step / radarZoom; queueRadarDraw(); e.preventDefault(); }
-        else if (e.key === 'ArrowRight') { radarPan.x -= step / radarZoom; queueRadarDraw(); e.preventDefault(); }
-        else if (e.key === 'ArrowUp') { radarPan.y += step / radarZoom; queueRadarDraw(); e.preventDefault(); }
-        else if (e.key === 'ArrowDown') { radarPan.y -= step / radarZoom; queueRadarDraw(); e.preventDefault(); }
-        else if (e.key === 'Escape') {
+        if (action === 'zoom-in') radarZoomAtCenter(1.2);
+        else if (action === 'zoom-out') radarZoomAtCenter(0.85);
+        else if (action === 'fit') fitRadarToFiltered();
+        else if (action === 'reset') resetRadarView();
+        else if (action === 'pan-left') { radarPan.x += step / radarZoom; queueRadarDraw(); }
+        else if (action === 'pan-right') { radarPan.x -= step / radarZoom; queueRadarDraw(); }
+        else if (action === 'pan-up') { radarPan.y += step / radarZoom; queueRadarDraw(); }
+        else if (action === 'pan-down') { radarPan.y -= step / radarZoom; queueRadarDraw(); }
+        else if (action === 'clear') {
             hideRadarOverlap();
             selectRadarTrack(null);
             tooltip.style.display = 'none';
-            e.preventDefault();
-        } else if (e.key === 'Enter') {
+        } else if (action === 'play') {
             const t = vibeFiltered.find(t => t.youtube_id === radarSelectedId);
             if (t) playFromRadar(t);
-            e.preventDefault();
         }
+        e.preventDefault();
     });
 
     container.addEventListener('wheel', (e) => {
@@ -3371,6 +3376,26 @@ export function bindRadarPointer() {
         const rect = canvas.getBoundingClientRect();
         radarZoomToPoint(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.1 : 0.9);
     }, { passive: false });
+}
+
+// Radarが受け取る単独キーだけを操作へ変換する。
+// Cmd/Ctrl/Alt付きはブラウザのズーム、履歴移動、OS操作を優先する。
+export function radarKeyboardAction(event) {
+    if (!event || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return '';
+    const key = String(event.key || '');
+    const lower = key.toLowerCase();
+    // JIS配列で修飾キーなしに隣り合って押せる「: / ;」を使う。
+    if (key === ':') return 'zoom-in';
+    if (key === ';') return 'zoom-out';
+    if (lower === 'f') return 'fit';
+    if (key === '0') return 'reset';
+    if (key === 'ArrowLeft') return 'pan-left';
+    if (key === 'ArrowRight') return 'pan-right';
+    if (key === 'ArrowUp') return 'pan-up';
+    if (key === 'ArrowDown') return 'pan-down';
+    if (key === 'Escape') return 'clear';
+    if (key === 'Enter') return 'play';
+    return '';
 }
 
 // カーソル位置を基準にズーム (ホイール/ダブルクリック用)。ズーム後も指先の点が追従する

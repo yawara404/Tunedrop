@@ -1391,6 +1391,43 @@ body.player-in-sidebar .youtube-popup.is-active {
     cursor: grab;
 }
 
+.radar-keyboard-guide {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    z-index: 12;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    background: rgba(10, 10, 14, 0.76);
+    color: var(--text-sub);
+    font-size: 10px;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+}
+
+.radar-keyboard-guide span {
+    color: var(--text-main);
+    font-weight: 700;
+    margin-right: 2px;
+}
+
+.radar-keyboard-guide kbd {
+    min-width: 20px;
+    padding: 1px 4px;
+    border: 1px solid #555;
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: #16161b;
+    color: var(--text-main);
+    font: inherit;
+    font-weight: 700;
+    text-align: center;
+}
+
 .radar-map-legend {
     position: absolute;
     bottom: 12px;
@@ -2644,6 +2681,10 @@ body.player-in-sidebar .youtube-popup.is-active {
 }
 
 @media (max-width: 600px) {
+    .radar-keyboard-guide {
+        display: none;
+    }
+
     .menu-toggle-btn {
         display: inline-flex;
     }

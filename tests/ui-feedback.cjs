@@ -591,6 +591,25 @@ test('Radar下部一覧は横端でもトラックパッド操作を一覧内で
     });
     assert.equal(strip.scrollLeft, 0, 'Homeキーで先頭へ移動');
     assert.equal(keyPrevented, true);
+
+    keyPrevented = false;
+    strip.fire('keydown', {
+        key: 'ArrowLeft', metaKey: true,
+        preventDefault() { keyPrevented = true; }, stopPropagation() { },
+    });
+    assert.equal(keyPrevented, false, 'Cmd/Ctrl等を伴うキーはブラウザ・OSへ渡す');
+});
+
+test('Radarマップのキー操作はブラウザ標準ショートカットと競合しない', () => {
+    assert.equal(run("radarKeyboardAction({ key: '+', metaKey: true })"), '', 'Cmd+Plusはブラウザへ渡す');
+    assert.equal(run("radarKeyboardAction({ key: '-', ctrlKey: true })"), '', 'Ctrl+Minusはブラウザへ渡す');
+    assert.equal(run("radarKeyboardAction({ key: '0', ctrlKey: true })"), '', 'Ctrl+0はブラウザへ渡す');
+    assert.equal(run("radarKeyboardAction({ key: 'ArrowLeft', metaKey: true })"), '', 'Cmd+左はブラウザへ渡す');
+    assert.equal(run("radarKeyboardAction({ key: ':' })"), 'zoom-in', 'JIS配列のコロンでズームインする');
+    assert.equal(run("radarKeyboardAction({ key: ';' })"), 'zoom-out', 'JIS配列のセミコロンでズームアウトする');
+    assert.equal(run("radarKeyboardAction({ key: '+' })"), '', 'PlusはRadar側で奪わない');
+    assert.equal(run("radarKeyboardAction({ key: '-' })"), '', 'MinusはRadar側で奪わない');
+    assert.equal(run("radarKeyboardAction({ key: 'F' })"), 'fit', 'Fで表示中の曲を全体表示する');
 });
 
 test('ヘルプに実装済みのキーボードショートカットを案内する', () => {
@@ -600,7 +619,7 @@ test('ヘルプに実装済みのキーボードショートカットを案内�
     assert.match(section, /検索欄/, '検索欄の操作を説明する');
     assert.match(section, /Radarマップ/, 'Radarマップの操作を説明する');
     assert.match(section, /Radar下部の楽曲一覧/, 'Radar下部一覧の操作を説明する');
-    for (const key of ['Enter', 'Esc', 'Home', 'End']) {
+    for (const key of ['Enter', 'Esc', 'F', 'Home', 'End']) {
         assert.match(section, new RegExp(`<kbd>${key}<\\/kbd>`), `${key}キーを掲載する`);
     }
     assert.doesNotMatch(section, /Shift<\/kbd>\+<kbd>[NP]/, '未実装の曲送り操作を掲載しない');
