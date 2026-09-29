@@ -54,9 +54,9 @@ const staleHealth = { data: { status: 'ok', service: 'TuneDrop PHP API' } };
     }, 'http://localhost:8888/tunedrop/api.php?action=create_playlist');
     await scenario('http://127.0.0.1:5503/index.html', {
         'http://127.0.0.1:5503/api.php?action=health': { type: 'text/plain', data: '<?php' },
-        'http://localhost:8888/tunedrop/api.php?action=health': health,
-        'http://localhost:8888/tunedrop/api.php?action=create_playlist': { data: { success: true } }
-    }, 'http://localhost:8888/tunedrop/api.php?action=create_playlist');
+        'http://localhost:8888/api.php?action=health': health,
+        'http://localhost:8888/api.php?action=create_playlist': { data: { success: true } }
+    }, 'http://localhost:8888/api.php?action=create_playlist');
     await scenario('http://localhost:5503/index.html', {
         'http://localhost:9999/custom/api.php?action=health': health,
         'http://localhost:9999/custom/api.php?action=create_playlist': { data: { success: true } }
@@ -65,12 +65,12 @@ const staleHealth = { data: { status: 'ok', service: 'TuneDrop PHP API' } };
     {
         const replies = {
             'http://127.0.0.1:5503/api.php?action=health': { type: 'text/plain', data: '<?php' },
-            'http://localhost:8888/tunedrop/api.php?action=health': staleHealth,
-            'http://localhost:8888/api.php?action=health': staleHealth
+            'http://localhost:8888/api.php?action=health': staleHealth,
+            'http://127.0.0.1:8888/api.php?action=health': staleHealth
         };
         const { calls, context } = makeContext('http://127.0.0.1:5503/index.html', replies);
         await assert.rejects(vm.runInContext('resolveTunedropApi()', context), /APIに接続できません/);
         assert.equal(calls.filter(call => call.url.includes('endpoint=guest')).length, 0);
     }
-    console.log('PASS: MAMP, Live Server PHP source fallback, custom URL, POST forwarding, cached discovery, stale API rejection');
+    console.log('PASS: PHP source fallback, custom URL, POST forwarding, cached discovery, stale API rejection');
 })().catch(error => { console.error(error); process.exitCode = 1; });

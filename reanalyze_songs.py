@@ -29,7 +29,7 @@ DEFAULT_DB = ROOT / "database.sqlite"
 
 def fetch_bookmarks(db_path):
     """bookmarks を playlist の category と結合して取得 (重複IDは除去)。"""
-    # 解析サーバー (app.py) や MAMP(PHP) と同時に動くためロック待ちを明示する
+    # 解析サーバー (app.py) や PHP (api.php) と同時に動くためロック待ちを明示する
     conn = sqlite3.connect(db_path, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000;")

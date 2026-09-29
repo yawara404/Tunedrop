@@ -11,8 +11,8 @@ import time
 from contextlib import closing
 
 CACHE_TTL = 86400 * 7
-# PHP (MAMP/api.php) と同時に書き込むため、ロック待ちは短くしておく。
-# 長く待つと FastCGI の idle timeout (30秒) を超えてリクエストが切れる。
+# PHP (api.php) と同時に書き込むため、ロック待ちは短くしておく。
+# 長く待つとサーバーの idle timeout (30秒) を超えてリクエストが切れる。
 BUSY_TIMEOUT_MS = 5000
 # 「実測 BPM」とみなす tempo_source の値
 # ("essentia" は旧エンジンで測った既存行のための互換値)
@@ -26,8 +26,8 @@ MEASURED_SOURCES = ("audio", "librosa", "clap", "essentia")
 # v6: energy の録音音量依存を低減、調性判定をフレーム単位へ
 # v7: AI 推定 BPM (参照値) をテンポ候補に加え、非オクターブ誤りも補正
 TEMPO_ALGO_VERSION = 7
-# AI 推定由来の tempo_source / engine の値
-AI_TEMPO_SOURCES = ("gemini", "rules")
+# AI 推定・辞書推定由来の tempo_source / engine の値
+AI_TEMPO_SOURCES = ("gemini", "rules", "ollama", "known")
 # 音源解析済み (audio_engine あり) の行で AI 上書きから守る実測フィールド
 MEASURED_KEYS = (
     "tempo", "tempo_source", "tempo_raw", "tempo_raw_full", "tempo_confidence",

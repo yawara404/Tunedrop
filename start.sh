@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# ./start.sh: PHP + Python / ./start.sh --mamp: Pythonのみ（Web配信はMAMP）
+# ./start.sh: Web配信 (PHPビルトインサーバー + router.php) と 認証・解析サーバー (Python) を起動する
 # zsh用 (./start.sh / zsh start.sh。bashでも動作可)
 set -e
 # glob不一致を空展開にする (zsh: nullglob / bash: nullglob)
@@ -19,9 +19,8 @@ case "$MODE" in
     # `./start.sh start` のように start/serve を付けて呼ばれる場合も受け付ける
     # (他のプロジェクトの起動スクリプトに合わせた呼び方で「Usage」で止まる事故を防ぐ)。
     standalone|start|serve) MODE=standalone ;;
-    --mamp) ;;
     *)
-        echo "Usage: ./start.sh [--mamp]   (引数なし = PHP + Python をこのMac内で起動)" >&2
+        echo "Usage: ./start.sh   (Web配信 + 認証・解析サーバーを起動)" >&2
         exit 1
         ;;
 esac
@@ -33,27 +32,16 @@ fi
     echo "Python依存関係が必要です。README.local.md（ローカルマニュアル）の起動方法を確認してください。" >&2
     exit 1
 }
-if [[ "$MODE" != --mamp ]]; then
-    PHP_BIN="${PHP_BIN:-$(command -v php || true)}"
-    if [[ -z "$PHP_BIN" ]]; then
-        for candidate in /Applications/MAMP/bin/php/php*/bin/php; do
-            if [[ -x "$candidate" ]]; then
-                PHP_BIN="$candidate"
-                break
-            fi
-        done
-    fi
-    if [[ -z "$PHP_BIN" ]]; then
-        echo "PHPが見つかりません。MAMPをインストールしてください。" >&2
-        exit 1
-    fi
+PHP_BIN="${PHP_BIN:-$(command -v php || true)}"
+if [[ -z "$PHP_BIN" ]]; then
+    echo "PHPが見つかりません。PHPをインストールするか、PHP_BIN=/path/to/php を指定してください。" >&2
+    exit 1
 fi
 PYTHON_PID=''
 PHP_PID=''
 
 # 画面 (プロジェクト直下の index.html と assets/) は Vite のビルド成果物。
-# ビルド元 (frontend/) の方が新しければ自動でビルドし直す。MAMP 配信 (--mamp) でも
-# 同じフォルダを配信するため、モードに関わらずここで整える。
+# ビルド元 (frontend/) の方が新しければ自動でビルドし直す。
 # node_modules が無い (npm install 未実行) 場合はビルドできないので、
 # 既にある成果物をそのまま使う (無ければ理由を出して止まる)。
 if [[ -d node_modules ]]; then
@@ -77,7 +65,7 @@ elif [[ ! -f index.html ]]; then
 fi
 
 # 既に認証・解析サーバーが動いているか (.auth_port のポートに /health を投げて確認)。
-# 二重起動するとポートと SQLite のロックを取り合い、MAMP 側の応答が止まるため先に弾く。
+# 二重起動するとポートと SQLite のロックを取り合い、応答が止まるため先に弾く。
 auth_server_running() {
     local recorded
     [[ -f "$DIR/.auth_port" ]] || return 1
@@ -99,9 +87,11 @@ PY
 
 # 安全に bind できるポートを探す (8000 が他プロジェクトに使われている場合がある)。
 # TUNEDROP_PORT を指定するとその値を最優先で使う。
+# 8888 を第一候補にしているのは、公開トンネル (cloudflared) の接続先が 8888 のため。
+# 同じポートで受ければトンネル側の設定を変えずに配信を切り替えられる。
 pick_web_port() {
     local candidate
-    for candidate in "${TUNEDROP_PORT:-8000}" 8000 8001 8002 8003 8010 8080; do
+    for candidate in "${TUNEDROP_PORT:-8888}" 8888 8000 8001 8002 8003 8010 8080; do
         if "$PYTHON_BIN" - "$candidate" <<'PY'
 import socket
 import sys
@@ -139,29 +129,27 @@ if [[ "$START_AUTH" == 1 ]]; then
     "$PYTHON_BIN" app.py &
     PYTHON_PID=$!
 fi
-if [[ "$MODE" == --mamp ]]; then
-    # MAMPのDocumentRootはプロジェクト直下とは限らない。公開エイリアスは小文字の /tunedrop/。
-    echo "MAMPを起動してください: http://localhost:8888/tunedrop/"
-    echo "Live Server: index.htmlをOpen with Live Serverで開いてください。"
-    echo "管理者ページ: ./admin/admin.sh （トークン付きURLを開きます）"
-    if [[ "$START_AUTH" == 1 ]]; then
-        echo "Ctrl+CでPythonサーバーを停止します。"
-        wait "$PYTHON_PID"
-    else
-        echo "WebサーバーはMAMPをそのまま使えます (このスクリプトは終了します)。"
-    fi
-else
-    WEB_PORT="$(pick_web_port)" || {
-        echo "空きポートが見つかりませんでした。TUNEDROP_PORT=8001 のように指定してください。" >&2
-        exit 1
-    }
-    if [[ "$WEB_PORT" != 8000 ]]; then
-        echo "注意: ポート8000は別のアプリが使用中です (このMacでは Midair.io の uvicorn が常駐)。" >&2
-        echo "Webサーバーはポート $WEB_PORT で起動します。" >&2
-    fi
-    echo "TuneDrop: http://localhost:$WEB_PORT （Ctrl+Cで停止）"
-    echo "管理者ページ: ./admin/admin.sh （トークン付きURLを開きます）"
-    "$PYTHON_BIN" "$DIR/runtime_config.py" "$PHP_BIN" -S "127.0.0.1:$WEB_PORT" -t "$DIR" "$DIR/router.php" &
-    PHP_PID=$!
-    wait "$PHP_PID"
+WEB_PORT="$(pick_web_port)" || {
+    echo "空きポートが見つかりませんでした。TUNEDROP_PORT=8001 のように指定してください。" >&2
+    exit 1
+}
+if [[ "$WEB_PORT" != 8888 ]]; then
+    echo "注意: ポート8888は使用中です (別のサーバーが使っている場合があります)。" >&2
+    echo "公開トンネル (cloudflared) は 8888 を見ているため、そのサーバーを止めてから" >&2
+    echo "このスクリプトを起動すると、公開URLもこのサーバーへ切り替わります。" >&2
+    echo "Webサーバーはポート $WEB_PORT で起動します。" >&2
 fi
+echo "TuneDrop: http://localhost:$WEB_PORT （Ctrl+Cで停止）"
+echo "管理者ページ: ./admin/admin.sh （トークン付きURLを開きます）"
+# PHPビルトインサーバーは既定で1リクエストずつ処理する。公開トンネル越しでは
+# 画面(HTML/JS/CSS)とAPIが並行して飛ぶため、ワーカーを増やして詰まりを防ぐ
+# (PHP 7.4+ の機能。TUNEDROP_PHP_WORKERS で変更可)。
+export PHP_CLI_SERVER_WORKERS="${TUNEDROP_PHP_WORKERS:-8}"
+# 実際に使ったポートを記録 (Vite開発サーバーのプロキシ先 / admin.sh が参照)
+printf '%s\n' "$WEB_PORT" > "$DIR/.web_port"
+# 開発中は Vite 開発サーバー (HMR付き) を使う。API は vite.config.mjs が
+# このポート (.web_port) へプロキシするため、画面側の設定変更は不要。
+echo "開発時: 別ターミナルで npm run dev (Vite: http://localhost:5173/ → API は $WEB_PORT へ自動プロキシ)"
+"$PYTHON_BIN" "$DIR/runtime_config.py" "$PHP_BIN" -S "127.0.0.1:$WEB_PORT" -t "$DIR" "$DIR/router.php" &
+PHP_PID=$!
+wait "$PHP_PID"

@@ -10,6 +10,7 @@ analysis_recommend.json.tmp
 .admin_token
 .jwt_secret
 .auth_port
+.web_port
 .sns_demo_credentials
 .env
 .env.*

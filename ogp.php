@@ -28,7 +28,7 @@ function ogp_escape(string $value): string
 
 /**
  * リクエストから公開ベースURL (例: https://host/tunedrop) を組み立てる。
- * Cloudflare Tunnel / ngrok 越しでも正しい URL になるよう
+ * Cloudflare Tunnel 越しでも正しい URL になるよう
  * X-Forwarded-Proto を優先し、テストや特殊環境向けに環境変数で上書きできる。
  */
 function ogp_base_url(): string

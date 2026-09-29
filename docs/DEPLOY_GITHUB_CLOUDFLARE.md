@@ -1,14 +1,16 @@
 # TuneDrop：GitHub管理・Cloudflare Tunnelで自作サーバー公開
 
-対象は現在のmacOS + MAMP構成。GitHubにはコードを保存し、PHP・Python・SQLiteは自分のサーバーで動かします。GitHub Pagesではこのアプリ全体を実行できません。
+対象は現在のmacOS。Web配信は `./start.sh`（PHPビルトインサーバー + `router.php`）が担当します。GitHubにはコードを保存し、PHP・Python・SQLiteは自分のサーバーで動かします。GitHub Pagesではこのアプリ全体を実行できません。
 
 ```text
-ブラウザ → https://music.example.com → Cloudflare Tunnel
+ブラウザ → https://music.example.com/tunedrop/ → Cloudflare Tunnel
                                          ↓
-                         MAMP Apache + PHP (127.0.0.1:8888)
-                              ├ SQLite（サーバーに保存）
-                              └ Python / Waitress (127.0.0.1:5001)
-GitHub → サーバーでコードを取得・更新
+                    ./start.sh (127.0.0.1:8888)
+                      ├ PHPビルトインサーバー + router.php（公開ファイル許可リスト / /tunedrop プレフィックス対応）
+                      ├ 画面: Viteのビルド成果物 (index.html / assets/)
+                      ├ API: api.php（SQLite database.sqlite を直接読み書き）
+                      └ Python / Waitress (127.0.0.1:5001) … 認証・音源/AI解析
+GitHub → サーバーでコードを取得・更新（git pull → ./start.sh を再起動）
 ```
 
 `music.example.com`・GitHubの所有者名などは自分の値に置き換えてください。固定URL用にはCloudflareでDNS管理するドメインが必要です。PCを停止・スリープすると公開も止まります。
@@ -19,13 +21,13 @@ GitHub → サーバーでコードを取得・更新
 - `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と `./admin/admin.sh --serve` はこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
 - JWT署名鍵はPython起動時に `.jwt_secret` にランダム生成され、PHPも同じファイルを読みます。既知の旧鍵は拒否します。既存ユーザーは更新後に再ログインが必要です。
 - Googleログインは `google-auth` で署名・宛先・発行者・有効期限を検証し、検証失敗や通信失敗をログイン拒否にします。`GOOGLE_CLIENT_ID` 未設定ならGoogleログインは利用できません。
-- Pythonは `127.0.0.1` のみで待ち受けます。外からはApache経由で利用します。
+- Pythonは `127.0.0.1` のみで待ち受けます。外からは `./start.sh`（PHP）経由で利用します。
 - `.gitignore` はDB、鍵、環境設定、バックアップなどを除外します。YouTube／Gemini APIキーはソースから除去し、環境変数で読み込みます。
 - 初回起動では空のDBを作り、デモアカウントを自動投入しません。既存DBはそのまま使います。
 
 ## 2. 既存環境をバックアップ
 
-まずngrokなどの公開トンネルを停止してから更新します。SQLiteは稼働中のファイルを単純コピーするのではなく、バックアップ機能を使います。
+まず公開トンネル（Cloudflare Tunnel）を停止してから更新します。SQLiteは稼働中のファイルを単純コピーするのではなく、バックアップ機能を使います。
 
 ```bash
 cd /Users/<username>/Tunedrop
@@ -73,61 +75,49 @@ Google Cloud Consoleでウェブアプリ用OAuthクライアントを設定し�
 既存Pythonプロセスは元のターミナルでCtrl+Cで止め、次で起動します。
 
 ```bash
-GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh --mamp
+GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh
 ```
 
-Googleログインを使わない場合は `PORT=5001 ./start.sh --mamp` で起動し、`frontend/config.js` の `googleClientId` を空文字にします。通常の新規登録・パスワードログインは使えます。
+Googleログインを使わない場合（現在は未対応）は `PORT=5001 ./start.sh` で起動し、`frontend/config.js` の `googleClientId` を空文字にします。通常の新規登録・パスワードログインは使えます。
 
-`.jwt_secret` は一度生成したものを再利用します。中身をGitHub、チャット、ログへ貼らないでください。MAMPのPHP実行ユーザーがこのファイルを読める必要があります。既定の権限は600です。PHPを別ユーザーで動かす構成では専用グループと640などで読取権限を付け、全員が読める権限にはしないでください。
+`.jwt_secret` は一度生成したものを再利用します。中身をGitHub、チャット、ログへ貼らないでください。PHPの実行ユーザーがこのファイルを読める必要があります。既定の権限は600です。PHPを別ユーザーで動かす構成では専用グループと640などで読取権限を付け、全員が読める権限にはしないでください。
 
-高度な設定：`SECRET_KEY` を使う場合は32文字以上のランダム値をPHPとPythonの**両方**に設定します。ターミナルの環境変数はMAMPのPHPに自動継承されないため、通常は共有ファイル方式を使ってください。`TUNEDROP_SECRET_FILE` を使う場合も両プロセスで同じファイルパスに設定します。Pythonと `./start.sh` のPHP開発サーバーは `.env` を読み込みます。ただし `SECRET_KEY` を `.env` に設定してもMAMPには渡らないため、共有ファイル方式を推奨します。
+高度な設定：`SECRET_KEY` を使う場合は32文字以上のランダム値をPHPとPythonの**両方**に設定します。`./start.sh` は `.env` を読み込んでPHPとPythonの両方に渡すため、`.env` に書けば両方へ反映されます。`TUNEDROP_SECRET_FILE` を使う場合は同じファイルパスを両プロセスへ設定してください。
 
-## 4. MAMP / Apacheの設定（必須）
+## 4. Webサーバーの設定（PHPビルトインサーバー）
 
-`/Applications/MAMP/conf/apache/httpd.conf` をバックアップして編集します。今回このマシンのMAMP設定ファイル自体は変更していません。
-
-1. DocumentRootを `/Users/<username>/Tunedrop`、ポートを8888にする。
-2. 次のモジュール行の先頭に `#` があれば外す。
-
-```apache
-LoadModule rewrite_module modules/mod_rewrite.so
-```
-
-3. プロジェクトに対応するDirectory設定を次のようにする。既存設定があればそこを編集します。
-
-```apache
-<Directory "/Users/<username>/Tunedrop">
-    AllowOverride All
-    Require all granted
-</Directory>
-```
-
-4. `/api/` のPython転送がある場合は、固定ポート5001と揃えます。`mod_proxy`・`mod_proxy_http` も有効にします。既存の同じProxyPass設定を重複追加しないでください。
-
-```apache
-ProxyPass /api/ http://127.0.0.1:5001/
-ProxyPassReverse /api/ http://127.0.0.1:5001/
-```
-
-5. Apache設定を検証し、MAMPでStop Servers → Start Servers。
+配信は `./start.sh` が行います。Webサーバー側の設定はこれだけです。
 
 ```bash
-/Applications/MAMP/Library/bin/httpd -t -f /Applications/MAMP/conf/apache/httpd.conf
+cd /Users/<username>/Tunedrop
+./start.sh          # 8888を優先。使用中なら8000/8001…へ自動でずれ、URLを表示する
 ```
 
-`.htaccess` を無視するサーバーでは今回のアクセス制限は働きません。Nginxへ移す場合も、同等の許可リストとPHP実行設定を別途作成してください。Live Serverを外部公開してはいけません。
+- `./start.sh` は「必要なときだけ `npm run build`」→「認証・解析サーバー（Python）」→「Webサーバー（PHPビルトイン + `router.php`）」を起動します。
+- **公開ファイルの許可リストは `router.php`** が持ちます（従来の `.htaccess` と同じ規則）。DB・秘密鍵・Pythonソース・`.git`・バックアップ・`node_modules` はHTTPで取得できません。`php -S ...` をルーターなしで直接起動しないでください。
+- PHPビルトインサーバーは既定で1件ずつ処理するため、`./start.sh` はワーカー8個で起動します（`TUNEDROP_PHP_WORKERS=16 ./start.sh` で変更）。
+- 公開URLは `/tunedrop/` 配下です。`router.php` はこのプレフィックスを外して許可判定し、実ファイルの配信と `api.php` / `ogp.php` / `admin/admin.php` の実行を行います（Apacheの `Alias /tunedrop` 相当）。`/tunedrop`（末尾スラッシュなし）は `/tunedrop/` へ301リダイレクトします。
+- 使用したポートは `.web_port` に記録され、`npm run dev`（Vite開発サーバー）のAPIプロキシ先と `./admin/admin.sh` が参照します。
+
 
 ## 5. 公開前の確認
 
 ```bash
-curl -i 'http://localhost:8888/api.php?action=health'
-curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/database.sqlite
-curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/.jwt_secret
-curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/_backup_pre_radar/api.php
-curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/app.py
+curl -i 'http://localhost:8888/api.php?action=health'          # 200 + JSON (features に auth_guest)
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/database.sqlite     # 403
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/.jwt_secret         # 403
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/app.py              # 403
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/frontend/app.js     # 403 (ビルド元は配信しない)
+# 公開URLのプレフィックス付きでも同じ許可判定か (トンネル経由・またはローカルで)
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/tunedrop/           # 200
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/tunedrop/database.sqlite  # 403
 ```
 
-healthは200とJSON、後の4件は403になることを確認します。**200で取得できる状態では公開しないでください。** 500ならApacheのログを確認し、特に `mod_rewrite` と `AllowOverride All` を見直します。
+healthは200とJSON、他はすべて403になることを確認します。**200で取得できる状態では公開しないでください。** すべて `tests/public-files.py`（PHPルーター + Apacheの両方）でも検証できます。
+
+```bash
+python3 tests/public-files.py
+```
 
 ブラウザでは画面表示、新規登録、通常ログイン、楽曲の保存、再読み込み後の保持、Googleログインを確認します。以前のログイン状態は旧鍵で署名されているため、ログアウトしてログインし直します。
 
@@ -151,7 +141,7 @@ brew install cloudflared
 | 公開ホスト名 | `music.example.com` |
 | Service URL | `http://localhost:8888` |
 
-`cloudflared` とMAMPを同じマシンで動かす設定です。ブラウザ側はHTTPSになり、ローカルApacheへの接続はHTTPです。ルーターで受信ポートを開放する必要はありません。
+`cloudflared` と `./start.sh` を同じマシンで動かす設定です。ブラウザ側はHTTPSになり、ローカルのPHPビルトインサーバーへの接続はHTTPです。ルーターで受信ポートを開放する必要はありません。公開URLのパスが `/tunedrop/` の場合はそのまま `/tunedrop/...` を `http://localhost:8888` へ渡してください（`router.php` がプレフィックスを処理します）。
 
 `https://music.example.com` を開き、前節のHTTP確認も同じ公開ホスト名で繰り返します。携帯回線からログイン・保存を試します。APIや管理画面を「Cache Everything」などのルールでキャッシュしないでください。
 
@@ -161,7 +151,7 @@ brew install cloudflared
 cloudflared tunnel --url http://localhost:8888
 ```
 
-一時URLでGoogleログインも試すなら、そのURLの生成元登録が別途必要です。停止はCtrl+C。ngrokから切り替えた後は不要なngrokトンネルを止めます。
+一時URLでGoogleログインも試すなら、そのURLの生成元登録が別途必要です。停止はCtrl+C。
 
 ## 7. GitHubでコードを管理
 
@@ -253,10 +243,10 @@ Change repository visibility** で Private ⇄ Public を切り替えられま�
 ```bash
 git pull --ff-only
 .venv/bin/python -m pip install -r requirements.txt
-GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh --mamp
+GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh
 ```
 
-ローカル変更がある場合は内容を確認してコミット等で整理し、強制リセットで消さないでください。Apache設定を変更した場合はMAMPも再起動します。
+ローカル変更がある場合は内容を確認してコミット等で整理し、強制リセットで消さないでください。サーバー設定を変更した場合は `./start.sh` を再起動します。
 
 定期バックアップ例：同名を上書きしないよう日時を付けます。
 
@@ -267,7 +257,7 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 
 復元時は公開とPython・Apacheを停止し、現行DBも退避してからバックアップを `database.sqlite` として戻します。古い `-wal` / `-shm` が残る場合はDB本体とセットで退避し、古いWALを復元DBへ混在させないでください。所有者・書込権限を確認して再起動します。
 
-`database.sqlite` は **WALジャーナル**（`PRAGMA journal_mode = WAL`）で運用されます（MAMPのPHPとPythonが同じDBを共有するため、読み書きが互いをブロックしないようにする設定です）。`-wal` / `-shm` の一時ファイルは正常な動作で作られるもので、`.gitignore` によりGit管理外です。バックアップは上の `.backup` コマンド（またはサービス停止後のコピー）を使ってください。
+`database.sqlite` は **WALジャーナル**（`PRAGMA journal_mode = WAL`）で運用されます（PHPとPythonが同じDBを共有するため、読み書きが互いをブロックしないようにする設定です）。`-wal` / `-shm` の一時ファイルは正常な動作で作られるもので、`.gitignore` によりGit管理外です。バックアップは上の `.backup` コマンド（またはサービス停止後のコピー）を使ってください。
 
 常時運用には、Macのスリープを無効にし、Apache・Python・cloudflaredの3つを再起動後も起動するよう設定します。`./start.sh --mamp` はターミナルを閉じると停止するため、常駐化する場合はmacOSのlaunchd、Linuxならsystemdで管理します。Pythonは `.venv/bin/python app.py` を起動し、`.env` またはサービスの環境変数に `PORT=5001` と `GOOGLE_CLIENT_ID` を設定します。Linuxへ移す場合はMAMP用パスをその環境に置き換えてください。今回サービス登録・DNS変更・GitHub送信は自動実行していません。
 
@@ -284,7 +274,7 @@ PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/sqli
 .venv/bin/python tests/clap-scoring.py
 ```
 
-`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` はローカルポートでPHPと一時Apacheを起動し、HTTP配信制限を検証します。Apacheの既定パスはMAMPです。別環境では `APACHE_BIN` とテスト内のモジュール設定を調整してください。`sqlite-concurrency.py` は、MAMP（PHP）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
+`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` は一時フォルダで PHPビルトインサーバー（`router.php`）を起動し、HTTP配信制限（DB・秘密鍵・ソース・バックアップの403、`/tunedrop/` プレフィックス付きでも同じ判定）を検証します。`sqlite-concurrency.py` は、PHP（`api.php`）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
 
 ## 参考資料
 

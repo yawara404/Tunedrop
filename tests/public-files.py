@@ -1,4 +1,4 @@
-"""HTTP checks for the PHP router and an isolated MAMP Apache allowlist."""
+"""HTTP checks for the PHP router (./start.sh) public-file allowlist."""
 import os
 from pathlib import Path
 import re
@@ -12,9 +12,8 @@ import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 PHP = os.environ.get('PHP_BIN', 'php')
-APACHE = os.environ.get('APACHE_BIN', '/Applications/MAMP/Library/bin/httpd')
 
-def check(command, cwd, port, extra_allowed=()):
+def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
     process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         for _ in range(60):
@@ -55,10 +54,48 @@ def check(command, cwd, port, extra_allowed=()):
                 status = error.code
             expected = 200 if path in allowed else 403
             assert status == expected, (command[0], path, status, expected)
+        # 公開URL (https://<host>/tunedrop/...) のプレフィックス付きでも同じ許可判定か。
+        # 配信は PHPビルトインサーバー (router.php) が Alias 相当を行うため、
+        # 配信と同じ経路 (router.php) だけで検証する。
+        for path, expected in (prefix_expectations or {}).items():
+            try:
+                with urllib.request.urlopen(base+path) as response:
+                    status = response.status
+            except urllib.error.HTTPError as error:
+                status = error.code
+            assert status == expected, (command[0], path, status, expected)
     finally:
         process.terminate()
         process.wait(timeout=10)
         process.stderr.close()
+
+def public_prefix_expectations(referenced):
+    """公開URL (/tunedrop/...) のプレフィックス付きでの期待ステータス。"""
+    expectations = {
+        # 末尾スラッシュ無しは /tunedrop/ へリダイレクトされる (urllib は追従する)
+        '/tunedrop': 200,
+        '/tunedrop/': 200,
+        '/tunedrop/index.html': 200,
+        '/tunedrop/api.php': 200,
+        '/tunedrop/ogp.php': 200,
+        '/tunedrop/admin/admin.php': 200,
+        '/tunedrop/admin/admin.js': 200,
+        '/tunedrop/admin/admin.css': 200,
+        '/tunedrop/robots.txt': 200,
+        '/tunedrop/sitemap.xml': 200,
+        '/tunedrop/frontend/favicon-card.png': 200,
+        '/tunedrop/assets/index-Ab12Cd.js': 200,
+        # 配信してはいけないものはプレフィックス付きでも403のまま
+        '/tunedrop/database.sqlite': 403,
+        '/tunedrop/frontend/app.js': 403,
+        '/tunedrop/.jwt_secret': 403,
+        '/tunedrop/admin/admin.sh': 403,
+        '/tunedrop/router.php': 403,
+        '/tunedrop/nope.css': 403,
+    }
+    for url in referenced:
+        expectations['/tunedrop' + url] = 200
+    return expectations
 
 def port():
     with socket.socket() as sock:
@@ -69,7 +106,7 @@ with tempfile.TemporaryDirectory() as temporary:
     work = Path(temporary)
     web = work/'public'
     web.mkdir()
-    for name in ['.htaccess', 'router.php']:
+    for name in ['router.php']:
         shutil.copy(ROOT/name, web/name)
     for name in ['index.html','frontend/favicon-card.png',
                  'assets/index-Ab12Cd.js','assets/index-Ab12Cd.css','assets/favicon-Ab12Cd.svg',
@@ -97,27 +134,6 @@ with tempfile.TemporaryDirectory() as temporary:
             path.write_text('test fixture')
             referenced.append('/' + name)
     php_port=port()
-    check([PHP,'-S',f'127.0.0.1:{php_port}','-t',str(web),str(web/'router.php')],work,php_port,referenced)
-    if Path(APACHE).exists():
-        apache_port=port()
-        server_root=Path(APACHE).resolve().parent.parent
-        config=work/'httpd.conf'
-        config.write_text(f'''ServerRoot "{server_root}"
-Listen 127.0.0.1:{apache_port}
-ServerName localhost
-PidFile "{work}/httpd.pid"
-ErrorLog "{work}/error.log"
-LoadModule authz_core_module modules/mod_authz_core.so
-LoadModule unixd_module modules/mod_unixd.so
-LoadModule dir_module modules/mod_dir.so
-LoadModule rewrite_module modules/mod_rewrite.so
-DocumentRoot "{web}"
-<Directory "{web}">
-    AllowOverride All
-    Require all granted
-</Directory>
-''')
-        check([APACHE,'-f',str(config),'-D','FOREGROUND'],work,apache_port,referenced)
-    else:
-        raise RuntimeError('Set APACHE_BIN to run the Apache verification')
-print('PASS: Apache and PHP router serve public assets and reject DB, secrets, source, backups and encoded hidden paths.')
+    check([PHP,'-S',f'127.0.0.1:{php_port}','-t',str(web),str(web/'router.php')],work,php_port,referenced,
+          public_prefix_expectations(referenced))
+print('PASS: PHP router (./start.sh) serves public assets and rejects DB, secrets, source, backups and encoded hidden paths.')

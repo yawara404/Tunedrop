@@ -144,7 +144,7 @@ function jwt_user_id_from_token(string $token): ?int {
 
 /**
  * Authorization ヘッダの生値を取得する。
- * MAMP (Apache + FastCGI PHP) では .htaccess の SetEnvIf により
+ * 環境によっては (Apache + FastCGI PHP など) Authorization ヘッダが
  * REDIRECT_HTTP_AUTHORIZATION 側に入るため、両方を確認する。
  * Webサーバーがどちらも渡さない場合は apache_request_headers() を試す。
  */
@@ -235,7 +235,7 @@ function system_key_of_playlist(PDO $db, int $user_id, int $playlist_id): ?strin
  *
  *  毎リクエスト呼ばれるため、書き込み (ALTER/UPDATE/DELETE) は
  *  「直すべき行があるとき」だけ実行する。無条件に書き込むと、Python の解析書き込みと
- *  SQLite のロックを取り合い、MAMP 側が応答しなくなる。
+ *  SQLite のロックを取り合い、サイトが応答しなくなる。
  */
 function migrate_system_playlists(PDO $db): void {
     $columns = $db->query("PRAGMA table_info(playlists)")->fetchAll(PDO::FETCH_COLUMN, 1);
@@ -418,11 +418,11 @@ function system_playlist_offset(PDO $db, int $user_id): int {
 }
 
 /**
- * SQLite 接続を開き、MAMP (PHP) と Python (app.py) が同じ DB を同時に使っても
+ * SQLite 接続を開き、PHP (api.php) と Python (app.py) が同じ DB を同時に使っても
  * リクエストがハングしないように設定する。
  *
  * - WAL … 読み手と書き手が互いをブロックしない (ロールバックジャーナル方式だと
- *         Python の解析書き込み中に PHP の読み取りが待たされ、FastCGI の
+ *         Python の解析書き込み中に PHP の読み取りが待たされ、Webサーバーの
  *         idle timeout (30秒) で切れて「応答が返らない」状態になる)
  * - busy_timeout … 書き込みが重なったときも短時間だけ待って、待ち切れなければ
  *                  JSON エラーを返す (30秒待たせない)
@@ -447,7 +447,7 @@ function open_tunedrop_db(string $db_path): PDO {
 /**
  * テーブル作成と列追加を行う。書き込みを伴う処理なので user_version で
  * 「スキーマが古いときだけ」実行する。
- * (MAMP のリクエストごとに実行すると Python の解析書き込みとロック競合して
+ * (リクエストごとに実行すると Python の解析書き込みとロック競合して
  *  サイト全体が応答しなくなる)
  *
  * 旧データの掃除・索引・トリガー撤去は migrate_system_playlists() /
@@ -1237,7 +1237,7 @@ try {
         }
 
         // ==========================================
-        // 認証プロキシ (Flask app.py へ転送: MAMP/Live Server対応)
+        // 認証プロキシ (Flask app.py へ転送: 別サーバー配信にも対応)
         // フロントは api.php?action=auth&endpoint=login|register を呼ぶ。
         // こうすることで Flask のポート不一致・CORS の問題を回避できる。
         // ==========================================
@@ -1248,7 +1248,7 @@ try {
                 echo json_encode(['error' => '無効な認証エンドポイントです。']);
                 break;
             }
-            // MAMP では Authorization ヘッダが $_SERVER に直接入らないため auth_header_value() で取り出す
+            // 環境によっては Authorization ヘッダが $_SERVER に直接入らないため auth_header_value() で取り出す
             $auth_header = auth_header_value();
             $auth_resp = flask_proxy_request("/auth/{$endpoint}", [
                 'method' => $endpoint === 'me' ? 'GET' : 'POST',

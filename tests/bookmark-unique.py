@@ -7,7 +7,7 @@ api.php の仕様:
   - 「すべてのブックマーク」表示は youtube_id ごとに1件へまとめる（最も古い MIN(id) の行）
   - 移動先のリストに同じ曲が既にある場合だけ move_bookmark を拒否する
 
-実行: PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/bookmark-unique.py
+実行: .venv/bin/python tests/bookmark-unique.py
 """
 import json
 import os

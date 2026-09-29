@@ -25,11 +25,27 @@ function faviconCardVersion() {
     };
 }
 
+// 開発サーバー (npm run dev) のプロキシ先を決める。
+// ./start.sh が実際に使ったポートを .web_port に書くので、それを読む
+// (決め打ちをやめ、空きポートへ自動でずれても追従できる)。
+// 直接指定したいときは TUNEDROP_DEV_API=http://127.0.0.1:8001 のように上書きする。
+function devApiTarget() {
+    const override = (process.env.TUNEDROP_DEV_API || '').trim();
+    if (override) return override.replace(/\/+$/, '');
+    try {
+        const port = readFileSync(resolve(import.meta.dirname, '.web_port'), 'utf8').trim();
+        if (/^\d+$/.test(port)) return `http://127.0.0.1:${port}`;
+    } catch (_) {
+        // start.sh 未起動 (.web_port が無い) ときは既定ポートへ
+    }
+    return 'http://127.0.0.1:8888';
+}
+
 // Tune drop のフロントエンドビルド設定。
 //
 // 構成の考え方 (なぜ root を frontend/ にして outDir を .. にするのか):
 //   - サーバー側 (PHP: api.php / ogp.php / router.php / .htaccess、SQLite、Python) は
-//     プロジェクト直下を docroot として動く。MAMP の /tunedrop/ エイリアスと
+//     プロジェクト直下を docroot として動く。/tunedrop/ プレフィックス付きと
 //     ./start.sh の PHP ビルドインサーバー (-t プロジェクト直下) がそうなっている。
 //   - そのためビルド成果物 (index.html と assets/) もプロジェクト直下に置く必要がある。
 //   - 一方で、テンプレートの index.html をプロジェクト直下に置くと、ビルド出力が
@@ -38,12 +54,23 @@ function faviconCardVersion() {
 //     frontend/、出力先をその親 (プロジェクト直下) にする。テンプレートは
 //     frontend/index.html、エントリは frontend/main.js。
 //   - base: './' は、ルート直下で配信される場合 (./start.sh の PHP サーバー) と
-//     /tunedrop/ 配下で配信される場合 (MAMP + Cloudflare Tunnel) の両方で
+//     /tunedrop/ 配下で配信される場合 (Cloudflare Tunnel) の両方で
 //     同じ index.html が動くようにするため (絶対パスだと片方で壊れる)。
 export default defineConfig({
     root: 'frontend',
     base: './',
     plugins: [faviconCardVersion()],
+    // 開発用 (npm run dev): 画面は Vite が HMR 付きで配信し、PHP 側 (API / OGP /
+    // 管理画面) は ./start.sh のPHPビルトインサーバーへプロキシする。
+    // これで `./start.sh` + `npm run dev` の2つだけで開発できる。
+    server: {
+        port: 5173,
+        proxy: {
+            '/api.php': devApiTarget(),
+            '/ogp.php': devApiTarget(),
+            '/admin': devApiTarget(),
+        },
+    },
     build: {
         outDir: '..',
         // outDir はプロジェクト直下 (PHP・DB・テストと同じ場所) なので、

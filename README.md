@@ -38,7 +38,7 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 ├─ フロントエンド: Vanilla JS (Vite でビルドした ES Modules) + Canvas マップ描画
 ├─ データ管理API: PHP + SQLite (PDO, WAL)
 └─ 認証・解析サーバー: Python (Flask + Waitress) + 楽曲解析エンジン
-配信: MAMP/Apache (:8888) + ngrok、または PHPビルトインサーバー (start.sh)
+配信: PHPビルトインサーバー (./start.sh :8888) + Cloudflare Tunnel。開発は Vite開発サーバー (npm run dev :5173、APIはstart.shへプロキシ)
 ビルド: Vite (ソースは frontend/、成果物はプロジェクト直下の index.html + assets/)
 ```
 
@@ -50,7 +50,7 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
   テンプレートは `frontend/index.html`。`./start.sh` と `./sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
 - `app.js` のトップレベル関数は `main.js` の `Object.assign(window, app)` で window に公開し、
   マークアップの `onclick="..."` と外部スクリプト（YouTube IFrame API / Google Identity Services）のコールバックから呼べる
-- API接続先の自動検出（同一originの `api.php` → `mampApiUrl` のhealthプローブ）とJWTの自動付与
+- API接続先の自動検出（同一originの `api.php` → `fallbackApiUrl` のhealthプローブ）とJWTの自動付与
 - YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
 - Google Identity ServicesによるGoogleログイン（任意）
 - Inter + Material Symbols Rounded（`icon_names` サブセット約19KB）を使用

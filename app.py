@@ -34,7 +34,7 @@ DB_PATH = os.environ.get('TUNEDROP_DB', os.path.join(os.path.dirname(os.path.abs
 SECRET_KEY = load_secret()
 JWT_EXPIRATION_HOURS = 24
 
-# SQLite のロック待ち上限 (秒)。MAMP(PHP) も同じ DB を書き換えるため、
+# SQLite のロック待ち上限 (秒)。PHP (api.php) も同じ DB を書き換えるため、
 # 待ち続けて FastCGI の idle timeout (30秒) を超えないよう短くしておく。
 DB_BUSY_TIMEOUT_SECONDS = float(os.environ.get('TUNEDROP_DB_TIMEOUT', '5'))
 
@@ -65,7 +65,7 @@ GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 
 
 def get_db():
-    """SQLite 接続。PHP (MAMP/api.php) と同時に書き込んでもハングしないよう
+    """SQLite 接続。PHP (api.php) と同時に書き込んでもハングしないよう
     busy_timeout を短く設定する (待ち切れないときは例外で即座に返す)。"""
     conn = sqlite3.connect(DB_PATH, timeout=DB_BUSY_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
@@ -77,7 +77,7 @@ def get_db():
 def enable_wal_mode(conn):
     """WAL ジャーナルに切り替える。
 
-    ロールバックジャーナル方式だと、解析バッチの書き込み中に MAMP(PHP) の
+    ロールバックジャーナル方式だと、解析バッチの書き込み中に PHP (api.php) の
     読み取りが待たされ、Apache の FastCGI idle timeout (30秒) に切られて
     サイト全体が「起動しない」状態になる。WAL は読み書きが互いをブロックしない。
     モードは DB ファイルに記憶されるため、以降の接続では実質 no-op。
@@ -608,7 +608,7 @@ def _save_analysis_cache(video_id, result, merge=False):
     (AI 推定と実測値が同じ行に共存できる)
 
     接続は finally で必ず閉じる。例外で開いたままになると、コミットされていない
-    書き込みトランザクションがロックを保持し続け、PHP (MAMP) 側が SQLite の
+    書き込みトランザクションがロックを保持し続け、PHP (api.php) 側が SQLite の
     ロック待ちで固まってしまう (サイト全体が応答しなくなる)。
     """
     conn = None

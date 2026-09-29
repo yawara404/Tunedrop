@@ -1,10 +1,10 @@
-"""MAMP(PHP/api.php) と Python(app.py) が同じ SQLite を共有しても固まらないことを確認する。
+"""PHP (api.php) と Python(app.py) が同じ SQLite を共有しても固まらないことを確認する。
 
 旧実装は次の理由でサイトが「起動しない」状態になっていた。
 
 1. リクエストごとにテーブル作成・重複整理 (書き込み) を実行していた
 2. ロールバックジャーナルのままだったため、書き込み中は読み取りも待たされた
-3. PDO のロック待ちが長く、Apache の FastCGI idle timeout (30秒) を超えて
+3. PDO のロック待ちが長く、サーバーの idle timeout (30秒) を超えて
    応答が返らなくなっていた
 
 修正後は WAL + busy_timeout + スキーマ版 (user_version) により、
@@ -28,7 +28,7 @@ SCHEMA_VERSION = int(re.search(
     r'const TUNEDROP_SCHEMA_VERSION\s*=\s*(\d+)',
     (ROOT / 'api.php').read_text(encoding='utf-8')).group(1))
 BUSY_TIMEOUT_WAIT = 5      # api.php の TUNEDROP_BUSY_TIMEOUT_MS と合わせる
-MAX_ACCEPTABLE_SECONDS = 15  # FastCGI idle timeout (30秒) より十分短いこと
+MAX_ACCEPTABLE_SECONDS = 15  # サーバーの idle timeout (30秒) より十分短いこと
 
 
 def php_request(api, action, database, body=None, timeout=30):

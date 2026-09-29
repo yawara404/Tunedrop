@@ -187,6 +187,109 @@ def _norm_key(s):
     return re.sub(r"[\s・'\"!?！？()（）\[\]【】「」『』,.、。…〜~\-_/／:：]", "", text)
 
 
+# 代表曲・有名曲の公式/譜面BPM辞書。LLMのハルシネーション(140密集等)を防ぎ、
+# 既知曲には正確なBPMを即時付与する。
+_KNOWN_TEMPOS_RAW = {
+    # ボカロ代表曲
+    "夜に駆ける": 130.0, "紅蓮華": 135.0, "tellyourworld": 140.0, "千本桜": 154.0,
+    "メルト": 170.0, "king": 165.8, "39": 130.0, "yellow": 128.0,
+    "iwannabeyourworld": 130.0, "秒針を噛む": 132.0, "白日": 93.0, "lemon": 87.0,
+    "onelastkiss": 112.0, "炎": 152.0, "廻廻奇譚": 185.0, "アイドル": 166.0,
+    "神っぽいな": 145.0, "ヴァンパイア": 164.0, "ロキ": 145.0, "少女レイ": 130.0,
+    "きゅうくらりん": 180.0, "フォニイ": 156.0, "シャルル": 145.0, "グッバイ宣言": 170.0,
+    "ワールドイズマイン": 165.0, "ブラックロックシューター": 168.0, "ローリンガール": 200.0,
+    "ワールズエンドダンスホール": 165.0, "マトリョシカ": 205.0, "裏表ラバーズ": 155.0,
+    "初音ミクの消失": 240.0, "みくみくにしてあげる": 160.0, "炉心融解": 132.0,
+    "砂の惑星": 95.0, "ゴーストルール": 210.0, "ヒバナ": 200.0, "乙女解剖": 155.0,
+    "熱異常": 175.0, "いーあるふぁんくらぶ": 145.0, "六兆年と一夜物語": 186.0,
+    "チルドレンレコード": 210.0, "カゲロウデイズ": 200.0, "夜咄ディセイブ": 155.0,
+    "ロストワンの号哭": 162.0, "脱法ロック": 155.0, "命に嫌われている": 128.0,
+    "ベノム": 160.0, "ダーリンダンス": 168.0, "エンヴィーベイビー": 130.0,
+    "トンデモワンダーズ": 192.0, "ザムザ": 158.0, "酔いどれ知らず": 130.0,
+    "強風オールバック": 135.0, "寝起きヤシの木": 160.0, "人マニア": 147.0,
+    "オーバーライド": 170.0, "イガク": 165.0, "モニタリング": 160.0,
+    "おくすり飲んで寝よう": 120.0, "ロストアンブレラ": 160.0, "テレキャスタービーボーイ": 180.0,
+    "ブリキノダンス": 155.0, "チュルリラチュルリラダッダッダ": 180.0, "エイリアンエイリアン": 155.0,
+    "惑星ループ": 168.0, "太陽系デスコ": 170.0, "ダンスロボットダンス": 170.0,
+    "ドーナツホール": 125.0, "パンダヒーロー": 135.0, "結ンデ開イテ羅刹ト骸": 120.0,
+    "快晴": 120.0, "雨とペトラ": 175.0, "ドラマツルギー": 146.0, "ナンセンス文学": 154.0,
+    "お気に召すまま": 135.0, "心予報": 126.0, "怪物": 170.0, "ギラギラ": 132.0,
+    "踊": 128.0, "うっせぇわ": 178.0, "唱": 135.0, "群青": 135.0, "ハルジオン": 130.0,
+    "祝福": 170.0, "勇者": 130.0, "残響散歌": 170.0, "感電": 104.0, "ピースサイン": 198.0,
+    "アイネクライネ": 96.0, "打上花火": 96.0, "kickback": 102.0, "怪獣の花唄": 150.0,
+    "踊り子": 102.0, "不可幸力": 100.0, "東京フラッシュ": 108.0, "喜劇": 110.0,
+    "ミックスナッツ": 150.0, "subtitle": 80.0, "ホワイトノイズ": 156.0, "ヨルニテ": 175.0,
+    "サンフェーデッド": 150.0, "サニーサイドへようこそ": 124.0, "異邦人": 124.0,
+    "エコー": 118.0, "ネバーエンド": 130.0, "デコレーター": 144.0, "愛言葉": 136.0,
+    "handinhand": 128.0,
+}
+KNOWN_TRACK_TEMPOS = {_norm_key(k): v for k, v in _KNOWN_TEMPOS_RAW.items()}
+
+
+def lookup_known_tempo(title="", channel=""):
+    """既知の有名曲・公式BPM辞書に合致すればその BPM (float) を返す。"""
+    t_norm = _norm_key(title)
+    c_norm = _norm_key(channel)
+    full = t_norm + c_norm
+    if not t_norm:
+        return None
+    # 1. 完全一致
+    if t_norm in KNOWN_TRACK_TEMPOS:
+        return KNOWN_TRACK_TEMPOS[t_norm]
+    # 2. キー長 3文字以上の部分一致 (短い単語の誤爆を防ぐ)
+    for k, bpm in KNOWN_TRACK_TEMPOS.items():
+        if len(k) >= 3 and (k in t_norm or (len(k) >= 5 and k in full)):
+            return bpm
+    return None
+
+
+# カテゴリごとの自然なBPM分布設定 (中心値, ばらつき幅, 最小BPM, 最大BPM)
+_CATEGORY_TEMPO_SPECS = {
+    "Vocaloid": (158.0, 26.0, 105.0, 198.0),
+    "J-POP":    (124.0, 24.0,  72.0, 175.0),
+    "Anime":    (150.0, 20.0,  95.0, 185.0),
+    "Lo-Fi":    (82.0,  12.0,  62.0, 105.0),
+    "Other":    (120.0, 22.0,  75.0, 175.0),
+}
+
+
+def estimate_tempo_rule_based(title, channel, category, rnd=None):
+    """曲名・アーティスト・ジャンルから、決定論的かつ自然に分散したBPMを推定する。
+
+    同一曲なら何度実行しても同一の値を返しつつ、未知曲が 140/143/160 などに密集せず、
+    各ジャンルの自然な音楽的分布 (ベルカーブ) に沿って整数BPMを美しく分散させる。
+    """
+    known = lookup_known_tempo(title, channel)
+    if known is not None:
+        return float(known)
+
+    if rnd is None:
+        seed = int(hashlib.md5(f"{title}\x00{channel}".encode("utf-8")).hexdigest(), 16) & 0x7FFFFFFF
+        rnd = random.Random(seed)
+
+    spec = _CATEGORY_TEMPO_SPECS.get(category, _CATEGORY_TEMPO_SPECS["Other"])
+    center, spread, min_b, max_b = spec
+
+    # キーワードによる音楽的テンポシフト
+    text = f"{title} {channel}".lower()
+    shift = 0.0
+    if any(w in text for w in ("ballad", "バラード", "waltz", "ワルツ", "sleep", "おやすみ",
+                               "chill", "acoustic", "piano", "slow", "ambient", "lullaby", "静けさ", "眠")):
+        shift -= 32.0
+    elif any(w in text for w in ("speed", "fast", "rock", "metal", "punk", "dash", "run",
+                                 "疾走", "超", "激", "rush", "hyper", "hardcore", "nightcore", "暴走")):
+        shift += 24.0
+    elif any(w in text for w in ("dance", "club", "edm", "house", "techno", "4つ打ち")):
+        shift += 6.0
+
+    # 3つの一様乱数を足して中央が自然に盛り上がる三角〜ガウス的分布 (-1.0 〜 +1.0)
+    jitter = (rnd.random() + rnd.random() + rnd.random() - 1.5) / 1.5
+    raw_bpm = center + (jitter * spread) + shift
+    clamped = max(min_b, min(max_b, raw_bpm))
+    return float(round(clamped))
+
+
+
 # ボカロP (Vocaloid プロデューサー) のチャンネル名。曲名にボイスバンク名が明記されていない
 # 曲でも、プロデューサー名から Vocaloid と判定できる (例: 「上書き / いよわ」)。
 # あくまで「ほぼ Vocaloid 専業」のプロデューサーに限定し、誤判定を避ける。
@@ -298,8 +401,11 @@ def _rule_based(title, channel, category):
     rnd = random.Random(seed)
     vals = {}
     for k in FEATURE_KEYS:
-        v = base.get(k, 0.5) + rnd.uniform(-0.12, 0.12)
-        vals[k] = _sanitize_value(v, k)
+        if k == "tempo":
+            vals[k] = estimate_tempo_rule_based(title, channel, category, rnd=rnd)
+        else:
+            v = base.get(k, 0.5) + rnd.uniform(-0.12, 0.12)
+            vals[k] = _sanitize_value(v, k)
     return vals, _guess_mood(vals)
 
 
@@ -530,10 +636,11 @@ def _call_llm_genre(title, channel, engine):
 _BPM_PROMPT = (
     "You are a musicologist who knows official BPM data. Output the song's official "
     "BPM (beats per minute) as an integer.\n"
-    "Calibrate with these real BPMs: 夜に駆ける=130, 紅蓮華=135, Tell Your World=140, "
-    "千本桜=154, メルト=170, Lemon=87, One Last Kiss=112, 炎=152, 廻廻奇譚=185, アイドル=166.\n"
-    "Vocaloid and J-pop songs have widely varying BPMs (85〜200); there is no single default. "
-    "Output the exact BPM only if you actually know this specific song, otherwise output 0.\n"
+    "Calibrate with these real BPMs across genres: Lemon=87, One Last Kiss=112, "
+    "夜に駆ける=130, 紅蓮華=135, Tell Your World=140, 千本桜=154, メルト=170, 廻廻奇譚=185.\n"
+    "Songs have widely varying BPMs (85〜200); there is no single default. "
+    "Do NOT guess a generic default like 140, 143, or 145 for unknown songs. "
+    "Output the exact BPM only if you actually know this specific song with certainty, otherwise output 0.\n"
     'Respond with JSON only: {"tempo": <integer or 0>}\n'
 )
 
@@ -569,6 +676,7 @@ def _ollama_json_call(prompt, temperature=0.3, num_predict=256):
     with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as res:
         text = (json.load(res).get("response") or "").strip()
     return _extract_json(text)
+
 
 
 def recommend_recipe(profile_text):
@@ -663,8 +771,14 @@ def analyze(title, channel, category):
 
     cleaned = {k: _sanitize_value(vals.get(k), k) for k in FEATURE_KEYS}
     # BPM は専用の短いプロンプトで聞き直す (特徴量と同時に聞くとボカロ曲が「140」に固まる)。
-    # 明確に分かる曲だけ採用し、不明 (0) ならルールベースのばらついた値へ戻す。
-    if engine in ("gemini", "ollama"):
+    # 1. 既知曲辞書 (公式/譜面BPM) を最優先
+    # 2. LLM で正確に分かる曲を採用 (明確に分かる場合のみ)
+    # 3. 不明 (0) や失敗時はルールベースの自然に分散した値へフォールバック
+    known_bpm = lookup_known_tempo(title, channel)
+    if known_bpm is not None:
+        cleaned["tempo"] = float(known_bpm)
+        tempo_source = "known"
+    elif engine in ("gemini", "ollama"):
         try:
             bpm = int(float((_call_llm_bpm(title, channel, engine) or {}).get("tempo") or 0))
             if 40 <= bpm <= 220:
@@ -674,7 +788,11 @@ def analyze(title, channel, category):
                 cleaned["tempo"] = _sanitize_value(rb["tempo"], "tempo")
                 tempo_source = "rules"
         except Exception:
-            pass   # 失敗時は feature 呼び出しの tempo をそのまま使う
+            cleaned["tempo"] = _sanitize_value(rb["tempo"], "tempo")
+            tempo_source = "rules"
+    else:
+        cleaned["tempo"] = _sanitize_value(rb["tempo"], "tempo")
+        tempo_source = "rules"
     mood = (vals.get("mood") or "").strip().lower()
     if mood not in MOODS:
         mood = _guess_mood(cleaned)

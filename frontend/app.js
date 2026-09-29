@@ -8,10 +8,10 @@ export async function resolveTunedropApi() {
     const config = window.TUNEDROP_CONFIG || {};
     const candidates = config.apiUrl ? [config.apiUrl] : [
         new URL('api.php', window.location.href).href,
-        config.mampApiUrl || 'http://localhost:8888/tunedrop/api.php',
-        // MAMPのDocumentRootがこのプロジェクト直下に設定されている環境向けの最後の候補。
+        config.fallbackApiUrl || 'http://localhost:8888/api.php',
+        // 画面だけ別サーバー (Vite開発サーバー等) から開いている場合の最後の候補。
         // (古いコピーを向いている場合は health の features 判定で弾かれる)
-        'http://localhost:8888/api.php'
+        'http://127.0.0.1:8888/api.php'
     ];
     for (const candidate of [...new Set(candidates)]) {
         const url = new URL(candidate, window.location.href);
@@ -36,7 +36,7 @@ export async function resolveTunedropApi() {
             clearTimeout(timer);
         }
     }
-    throw new Error('APIに接続できません。MAMPを起動し、config.jsのmampApiUrl (既定: http://localhost:8888/tunedrop/api.php) と公開フォルダを確認してください。');
+    throw new Error('APIに接続できません。./start.sh (PHPビルトインサーバー) を実行し、接続先 (既定: http://localhost:8888/api.php) と公開フォルダを確認してください。');
 }
 
 export async function tunedropFetch(path, options) {
@@ -57,7 +57,7 @@ export async function tunedropFetch(path, options) {
     const response = await fetch(url, Object.assign({}, options, { headers }));
     if (!response.headers.get('content-type')?.includes('application/json')) {
         tunedropApiPromise = null;
-        throw new Error('APIからJSONが返りません。MAMPのPHP設定とconfig.jsを確認してください。');
+        throw new Error('APIからJSONが返りません。PHPサーバー (./start.sh) の状態と config.js を確認してください。');
     }
     // ログイン中に 401 が返ったらトークンが期限切れ・無効。
     // 何もしないと一覧が空のまま「プレイリストがありません」に見えてしまうため、
