@@ -605,10 +605,12 @@ test('Radarマップのキー操作はブラウザ標準ショートカットと
     assert.equal(run("radarKeyboardAction({ key: '-', ctrlKey: true })"), '', 'Ctrl+Minusはブラウザへ渡す');
     assert.equal(run("radarKeyboardAction({ key: '0', ctrlKey: true })"), '', 'Ctrl+0はブラウザへ渡す');
     assert.equal(run("radarKeyboardAction({ key: 'ArrowLeft', metaKey: true })"), '', 'Cmd+左はブラウザへ渡す');
-    assert.equal(run("radarKeyboardAction({ key: '+', shiftKey: true })"), 'zoom-in', 'Shiftで入力したPlusはズームインに使う');
-    assert.equal(run("radarKeyboardAction({ key: '-' })"), 'zoom-out', 'Minusはズームアウトに使う');
-    assert.equal(run("radarKeyboardAction({ key: ':' })"), '', 'コロン単独はズーム操作に使わない');
-    assert.equal(run("radarKeyboardAction({ key: ';' })"), '', 'セミコロン単独はズーム操作に使わない');
+    assert.equal(run("radarKeyboardAction({ key: ':' })"), 'zoom-in', 'コロンでズームインする');
+    assert.equal(run("radarKeyboardAction({ key: ';' })"), 'zoom-out', 'セミコロンでズームアウトする');
+    assert.equal(run("radarKeyboardAction({ key: ':', metaKey: true })"), '', 'Cmd+コロンはブラウザへ渡す');
+    assert.equal(run("radarKeyboardAction({ key: ';', ctrlKey: true })"), '', 'Ctrl+セミコロンはブラウザへ渡す');
+    assert.equal(run("radarKeyboardAction({ key: '+', shiftKey: true })"), 'zoom-in', 'Shiftで入力したPlusもズームインに使う');
+    assert.equal(run("radarKeyboardAction({ key: '-' })"), 'zoom-out', 'Minusもズームアウトに使う');
     assert.equal(run("radarKeyboardAction({ key: 'F' })"), 'fit', 'Fで表示中の曲を全体表示する');
 });
 
@@ -622,6 +624,11 @@ test('ヘルプに実装済みのキーボードショートカットを案内�
     for (const key of ['Enter', 'Esc', 'F', 'Home', 'End']) {
         assert.match(section, new RegExp(`<kbd>${key}<\\/kbd>`), `${key}キーを掲載する`);
     }
+    assert.match(section, /<kbd>:<\/kbd> \/ <kbd>;<\/kbd><span>ズームイン \/ ズームアウト<\/span>/, 'ズームは コロン / セミコロン を掲載する');
+    assert.match(section, /<kbd>:<\/kbd>（拡大）と<kbd>;<\/kbd>（縮小）/, 'どちらが拡大/縮小かを説明する');
+    const guide = html.match(/<div class="radar-keyboard-guide" id="radar-keyboard-guide">([\s\S]*?)<\/div>/)?.[1] || '';
+    assert.match(guide, /<kbd>:<\/kbd><kbd>;<\/kbd> ズーム/, 'マップ上のキー案内にコロン/セミコロンを出す');
+    assert.doesNotMatch(html, /プラスでズームイン/, '旧プラス/マイナス表記を残さない');
     assert.doesNotMatch(section, /Shift<\/kbd>\+<kbd>[NP]/, '未実装の曲送り操作を掲載しない');
 });
 

@@ -3346,7 +3346,7 @@ export function bindRadarPointer() {
         radarZoomToPoint(mx, my, e.shiftKey ? 0.7 : 1.4);
     });
 
-    // キーボード操作: +/-/F/0/矢印/Escape/Enter
+    // キーボード操作: : ; (ズーム) / + - (同じ動作) / F / 0 / 矢印 / Escape / Enter
     canvas.addEventListener('keydown', (e) => {
         const action = radarKeyboardAction(e);
         if (!action) return;
@@ -3384,8 +3384,9 @@ export function radarKeyboardAction(event) {
     if (!event || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return '';
     const key = String(event.key || '');
     const lower = key.toLowerCase();
-    if (key === '+') return 'zoom-in';
-    if (key === '-') return 'zoom-out';
+    // ズームは JIS 配列で押しやすい ; / : を主に使い、+ / - も同じ動作で受け付ける
+    if (key === ':' || key === '+') return 'zoom-in';
+    if (key === ';' || key === '-') return 'zoom-out';
     if (lower === 'f') return 'fit';
     if (key === '0') return 'reset';
     if (key === 'ArrowLeft') return 'pan-left';
