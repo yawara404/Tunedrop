@@ -555,6 +555,44 @@ test('PC幅ではRadarの絞り込みはシートにせず、ツールバー内�
     assert.equal(run("document.getElementById('btn-radar-clear').classList.contains('is-empty')"), true);
 });
 
+test('Radar下部一覧は横端でもトラックパッド操作を一覧内で消費する', () => {
+    const strip = elementById('vibe-track-strip');
+    strip.scrollWidth = 1200;
+    strip.clientWidth = 400;
+    strip.scrollLeft = 800;
+    strip.scrollBy = ({ left }) => { strip.scrollLeft += left; };
+    strip.scrollTo = ({ left }) => { strip.scrollLeft = left; };
+    run('bindRadarStripScroll()');
+    assert.equal(strip.handlers.get('wheel').length, 1, 'wheelリスナーは1回だけ登録');
+    run('bindRadarStripScroll()');
+    assert.equal(strip.handlers.get('wheel').length, 1, '再初期化でも多重登録しない');
+
+    let prevented = false;
+    let stopped = false;
+    strip.fire('wheel', {
+        deltaX: 80, deltaY: 2, deltaMode: 0,
+        preventDefault() { prevented = true; },
+        stopPropagation() { stopped = true; },
+    });
+    assert.equal(strip.scrollLeft, 800, '右端を越えてスクロールしない');
+    assert.equal(prevented, true, '端でも既定動作を止めて履歴ジェスチャーへ渡さない');
+    assert.equal(stopped, true, '親要素へ伝播しない');
+
+    prevented = false;
+    strip.fire('wheel', {
+        deltaX: 1, deltaY: 80, deltaMode: 0,
+        preventDefault() { prevented = true; },
+    });
+    assert.equal(prevented, false, '縦方向のページスクロールは妨げない');
+
+    let keyPrevented = false;
+    strip.fire('keydown', {
+        key: 'Home', preventDefault() { keyPrevented = true; }, stopPropagation() { },
+    });
+    assert.equal(strip.scrollLeft, 0, 'Homeキーで先頭へ移動');
+    assert.equal(keyPrevented, true);
+});
+
 test('並び順に新着順があり、追加日時 (added_at) の新しい順に並ぶ', () => {
     // 4つ目の枠と並び順は index.html (ビルド元のテンプレート) の構造もテストする
     const html = fs.readFileSync(`${__dirname}/../frontend/index.html`, 'utf8');
@@ -612,4 +650,3 @@ test('並び順に新着順があり、追加日時 (added_at) の新しい順�
     }
     console.log(`PASS: 使い勝手まわりの共通UI ${passed} 件 (トースト / モーダル / URL追加 / 検索)`);
 })();
-

@@ -3136,6 +3136,37 @@ export function renderVibeTracks(tracks, scrollToSelected) {
     }
 }
 
+// 横端でトラックパッドの慣性がページへ伝わり、ブラウザの戻る/進むになるのを防ぐ。
+// 縦方向のジェスチャーは止めず、通常どおりページをスクロールできるようにする。
+export function bindRadarStripScroll() {
+    const strip = document.getElementById('vibe-track-strip');
+    if (!strip || strip.dataset.radarStripScrollBound) return;
+    strip.dataset.radarStripScrollBound = '1';
+
+    strip.addEventListener('wheel', (event) => {
+        const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey;
+        const maxScroll = Math.max(0, strip.scrollWidth - strip.clientWidth);
+        if (!horizontal || maxScroll <= 0) return;
+
+        const rawDelta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+        const unit = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? strip.clientWidth : 1);
+        strip.scrollLeft = Math.max(0, Math.min(maxScroll, strip.scrollLeft + rawDelta * unit));
+        event.preventDefault();
+        event.stopPropagation();
+    }, { passive: false });
+
+    strip.addEventListener('keydown', (event) => {
+        const amount = Math.max(160, strip.clientWidth * 0.75);
+        if (event.key === 'ArrowLeft') strip.scrollBy({ left: -amount, behavior: 'smooth' });
+        else if (event.key === 'ArrowRight') strip.scrollBy({ left: amount, behavior: 'smooth' });
+        else if (event.key === 'Home') strip.scrollTo({ left: 0, behavior: 'smooth' });
+        else if (event.key === 'End') strip.scrollTo({ left: strip.scrollWidth, behavior: 'smooth' });
+        else return;
+        event.preventDefault();
+        event.stopPropagation();
+    });
+}
+
 export function canvasWidth() {
     return document.getElementById('radar-map-container')?.clientWidth || 0;
 }
@@ -4273,6 +4304,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.__gsiReadyQueued) { window.__gsiReadyQueued = false; }
     bindRadarControls();
     bindRadarPointer();
+    bindRadarStripScroll();
     // Keep the canvas aligned while the mobile workspace slides below the player.
     const radarContainer = document.getElementById('radar-map-container');
     if (radarContainer) {
@@ -4395,4 +4427,3 @@ document.addEventListener("DOMContentLoaded", () => {
     const input = document.getElementById('radar-title-search');
     if (input) input.placeholder = '🔍 曲名・アーティストで絞り込み...';
 })();
-

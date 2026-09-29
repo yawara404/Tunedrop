@@ -1732,6 +1732,9 @@ body.player-in-sidebar .youtube-popup.is-active {
     display: flex;
     gap: 10px;
     overflow-x: auto;
+    /* 横端で余ったトラックパッド操作をブラウザ履歴へ渡さない。 */
+    overscroll-behavior-x: contain;
+    overscroll-behavior-inline: contain;
     padding: 14px 2px 4px;
     flex-shrink: 0;
 }
