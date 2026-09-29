@@ -605,10 +605,10 @@ test('Radarマップのキー操作はブラウザ標準ショートカットと
     assert.equal(run("radarKeyboardAction({ key: '-', ctrlKey: true })"), '', 'Ctrl+Minusはブラウザへ渡す');
     assert.equal(run("radarKeyboardAction({ key: '0', ctrlKey: true })"), '', 'Ctrl+0はブラウザへ渡す');
     assert.equal(run("radarKeyboardAction({ key: 'ArrowLeft', metaKey: true })"), '', 'Cmd+左はブラウザへ渡す');
-    assert.equal(run("radarKeyboardAction({ key: ':' })"), 'zoom-in', 'JIS配列のコロンでズームインする');
-    assert.equal(run("radarKeyboardAction({ key: ';' })"), 'zoom-out', 'JIS配列のセミコロンでズームアウトする');
-    assert.equal(run("radarKeyboardAction({ key: '+' })"), '', 'PlusはRadar側で奪わない');
-    assert.equal(run("radarKeyboardAction({ key: '-' })"), '', 'MinusはRadar側で奪わない');
+    assert.equal(run("radarKeyboardAction({ key: '+', shiftKey: true })"), 'zoom-in', 'Shiftで入力したPlusはズームインに使う');
+    assert.equal(run("radarKeyboardAction({ key: '-' })"), 'zoom-out', 'Minusはズームアウトに使う');
+    assert.equal(run("radarKeyboardAction({ key: ':' })"), '', 'コロン単独はズーム操作に使わない');
+    assert.equal(run("radarKeyboardAction({ key: ';' })"), '', 'セミコロン単独はズーム操作に使わない');
     assert.equal(run("radarKeyboardAction({ key: 'F' })"), 'fit', 'Fで表示中の曲を全体表示する');
 });
 
