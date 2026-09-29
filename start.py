@@ -71,10 +71,46 @@ def resolve_python() -> str:
 
 
 def resolve_php() -> str | None:
+    """PHP の実行ファイルを探す (PHP_BIN → PATH → よくあるインストール先)。
+
+    winget / ZIP / XAMPP などで入れた直後は PATH がまだ効いていないことが多いため、
+    代表的な場所も見に行く。
+    """
     override = (os.environ.get('PHP_BIN') or '').strip()
     if override:
         return override
-    return shutil.which('php') or shutil.which('php.exe')
+    found = shutil.which('php') or shutil.which('php.exe')
+    if found:
+        return found
+    # PATH に無い場合のよくある場所 (Windows)
+    candidates = [Path('C:\\php') / 'php.exe', Path('C:\\php8') / 'php.exe',
+                  Path('C:\\php7') / 'php.exe', Path('C:\\tools\\php') / 'php.exe',
+                  Path('C:\\xampp\\php') / 'php.exe',
+                  Path('C:\\Program Files\\PHP') / 'php.exe',
+                  Path('C:\\Program Files (x86)\\PHP') / 'php.exe',
+                  Path('C:\\ProgramData\\chocolatey\\bin') / 'php.exe']
+    local = os.environ.get('LOCALAPPDATA')
+    if local:
+        candidates.append(Path(local) / 'Microsoft' / 'WinGet' / 'Links' / 'php.exe')
+        candidates.append(Path(local) / 'Programs' / 'php' / 'php.exe')
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError:
+            continue
+    # winget のパッケージフォルダを浅く探索
+    if local:
+        packages = Path(local) / 'Microsoft' / 'WinGet' / 'Packages'
+        if packages.is_dir():
+            try:
+                for pattern in ('PHP.PHP*/**/php.exe', '*/php.exe'):
+                    for match in packages.glob(pattern):
+                        if match.is_file():
+                            return str(match)
+            except OSError:
+                pass
+    return None
 
 
 def resolve_npm() -> str | None:
@@ -363,7 +399,8 @@ def serve(argv) -> int:
         return 1
     php = resolve_php()
     if not php:
-        print('PHPが見つかりません。PHPをインストールするか、PHP_BIN=C:\\path\\to\\php.exe を指定してください。', file=sys.stderr)
+        print('PHPが見つかりません。PHPをインストールして新しいターミナルで再実行するか、'
+              'PHP_BIN=C:\\php\\php.exe のように指定してください。', file=sys.stderr)
         return 1
     if not build_frontend_if_needed():
         return 1

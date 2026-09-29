@@ -55,6 +55,11 @@ winget install --id PHP.PHP.8.3 -e
 php --version
 ```
 
+> インストール直後は、**開いているターミナルに PATH が反映されません**。新しいターミナルを
+> 開いて `php --version` を確認してください。見つからない場合は `where.exe php` で場所を調べ、
+> `$env:PHP_BIN='C:\php\php.exe'` を設定すれば `start.cmd` がそれを使います
+> （`start.py` は `C:\php`・XAMPP・winget などの定番の場所も自動で探します）。
+
 winget が無い（一部の Windows Server など）場合は ZIP 版を使います:
 
 1. https://windows.php.net/download/ から「VS16 x64 Thread Safe」の ZIP を取得
@@ -267,6 +272,7 @@ setx PHP_BIN 'C:\php\php.exe'
 | `pip install` がネット/SSL/プロキシで失敗 | 下の「プロキシ / オフライン」を参照 |
 | サーバーがオフライン | 下の「プロキシ / オフライン」を参照 |
 | `PHPが見つかりません` | PHP を PATH に追加。または PowerShell で `$env:PHP_BIN='C:\php\php.exe'`（cmd は `set PHP_BIN=...`）して起動 |
+| `php` コマンドが使えない | インストール直後は PATH が未反映です。**新しいターミナル**を開いて `php --version`。効かない場合は `where.exe php` で場所を確認し、`$env:PHP_BIN='C:\php\php.exe'` を設定（`start.py` は `C:\php` など定番の場所も自動で探します） |
 | `画面 (index.html) がありません` | `npm install && npm run build` を実行（Node.js が必要） |
 | 画面は出るが API がエラー | `.env` と `php -m`（`pdo_sqlite`）を確認。`database.sqlite` の書き込み権限を確認 |
 | Radar の解析が動かない | `ffmpeg` / `yt-dlp` を PATH に追加。`python -m pip install librosa soundfile` |
