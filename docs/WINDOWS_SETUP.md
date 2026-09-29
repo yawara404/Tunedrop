@@ -289,3 +289,43 @@ pip download -r requirements.txt -d wheelhouse
 
 > 環境変数の設定方法（PowerShell の `$env:` / cmd の `set` / 永続化）は
 > セクション 3 の「環境変数」を参照してください。
+
+---
+
+## 7. 既存の clone を更新する
+
+すでに clone 済みのフォルダを最新にしたい場合は、そのフォルダで `git pull` します
+（**再cloneは不要**です）。
+
+```powershell
+cd C:\Users\<you>\Tunedrop
+git status                     # ローカルに変更が無いか確認
+git pull origin main
+git log --oneline -1           # 最新コミットを確認
+```
+
+- ローカルに変更があって `git pull` が止まる場合は、退避してから取り込みます:
+  ```powershell
+  git stash
+  git pull origin main
+  git stash pop
+  ```
+- サーバー側では編集しておらず、**リモートの内容で上書きしてよい**場合:
+  ```powershell
+  git fetch origin
+  git reset --hard origin/main
+  ```
+- `.env` / `database.sqlite` / `.venv` / `node_modules` / `analysis_*.json` などは
+  Git 管理外なので、更新しても消えません（`git reset --hard` でも残ります）。
+- **ZIPダウンロードで展開したフォルダは `.git` が無いため `git pull` できません**。
+  その場合は `git clone` し直してください。
+
+更新後の起動:
+
+```powershell
+.\start.cmd
+```
+
+> `start.cmd` / `start.ps1` / `start.py` が追加された版（`1c57ecf` 以降）を取り込むと、
+> これらがフォルダに現れます。
+
