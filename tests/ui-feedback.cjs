@@ -593,6 +593,19 @@ test('Radar下部一覧は横端でもトラックパッド操作を一覧内で
     assert.equal(keyPrevented, true);
 });
 
+test('ヘルプに実装済みのキーボードショートカットを案内する', () => {
+    const html = fs.readFileSync(`${__dirname}/../frontend/index.html`, 'utf8');
+    assert.match(html, /href="#help-shortcuts"/, '目次からショートカット欄へ移動できる');
+    const section = html.match(/<section class="help-section" id="help-shortcuts">([\s\S]*?)<\/section>/)?.[1] || '';
+    assert.match(section, /検索欄/, '検索欄の操作を説明する');
+    assert.match(section, /Radarマップ/, 'Radarマップの操作を説明する');
+    assert.match(section, /Radar下部の楽曲一覧/, 'Radar下部一覧の操作を説明する');
+    for (const key of ['Enter', 'Esc', 'Home', 'End']) {
+        assert.match(section, new RegExp(`<kbd>${key}<\\/kbd>`), `${key}キーを掲載する`);
+    }
+    assert.doesNotMatch(section, /Shift<\/kbd>\+<kbd>[NP]/, '未実装の曲送り操作を掲載しない');
+});
+
 test('並び順に新着順があり、追加日時 (added_at) の新しい順に並ぶ', () => {
     // 4つ目の枠と並び順は index.html (ビルド元のテンプレート) の構造もテストする
     const html = fs.readFileSync(`${__dirname}/../frontend/index.html`, 'utf8');
