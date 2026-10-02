@@ -145,6 +145,8 @@ brew install cloudflared
 
 `https://music.example.com` を開き、前節のHTTP確認も同じ公開ホスト名で繰り返します。携帯回線からログイン・保存を試します。APIや管理画面を「Cache Everything」などのルールでキャッシュしないでください。
 
+公開トンネルを繰り返し立ち上げる場合は `./tunnel.sh` を使えます（`./tunnel.sh start | stop | restart | status`）。これは Cloudflare ダッシュボード管理のトンネルを **トークンで起動**するもので、トークンは `~/.cloudflared/tunedrop.token`（600）に置きます。**トークンは秘密情報なのでコミットしないこと**（`.cloudflared/` は `.gitignore` 済み）。ingress はダッシュボード側にあるため、ローカルに設定ファイルは不要です。
+
 固定ドメインを用意する前の短時間の確認には以下も使えます。ランダムなURLが表示されます。これは開発用で、常設公開には名前付きトンネルを使います。
 
 ```bash
