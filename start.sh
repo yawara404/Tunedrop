@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 # ./start.sh: Web配信 (PHPビルトインサーバー + router.php) と 認証・解析サーバー (Python) を起動する。
-# 実処理はクロスプラットフォーム版の start.py に集約している (Windows は start.cmd / start.ps1 / python start.py)。
+# 実処理はクロスプラットフォーム版の start.py に集約している (Windows は python start.py)。
 # zsh用 (./start.sh / zsh start.sh。bash / Git Bash でも動作可)
 set -e
 if [[ -n "${ZSH_VERSION:-}" ]]; then
