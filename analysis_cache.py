@@ -7,6 +7,7 @@ AI 推定特徴量 (Gemini) と音源解析の実測値 (librosa / CLAP) を
 import json
 import math
 import sqlite3
+import mysql_db
 import time
 from contextlib import closing
 
@@ -47,6 +48,8 @@ MANUAL_BPM_KEYS = (
 
 def connect(db_path, timeout_seconds=5):
     """ロック待ち時間を明示した SQLite 接続を返す。"""
+    if mysql_db.enabled():
+        return mysql_db.connect()
     db = sqlite3.connect(db_path, timeout=timeout_seconds)
     db.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS};")
     return db
@@ -64,6 +67,8 @@ def num(v, default=0.0):
 
 
 def ensure_table(db):
+    if mysql_db.enabled():
+        return
     db.execute("CREATE TABLE IF NOT EXISTS analysis_cache ("
                "youtube_id TEXT PRIMARY KEY, data TEXT NOT NULL, "
                "updated_at INTEGER NOT NULL)")
@@ -134,9 +139,13 @@ def write_merged(db_path, video_id, fields):
                     merged = {}
             merged.update(protect_measured(merged, fields or {}))
             merged["measured"] = merged.get("tempo_source") in MEASURED_SOURCES
-            db.execute("INSERT INTO analysis_cache VALUES (?, ?, ?) "
-                       "ON CONFLICT(youtube_id) DO UPDATE SET "
-                       "data=excluded.data, updated_at=excluded.updated_at",
+            upsert = ("INSERT INTO analysis_cache VALUES (?, ?, ?) "
+                      "ON DUPLICATE KEY UPDATE data=VALUES(data), updated_at=VALUES(updated_at)"
+                      if mysql_db.enabled() else
+                      "INSERT INTO analysis_cache VALUES (?, ?, ?) "
+                      "ON CONFLICT(youtube_id) DO UPDATE SET "
+                      "data=excluded.data, updated_at=excluded.updated_at")
+            db.execute(upsert,
                        (video_id, json.dumps(merged, ensure_ascii=False),
                         int(time.time())))
             # closing() は接続を閉じるだけでコミットしないため明示的にコミットする

@@ -37,5 +37,12 @@ backups/
 /admin/
 /tests/admin-page.py
 /tests/admin-render.cjs
-# Detailed manual: local-only, not published on GitHub
+# 詳細マニュアル: ローカル専用 (GitHubには公開しない)
 /README.local.md
+# 検証用テストアカウントのメモ: 本番DBの実在アカウントと管理者APIの手順を含むため公開しない
+/docs/TEST_USER.md
+# プロジェクト内に隔離した PHP ランタイム (公式ソースをビルドしたもの)
+/.php/
+# プロモーション動画 (mp4 は合計 25MB 超。リポジトリを重くするため GitHub へは載せない)
+/promo_video/*.mp4
+

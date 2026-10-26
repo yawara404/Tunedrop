@@ -9,6 +9,14 @@
 // 先頭の /tunedrop を外して許可判定し、プレフィックス付きの要求は
 // このルーターが実ファイルを返す / エントリポイントを実行する (Alias 相当)。
 $requestPath = rawurldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/');
+
+// floppy.io は同じ公開 PHP サーバーから配信する別アプリ。実体は
+// docroot/floppy.io のシンボリックリンクなので、ルーターの許可リストを
+// 適用せず PHP ビルトインサーバーの通常処理へ渡す。
+if (preg_match('#^/floppy\.io(?:/|$)#', $requestPath)) {
+    return false;
+}
+
 $prefix = '';
 if (preg_match('#^/[Tt]unedrop(?=/|$)#', $requestPath, $matched)) {
     $prefix = $matched[0];

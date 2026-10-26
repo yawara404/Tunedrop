@@ -45,6 +45,9 @@ with tempfile.TemporaryDirectory() as directory:
     # Use the API's actual move statement to verify playlist arrival ordering.
     source = (ROOT / 'api.php').read_text()
     move_sql = source.split('$db->prepare("UPDATE bookmarks SET added_at = ', 1)[1].split('");', 1)[0]
+    # api.php は MySQL と SQLite で現在時刻の式を切り替えるため、PHP の変数補間
+    # ({$timestamp_sql}) が SQL 文に残る。SQLite 用の式へ戻してから実行する。
+    move_sql = move_sql.replace('{$timestamp_sql}', "strftime('%Y-%m-%d %H:%M:%f', 'now')")
     db.execute('UPDATE bookmarks SET added_at = ' + move_sql, (50, 50, 12, 99))  # tie-a を未整理へ移動
     db.commit()
     assert playlists()[50]['cover_id'] == 'tie-a'

@@ -7,6 +7,14 @@ Runs on http://localhost:5000
 
 import os
 import sqlite3
+try:
+    import mysql_db
+except ModuleNotFoundError:
+    # Standalone SQLite fixtures copy app.py without its optional MySQL adapter.
+    if os.environ.get('TUNEDROP_MYSQL_HOST'):
+        raise
+    from types import SimpleNamespace
+    mysql_db = SimpleNamespace(enabled=lambda: False, IntegrityError=sqlite3.IntegrityError)
 import datetime
 import time
 import json
@@ -65,6 +73,8 @@ GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 
 
 def get_db():
+    if mysql_db.enabled():
+        return mysql_db.connect()
     """SQLite 接続。PHP (api.php) と同時に書き込んでもハングしないよう
     busy_timeout を短く設定する (待ち切れないときは例外で即座に返す)。"""
     conn = sqlite3.connect(DB_PATH, timeout=DB_BUSY_TIMEOUT_SECONDS)
@@ -92,6 +102,14 @@ def enable_wal_mode(conn):
 
 def init_db_if_needed():
     """Ensure database and tables exist."""
+    if mysql_db.enabled():
+        # mysql_schema.sql is applied once before starting the application.
+        conn = get_db()
+        try:
+            conn.execute('SELECT 1 FROM users LIMIT 1')
+        finally:
+            conn.close()
+        return
     conn = get_db()
     enable_wal_mode(conn)
     with conn:
@@ -164,7 +182,7 @@ def migrate_system_playlists(conn):
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS playlists_system_key_unique ON playlists(user_id, system_key)"
         )
-    except sqlite3.IntegrityError:
+    except (sqlite3.IntegrityError, mysql_db.IntegrityError):
         # 既に重複した system_key がある場合は索引作成をあきらめる (動作には影響しない)
         pass
     for system_key, name, _category, _is_public, _is_favorite in SYSTEM_PLAYLISTS:
@@ -216,7 +234,7 @@ def migrate_unique_bookmarks(conn):
             "CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_playlist_video_unique "
             "ON bookmarks(playlist_id, youtube_id)"
         )
-    except sqlite3.IntegrityError:
+    except (sqlite3.IntegrityError, mysql_db.IntegrityError):
         # 同時書き込みで掃除しきれない重複が残っていた場合は索引作成をあきらめる (動作には影響しない)
         pass
     # 旧仕様 (ゲスト全リストで1曲1件) のトリガーが残っていたら撤去する。
@@ -349,7 +367,7 @@ def register():
         insert_default_library(cursor, user_id)
 
         conn.commit()
-    except sqlite3.IntegrityError:
+    except (sqlite3.IntegrityError, mysql_db.IntegrityError):
         conn.close()
         return jsonify({'error': 'このユーザー名は既に使用されています。'}), 409
     except Exception as e:
@@ -490,7 +508,7 @@ def update_profile():
             return jsonify({'error': 'このユーザー名は既に使用されています。'}), 409
         conn.execute("UPDATE users SET display_name=? WHERE id=?", (name, decoded['user_id']))
         conn.commit()
-    except sqlite3.IntegrityError:
+    except (sqlite3.IntegrityError, mysql_db.IntegrityError):
         return jsonify({'error': 'このユーザー名は既に使用されています。'}), 409
     finally:
         conn.close()
@@ -615,9 +633,10 @@ def _save_analysis_cache(video_id, result, merge=False):
     try:
         import analysis_cache
         conn = get_db()
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS analysis_cache ("
-            "youtube_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+        if not mysql_db.enabled():
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS analysis_cache ("
+                "youtube_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)")
         import json
         data = dict(result)
         if merge:
@@ -628,9 +647,12 @@ def _save_analysis_cache(video_id, result, merge=False):
         # 「保存されている tempo が実測値かどうか」を常に明確にする
         data["measured"] = (data.get("tempo_source")
                             in analysis_cache.MEASURED_SOURCES)
+        cache_sql = ("INSERT INTO analysis_cache (youtube_id, data, updated_at) VALUES (?, ?, ?) "
+                     "ON DUPLICATE KEY UPDATE data=VALUES(data), updated_at=VALUES(updated_at)"
+                     if mysql_db.enabled() else
+                     "INSERT OR REPLACE INTO analysis_cache (youtube_id, data, updated_at) VALUES (?, ?, ?)")
         conn.execute(
-            "INSERT OR REPLACE INTO analysis_cache (youtube_id, data, updated_at) "
-            "VALUES (?, ?, ?)",
+            cache_sql,
             (video_id, json.dumps(data, ensure_ascii=False), int(time.time())))
         conn.commit()
     except Exception:
@@ -1035,6 +1057,7 @@ def _map_cache_key(public_only, user_id):
     return (bool(public_only), int(user_id), tuple(bookmarks), tuple(playlists), tuple(cache))
 
 
+
 def _dedup_bookmarks(items):
     """bookmarks の重複 (同一曲が複数プレイリストに属する) を除外する。
 
@@ -1125,8 +1148,7 @@ def radar_map():
     user_id = _num(request.args.get('user_id'), 0)
 
     # 同じ内容ならキャッシュを返す (UIは解析中に何度も呼ぶため、毎回UMAPを回さない)。
-    # 内容が変わっていても MAP_MIN_INTERVAL 秒は古いキャッシュを返し、
-    # 解析バッチ中の連続再計算を防ぐ (次に呼ばれたときに作り直す)。
+    # 内容が変わっていても MAP_MIN_INTERVAL 秒は古いキャッシュを返し、解析バッチ中の連続再計算を防ぐ。
     cache_key = _map_cache_key(public_only, user_id)
     if _MAP_CACHE['payload'] is not None:
         age = time.time() - _MAP_CACHE['at']

@@ -1,10 +1,23 @@
 <?php
+if (is_file(__DIR__ . '/mysql_db.php')) require_once __DIR__ . '/mysql_db.php';
+elseif (getenv('TUNEDROP_MYSQL_HOST')) throw new RuntimeException('mysql_db.php is missing');
+if (!function_exists('tunedrop_mysql_enabled')) {
+    function tunedrop_mysql_enabled(): bool { return false; }
+}
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 header('Content-Type: application/json; charset=utf-8');
+// CORS は全オリジンに開放する。認証は Cookie ではなく Authorization: Bearer
+// (ブラウザが自動送信しない値) のため、他サイトから認証済みリクエストを
+// 作ることはできない。画面を別ホスト (Vite開発サーバー等) から開く
+// frontend/config.js の fallbackApiUrl でも同じAPIを叩けるようにするために必要。
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+// 応答は JSON のみ。ブラウザの MIME 推測でスクリプトとして実行されるのを防ぎ、
+// 外部サイトへ参照元URLを渡さない (公開サーバーでも安全側に倒す)。
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -428,6 +441,7 @@ function system_playlist_offset(PDO $db, int $user_id): int {
  *                  JSON エラーを返す (30秒待たせない)
  */
 function open_tunedrop_db(string $db_path): PDO {
+    if (tunedrop_mysql_enabled()) return tunedrop_mysql_db();
     $db = new PDO("sqlite:" . $db_path, null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_TIMEOUT => (int)ceil(TUNEDROP_BUSY_TIMEOUT_MS / 1000),
@@ -454,6 +468,7 @@ function open_tunedrop_db(string $db_path): PDO {
  * migrate_unique_bookmarks() が毎リクエスト確認する (直すべき行があるときだけ書き込む)。
  */
 function ensure_schema(PDO $db): void {
+    if (tunedrop_mysql_enabled()) return;
     $version = (int)$db->query("PRAGMA user_version")->fetchColumn();
     if ($version >= TUNEDROP_SCHEMA_VERSION) return;
 
@@ -524,7 +539,7 @@ const RECOMMEND_DEFAULT_SETTINGS = [
 function recommend_settings(PDO $db): array {
     $settings = RECOMMEND_DEFAULT_SETTINGS;
     try {
-        $rows = $db->query("SELECT key, value FROM site_settings WHERE key LIKE 'recommend.%'")
+        $rows = $db->query("SELECT `key`, value FROM site_settings WHERE `key` LIKE 'recommend.%'")
             ->fetchAll(PDO::FETCH_KEY_PAIR);
     } catch (Throwable $error) {
         return $settings;
@@ -543,8 +558,10 @@ try {
     ensure_schema($db);
     // 旧DBの掃除 (固定タブの印・古いお気に入り行・重複ブックマーク) は毎回確認する。
     // 直すべき行があるときだけ書き込むため、通常のリクエストは読み取りだけで済む。
-    migrate_system_playlists($db);
-    migrate_unique_bookmarks($db);
+    if (!tunedrop_mysql_enabled()) {
+        migrate_system_playlists($db);
+        migrate_unique_bookmarks($db);
+    }
 
     $action = $_GET['action'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'];
@@ -757,7 +774,8 @@ try {
                 if ($missingChannel($channel)) $channel = 'Unknown Artist';
 
                 try {
-                    $stmt = $db->prepare("INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, added_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))");
+                    $timestamp_sql = tunedrop_mysql_enabled() ? 'CURRENT_TIMESTAMP(3)' : "strftime('%Y-%m-%d %H:%M:%f', 'now')";
+                    $stmt = $db->prepare("INSERT INTO bookmarks (playlist_id, youtube_id, title, channel, added_at) VALUES (?, ?, ?, ?, {$timestamp_sql})");
                     $stmt->execute([$playlist_id, $youtube_id, $title, $channel]);
                 } catch (PDOException $error) {
                     // 同時リクエストで先に同一リストへ追加されていた場合 (ユニーク索引違反) も重複を作らず通知する
@@ -825,7 +843,8 @@ try {
                     break;
                 }
                 try {
-                    $stmt = $db->prepare("UPDATE bookmarks SET added_at = CASE WHEN playlist_id != ? THEN strftime('%Y-%m-%d %H:%M:%f', 'now') ELSE added_at END, playlist_id = ? WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
+                    $timestamp_sql = tunedrop_mysql_enabled() ? 'CURRENT_TIMESTAMP(3)' : "strftime('%Y-%m-%d %H:%M:%f', 'now')";
+                    $stmt = $db->prepare("UPDATE bookmarks SET added_at = CASE WHEN playlist_id != ? THEN {$timestamp_sql} ELSE added_at END, playlist_id = ? WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
                     $stmt->execute([$input['target_playlist_id'], $input['target_playlist_id'], $input['id'], $user_id]);
                 } catch (PDOException $error) {
                     // 同時リクエストで移動先に同一曲が入った場合も重複を作らない
@@ -857,7 +876,75 @@ try {
             $stmt->execute([$value, $user_id, $user_id, $user_id]);
             $track = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$track) {
-                echo json_encode(['success'=>false, 'error'=>'お気に入りにできる曲が見つかりません。'], JSON_UNESCAPED_UNICODE);
+                // Radar は解析済みなら他ユーザーの非公開リストの曲も表示する。
+                // 閲覧者がまだ保存していない曲は、解析済み (=Radar に出ている) 場合だけ
+                // メタデータを引き継いで自分の「未整理」へコピーし、お気に入りにする。
+                // 未解析の非公開曲は従来どおり拒否する (ID の推測による取り込みを防ぐ)。
+                $analyzed = false;
+                if ($by_video) {
+                    $cache = $db->prepare("SELECT 1 FROM analysis_cache WHERE youtube_id=? LIMIT 1");
+                    $cache->execute([$value]);
+                    $analyzed = (bool)$cache->fetchColumn();
+                }
+                if ($action === 'get_track_favorite') {
+                    if (!$analyzed) {
+                        echo json_encode(['success'=>false, 'error'=>'お気に入りにできる曲が見つかりません。'], JSON_UNESCAPED_UNICODE);
+                        break;
+                    }
+                    echo json_encode([
+                        'success' => true,
+                        'is_favorite' => 0,
+                        'youtube_id' => (string)$value,
+                    ], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+                if (!$by_video || !$analyzed) {
+                    echo json_encode(['success'=>false, 'error'=>'お気に入りにできる曲が見つかりません。'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+                $source = $db->prepare(
+                    "SELECT youtube_id, title, channel FROM bookmarks WHERE youtube_id=? ORDER BY id DESC LIMIT 1"
+                );
+                $source->execute([$value]);
+                $source_track = $source->fetch(PDO::FETCH_ASSOC);
+                if (!$source_track) {
+                    echo json_encode(['success'=>false, 'error'=>'お気に入りにできる曲が見つかりません。'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+                ensure_system_playlists($db, $user_id);
+                $inbox = $db->prepare("SELECT id FROM playlists WHERE user_id=? AND system_key='inbox' LIMIT 1");
+                $inbox->execute([$user_id]);
+                $inbox_id = (int)$inbox->fetchColumn();
+                if ($inbox_id <= 0) {
+                    echo json_encode(['success'=>false, 'error'=>'未整理リストを作成できませんでした。'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+                $timestamp_sql = tunedrop_mysql_enabled() ? 'CURRENT_TIMESTAMP(3)' : "strftime('%Y-%m-%d %H:%M:%f', 'now')";
+                $insert_sql = tunedrop_mysql_enabled() ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
+                $db->beginTransaction();
+                try {
+                    $insert = $db->prepare(
+                        "{$insert_sql} INTO bookmarks (playlist_id, youtube_id, title, channel, is_favorite, added_at)
+                         VALUES (?, ?, ?, ?, 1, {$timestamp_sql})"
+                    );
+                    $insert->execute([
+                        $inbox_id,
+                        $source_track['youtube_id'],
+                        $source_track['title'] ?: 'Unknown Title',
+                        $source_track['channel'] ?: 'Unknown Artist',
+                    ]);
+                    $mark = $db->prepare("UPDATE bookmarks SET is_favorite=1 WHERE playlist_id=? AND youtube_id=?");
+                    $mark->execute([$inbox_id, $source_track['youtube_id']]);
+                    $db->commit();
+                } catch (Throwable $error) {
+                    $db->rollBack();
+                    throw $error;
+                }
+                echo json_encode([
+                    'success' => true,
+                    'is_favorite' => 1,
+                    'youtube_id' => $source_track['youtube_id'],
+                ], JSON_UNESCAPED_UNICODE);
                 break;
             }
             if ($action === 'toggle_favorite_bookmark') $db->beginTransaction();
@@ -873,7 +960,8 @@ try {
                         AND target_id IN (SELECT id FROM bookmarks WHERE youtube_id=?)");
                     $stmt->execute([$user_id, $track['youtube_id']]);
                 } elseif ((int)$track['user_id'] !== $user_id) {
-                    $stmt = $db->prepare("INSERT OR IGNORE INTO public_favorites (user_id, kind, target_id) VALUES (?, 'track', ?)");
+                    $insert_sql = tunedrop_mysql_enabled() ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
+                    $stmt = $db->prepare("{$insert_sql} INTO public_favorites (user_id, kind, target_id) VALUES (?, 'track', ?)");
                     $stmt->execute([$user_id, $track['id']]);
                 }
                 $db->commit();
@@ -909,8 +997,21 @@ try {
                     if (preg_match('/(\d+)\s*曲/u', $plName, $m)) {
                         $limit = max(1, min(50, (int)$m[1]));
                     }
-                    $stmt = $db->prepare("SELECT b.* FROM bookmarks b JOIN playlists p ON p.id = b.playlist_id GROUP BY b.youtube_id ORDER BY RANDOM() LIMIT ?");
-                    $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+                    // 抽選対象は「このリクエストで参照できる曲」に限定する (自分が所有するリスト + 公開リスト)。
+                    // 全 bookmarks から引くと、他人の非公開リストの曲名・チャンネルまで返ってしまう。
+                    $random_sql = tunedrop_mysql_enabled() ? 'RAND()' : 'RANDOM()';
+                    $stmt = $db->prepare(
+                        "SELECT b.* FROM bookmarks b
+                         WHERE b.id IN (
+                           SELECT MIN(x.id) FROM bookmarks x
+                           JOIN playlists px ON px.id = x.playlist_id
+                           WHERE px.user_id = ? OR px.is_public = 1
+                           GROUP BY x.youtube_id
+                         )
+                         ORDER BY {$random_sql} LIMIT ?"
+                    );
+                    $stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+                    $stmt->bindValue(2, $limit, PDO::PARAM_INT);
                     $stmt->execute();
                     $randomizeOrder = true;
                 } else {
@@ -1191,7 +1292,16 @@ try {
         case 'radar_analyze_all': {
             // force / audio / limit / wait / reset / resume を Flask へ転送する
             // (旧パラメータ名 essentia も audio として受付)
+            //
+            // 解析対象は必ず「呼び出し元のライブラリ」に固定する。
+            // user_id を渡さないと Flask 側は _db_bookmarks() の全件 (= 全ユーザー) を
+            // 対象にするため、未ログインでも
+            // 「全ユーザーぶんの音源DLと再解析」を起動できてしまい、
+            // 負荷攻撃と他人データの書き換えにつながる。
+            // 全ユーザーをまとめて再解析するのは管理用の reanalyze_songs.py (CLI) の役割。
+            // 呼び出し元以外の user_id は受け付けない。
             $qs = http_build_query([
+                'user_id' => require_user_or_guest($db),
                 'force' => isset($_GET['force']) ? (int)$_GET['force'] : 0,
                 'audio' => isset($_GET['audio']) ? (int)$_GET['audio']
                     : (isset($_GET['essentia']) ? (int)$_GET['essentia'] : 1),
@@ -1278,9 +1388,14 @@ try {
     // フロントは「時間をおいて再試行」すれば復帰できる。
     $locked = stripos($e->getMessage(), 'database is locked') !== false
         || stripos($e->getMessage(), 'database table is locked') !== false;
+    // DB例外のメッセージには DB のパスやテーブル名が入るため応答へは出さない。
+    // 調査用にサーバーのログへだけ残す (display_errors=0 と同じ方針)。
+    error_log('TuneDrop DB error: ' . $e->getMessage());
     http_response_code($locked ? 503 : 500);
     echo json_encode([
-        'error' => $locked ? 'データベースが混雑しています。少し待って再試行してください。' : 'Database error: ' . $e->getMessage(),
+        'error' => $locked
+            ? 'データベースが混雑しています。少し待って再試行してください。'
+            : 'データベースエラーが発生しました。サーバーのログを確認してください。',
         'retryable' => $locked,
     ], JSON_UNESCAPED_UNICODE);
 }
