@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Copy a stopped TuneDrop SQLite database to an empty MySQL database."""
 import argparse
+import os
 import sqlite3
 from pathlib import Path
 
@@ -12,10 +13,14 @@ TABLES = ('users', 'playlists', 'bookmarks', 'public_favorites', 'analysis_cache
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--sqlite', default=str(Path(__file__).with_name('database.sqlite')))
+    parser.add_argument('--sqlite', default=None,
+                        help='移行元 SQLite のパス (既定: TUNEDROP_DB / プロジェクト直下の database.sqlite)')
     parser.add_argument('--apply', action='store_true', help='write to the configured empty MySQL database')
     args = parser.parse_args()
     load_environment()
+    if not args.sqlite:
+        # DB を配信フォルダの外に置く運用 (TUNEDROP_DB) にも追随する
+        args.sqlite = os.environ.get('TUNEDROP_DB') or str(Path(__file__).with_name('database.sqlite'))
     import mysql_db
     if not mysql_db.enabled():
         parser.error('set TUNEDROP_MYSQL_HOST, USER, PASSWORD, DATABASE in .env first')
