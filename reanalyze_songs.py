@@ -20,12 +20,24 @@ import json
 import os
 import sqlite3
 import mysql_db
+from runtime_config import load_environment
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT / "database.sqlite"
+
+
+def default_db_path() -> Path:
+    """DB の既定パス。`TUNEDROP_DB` (環境変数 / .env) を優先し、無ければプロジェクト直下。
+
+    DB をプロジェクトの外に置いている環境 (配信フォルダ内に置くと Live Server などの
+    ファイル監視が毎リクエストの書き換えを拾って無限リロードになるため) でも、
+    `--db` を省略したときに正しい DB を見るようにする。
+    """
+    load_environment()
+    return Path(os.environ.get("TUNEDROP_DB") or DEFAULT_DB)
 
 
 def fetch_bookmarks(db_path):
@@ -61,7 +73,8 @@ def fetch_bookmarks(db_path):
 
 def main():
     ap = argparse.ArgumentParser(description="既存曲を Gemini + 音源解析で再解析")
-    ap.add_argument("--db", default=str(DEFAULT_DB), help="database.sqlite のパス")
+    ap.add_argument("--db", default=str(default_db_path()),
+                    help="database.sqlite のパス (既定: TUNEDROP_DB / プロジェクト直下)")
     ap.add_argument("--no-audio", action="store_true",
                     help="音源解析をスキップして Gemini 推定のみ行う")
     ap.add_argument("--only", default="", help="この YouTube ID のみ再解析")
