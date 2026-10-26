@@ -1,0 +1,296 @@
+# TuneDrop：GitHub管理・Cloudflare Tunnelで自作サーバー公開
+
+対象は現在のmacOS。Web配信は `./start.sh`（PHPビルトインサーバー + `router.php`）が担当します。GitHubにはコードを保存し、PHP・Python・SQLiteは自分のサーバーで動かします。GitHub Pagesではこのアプリ全体を実行できません。
+
+MySQL へ移行する場合は [MySQL 移行手順](MYSQL_MIGRATION.md) に従ってください。以下の SQLite バックアップと WAL の説明は SQLite 利用時のものです。
+
+```text
+ブラウザ → https://music.example.com/tunedrop/ → Cloudflare Tunnel
+                                         ↓
+                    ./start.sh (127.0.0.1:8888)
+                      ├ PHPビルトインサーバー + router.php（公開ファイル許可リスト / /tunedrop プレフィックス対応）
+                      ├ 画面: Viteのビルド成果物 (index.html / assets/)
+                      ├ API: api.php（SQLite database.sqlite を直接読み書き）
+                      └ Python / Waitress (127.0.0.1:5001) … 認証・音源/AI解析
+GitHub → サーバーでコードを取得・更新（git pull → ./start.sh を再起動）
+```
+
+`music.example.com`・GitHubの所有者名などは自分の値に置き換えてください。固定URL用にはCloudflareでDNS管理するドメインが必要です。PCを停止・スリープすると公開も止まります。
+
+## 1. 今回追加した公開対策
+
+- `router.php` は公開するHTML（`index.html`）とビルド済み資産（`assets/*.js`, `*.css`, アイコン）、`api.php`・`ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（ローカル専用・Git未公開）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules` は配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面の補助スクリプトは配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。
+- `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と管理画面の起動スクリプトはこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
+- JWT署名鍵はPython起動時に `.jwt_secret` にランダム生成され、PHPも同じファイルを読みます。既知の旧鍵は拒否します。既存ユーザーは更新後に再ログインが必要です。
+- Googleログインは `google-auth` で署名・宛先・発行者・有効期限を検証し、検証失敗や通信失敗をログイン拒否にします。`GOOGLE_CLIENT_ID` 未設定ならGoogleログインは利用できません。
+- Pythonは `127.0.0.1` のみで待ち受けます。外からは `./start.sh`（PHP）経由で利用します。
+- `.gitignore` はDB、鍵、環境設定、バックアップなどを除外します。YouTube／Gemini APIキーはソースから除去し、環境変数で読み込みます。
+- 初回起動では空のDBを作り、デモアカウントを自動投入しません。既存DBはそのまま使います。
+
+## 2. 既存環境をバックアップ
+
+まず公開トンネル（Cloudflare Tunnel）を停止してから更新します。SQLiteは稼働中のファイルを単純コピーするのではなく、バックアップ機能を使います。
+
+```bash
+cd /Users/<username>/Tunedrop
+mkdir -p backups
+sqlite3 database.sqlite ".backup 'backups/before-publication.sqlite'"
+```
+
+`backups/` はGitとHTTP配信の対象外です。ディスク故障に備え、別媒体にも保管してください。このバックアップにはユーザー情報が含まれます。
+
+## 3. Pythonの準備と起動
+
+```bash
+cd /Users/<username>/Tunedrop
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+音源解析も使う場合はREADME.local.md（ローカルマニュアル）の解析用依存関係を追加してください。`requirements.txt` は認証サーバーの基本依存関係です。
+
+`.env.example` を参考に `.env` を作成し、`chmod 600 .env` で保護します。既存の `.env` は上書きしないでください。この環境ではソース内のYouTube／Gemini APIキーを `.env` に移動済みです。
+
+Pythonは `python-dotenv` でプロジェクト直下の `.env` を自動読み込みします。`./start.sh`、`python app.py`、解析スクリプトの直接実行でも利用できます。起動時の作業ディレクトリには依存しません。**OSやコマンドで指定した環境変数を優先**し、`.env` は未設定の値を補います。値は文字列として読み、シェルコマンドや `${VAR}` の展開は実行しません。変更後はPythonを再起動してください。
+
+別の設定ファイルを使う場合は `TUNEDROP_ENV_FILE=/absolute/path/server.env` を起動環境に設定します。指定したファイルがない場合は環境変数と既定値のみを使います。GoogleクライアントIDを `.env` に保存すれば毎回の指定は不要です。
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app.py
+# .env の PORT よりこちらの指定が優先されます
+PORT=5001 .venv/bin/python app.py
+```
+
+仕様の参考：[python-dotenv公式](https://bbc2.github.io/python-dotenv/)。
+
+- `YOUTUBE_API_KEY`：YouTube検索用。未設定でもURL/IDによる追加は使えます。
+- `GEMINI_API_KEY`：Gemini解析用。未設定時は他の利用可能な解析方式を使います。
+- 元のAPIキーがソースや共有済み履歴に含まれていた場合は、Google側で旧キーを失効・再発行し、API・利用元の制限を設定して `.env` を更新します。コードから消すだけでは旧キーは失効しません。
+
+Google Cloud Consoleでウェブアプリ用OAuthクライアントを設定します。
+
+- `frontend/config.js` の `googleClientId` にクライアントIDを設定。
+- サーバー起動時の `GOOGLE_CLIENT_ID` に同じ値を指定。クライアントIDは秘密鍵ではありません。
+- 承認済みJavaScript生成元に `http://localhost:8888` と `https://music.example.com` を追加。URLのパスや末尾の `/` は含めません。
+
+既存Pythonプロセスは元のターミナルでCtrl+Cで止め、次で起動します。
+
+```bash
+GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh
+```
+
+Googleログインを使わない場合（現在は未対応）は `PORT=5001 ./start.sh` で起動し、`frontend/config.js` の `googleClientId` を空文字にします。通常の新規登録・パスワードログインは使えます。
+
+`.jwt_secret` は一度生成したものを再利用します。中身をGitHub、チャット、ログへ貼らないでください。PHPの実行ユーザーがこのファイルを読める必要があります。既定の権限は600です。PHPを別ユーザーで動かす構成では専用グループと640などで読取権限を付け、全員が読める権限にはしないでください。
+
+高度な設定：`SECRET_KEY` を使う場合は32文字以上のランダム値をPHPとPythonの**両方**に設定します。`./start.sh` は `.env` を読み込んでPHPとPythonの両方に渡すため、`.env` に書けば両方へ反映されます。`TUNEDROP_SECRET_FILE` を使う場合は同じファイルパスを両プロセスへ設定してください。
+
+## 4. Webサーバーの設定（PHPビルトインサーバー）
+
+配信は `./start.sh` が行います。Webサーバー側の設定はこれだけです。
+
+```bash
+cd /Users/<username>/Tunedrop
+./start.sh          # 8888を優先。使用中なら別の空きポートへ自動でずれ、URLを表示する
+```
+
+- `./start.sh` は「必要なときだけ `npm run build`」→「認証・解析サーバー（Python）」→「Webサーバー（PHPビルトイン + `router.php`）」を起動します。
+- **公開ファイルの許可リストは `router.php`** が持ちます（従来の `.htaccess` と同じ規則）。DB・秘密鍵・Pythonソース・`.git`・バックアップ・`node_modules` はHTTPで取得できません。`php -S ...` をルーターなしで直接起動しないでください。
+- PHPビルトインサーバーは既定で1件ずつ処理するため、`./start.sh` はワーカー8個で起動します（`TUNEDROP_PHP_WORKERS=16 ./start.sh` で変更）。
+- **PHP は 2026-10-21 に公表された RCE 2件（CVE-2026-109618 / CVE-2026-109619）の修正版（8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降）が必須です。** `./start.sh` は起動時に PHP のバージョンを確認し、未修正なら起動を中止します。パッケージ配布への反映まではトンネルを停止して公開しないでください（詳細とローカル検証用の回避方法は [SECURITY.md](../SECURITY.md)）。
+- ビルトインサーバーは `memory_limit=256M` / `display_errors=0` / `log_errors=1` / `expose_php=0` を付けて起動し、OOM 時の影響と内部情報・PHP バージョンの露出を抑えます。
+- パッケージ配布が遅れている場合は、公式ソースの 8.5.12 をプロジェクト直下の `.php/` にビルドできます（`.gitignore` 対象）。`start.py` と管理画面の起動スクリプトは `.php/bin/php` を優先します。Homebrew が修正版を配布したら `.php/` を削除してパッケージ管理へ戻してください。
+- 公開URLは `/tunedrop/` 配下です。`router.php` はこのプレフィックスを外して許可判定し、実ファイルの配信と `api.php` / `ogp.php` / 管理画面の実行を行います（Apacheの `Alias /tunedrop` 相当）。`/tunedrop`（末尾スラッシュなし）は `/tunedrop/` へ301リダイレクトします。
+- 使用したポートは `.web_port` に記録され、`npm run dev`（Vite開発サーバー）のAPIプロキシ先と管理画面の起動スクリプトが参照します。
+- 画面だけを静的配信で開く場合（VS Code Live Server 等）は、別ターミナルで `./start.sh` を起動しておけば API 接続先を自動検出します（同じoriginの `api.php` → `frontend/config.js` の `fallbackApiUrl` / `fallbackApiPorts` の順に health を確認）。Live Server はPHPを実行できず、プロジェクト直下をそのまま配信すると `.env`・DB・鍵も取得できてしまうため、公開ネットワークへ晒さず `liveServer.settings.ignoreFiles` で秘密ファイルを除外してください。
+
+
+## 5. 公開前の確認
+
+```bash
+curl -i 'http://localhost:8888/api.php?action=health'          # 200 + JSON (features に auth_guest)
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/database.sqlite     # 403
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/.jwt_secret         # 403
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/app.py              # 403
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/frontend/app.js     # 403 (ビルド元は配信しない)
+# 公開URLのプレフィックス付きでも同じ許可判定か (トンネル経由・またはローカルで)
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/tunedrop/           # 200
+curl -o /dev/null -s -w '%{http_code}\n' http://localhost:8888/tunedrop/database.sqlite  # 403
+```
+
+healthは200とJSON、他はすべて403になることを確認します。**200で取得できる状態では公開しないでください。** すべて `tests/public-files.py`（PHPルーター + Apacheの両方）でも検証できます。
+
+```bash
+python3 tests/public-files.py
+```
+
+ブラウザでは画面表示、新規登録、通常ログイン、楽曲の保存、再読み込み後の保持、Googleログインを確認します。以前のログイン状態は旧鍵で署名されているため、ログアウトしてログインし直します。
+
+既存DBにデモアカウントが残っている場合は、必要なデータを退避してから管理画面（ローカル専用・Git未公開）で削除してください。今回の変更は既存アカウントを削除しません。管理者トークン付きURLは共有しないでください。
+
+## 6. Cloudflare Tunnelで公開
+
+HomebrewがあるMacでは次で導入します。
+
+```bash
+brew install cloudflared
+```
+
+1. Cloudflareへドメインを追加し、ドメイン管理会社でネームサーバーをCloudflare指定値へ変更。既存DNSレコードを確認してから切り替えます。
+2. Cloudflare管理画面の **Networking → Tunnels** でトンネルを作成。
+3. サーバーのOS・CPUを選び、表示されたインストール／サービス起動コマンドをそのサーバーで実行。発行されたトンネルトークンはGitHubに保存しません。
+4. 接続がHealthyになったら **Routes → Add route → Published application** を追加。
+
+| 項目 | 設定例 |
+|---|---|
+| 公開ホスト名 | `music.example.com` |
+| Service URL | `http://localhost:8888` |
+
+`cloudflared` と `./start.sh` を同じマシンで動かす設定です。ブラウザ側はHTTPSになり、ローカルのPHPビルトインサーバーへの接続はHTTPです。ルーターで受信ポートを開放する必要はありません。公開URLのパスが `/tunedrop/` の場合はそのまま `/tunedrop/...` を `http://localhost:8888` へ渡してください（`router.php` がプレフィックスを処理します）。
+
+`https://music.example.com` を開き、前節のHTTP確認も同じ公開ホスト名で繰り返します。携帯回線からログイン・保存を試します。APIや管理画面を「Cache Everything」などのルールでキャッシュしないでください。
+
+公開トンネルを繰り返し立ち上げる場合は `./tunnel.sh` を使えます（`./tunnel.sh start | stop | restart | status`）。これは Cloudflare ダッシュボード管理のトンネルを **トークンで起動**するもので、トークンは `~/.cloudflared/tunedrop.token`（600）に置きます。**トークンは秘密情報なのでコミットしないこと**（`.cloudflared/` は `.gitignore` 済み）。ingress はダッシュボード側にあるため、ローカルに設定ファイルは不要です。
+
+固定ドメインを用意する前の短時間の確認には以下も使えます。ランダムなURLが表示されます。これは開発用で、常設公開には名前付きトンネルを使います。
+
+```bash
+cloudflared tunnel --url http://localhost:8888
+```
+
+一時URLでGoogleログインも試すなら、そのURLの生成元登録が別途必要です。停止はCtrl+C。
+
+## 7. GitHubでコードを管理
+
+**初期設定は完了済みです。** リポジトリ `<your-account>/Tunedrop` を作成し、push済みです。
+履歴は最新スナップショットの1コミットに整理済みです（変更履歴は残していません）。
+コミット author は GitHubアカウント + noreplyメールアドレス（`<GitHubのID>+<your-account>@users.noreply.github.com`）で設定済みです。
+
+- リポジトリURL: https://github.com/<your-account>/Tunedrop （現在は **Public**）
+- DB・`.jwt_secret`・`.admin_token`・`.env`・バックアップは `.gitignore` により除外済み。
+  ソース内にAPI鍵等の秘密情報が混入していないことも初回push前に確認済みです。
+- **Public リポジトリなので、本名・個人メール・アカウント固有の値をコミットしないこと。**
+  コミット author のメールは必ず noreply アドレスを使う（GitHubのプロフィールに出したくない
+  メールを履歴に入れてしまうと、後から消すには履歴の書き換えと force push が必要になる）。
+
+### 初回公開の手順（実施記録・再現用）
+
+新規マシンや別リポジトリでやり直すとき、または公開手順を確認するときは以下の通り。
+トークンは macOS キーチェーンに保存済みのもの（scope: `repo` 等）を使用しており、
+`git push` は認証入力なしで通ります。トークン自体をドキュメントやログに貼らないこと。
+
+```bash
+cd /Users/<username>/Tunedrop
+
+# 1) 秘密情報がステージングに含まれないか確認 (.env / DB / 鍵 / バックアップ)
+git diff --cached --name-only | grep -iE '\.env$|sqlite|jwt_secret|admin_token|\.key$|\.pem$|\.db$|backups/' \
+  || echo 'OK: 秘密ファイルなし'
+git diff --cached -U0 | grep -inE 'AIza[0-9A-Za-z_-]{30,}|BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{30,}' \
+  || echo 'OK: 鍵パターンなし'
+
+# 2) コミット author を GitHub アカウント + noreply メールに設定 (このリポジトリ限定)
+git config user.name "<your-account>"
+git config user.email "<GitHubのID>+<your-account>@users.noreply.github.com"
+git commit -m "Prepare TuneDrop for self-hosting"
+
+# 3) GitHub に空のリポジトリを作成 (Private)
+#    - ブラウザ: https://github.com/new （「Add a README」等は作成しない）
+#    - 今回は GitHub API で作成: POST /user/repos {"name":"Tunedrop","private":true}
+
+# 4) リモート登録して push
+git branch -M main
+git remote add origin https://github.com/<your-account>/Tunedrop.git
+git push -u origin main
+```
+
+- push 後は `git status --short --branch` で `## main...origin/main` となり、
+  GitHub 側の branch sha とローカルの `git log --oneline -1` が一致することを確認する。
+- 公開設定は後からリポジトリの Settings → Danger Zone で Private ⇄ Public を変更可能。
+
+### 日常の更新手順（コードを変更したとき）
+
+```bash
+cd /Users/<username>/Tunedrop
+git status --short            # 変更内容を確認
+git add .
+git commit -m "変更内容の説明"
+git push                      # origin/main へ反映
+```
+
+push前に `git diff --cached --stat` でステージング内容を確認し、
+`.env`・DB・鍵ファイルなどが誤って含まれていないか目視チェックしてください。
+
+ワンコマンドで済ませる場合は `./sync.sh` を使えます
+（fetch → リモート変更のrebase → コミット → push を一括実行。
+コミットメッセージは `./sync.sh "変更内容の説明"` のように指定できます）。
+
+### リポジトリの公開設定を変えたいとき
+
+GitHubのリポジトリページ → **Settings → General → 一番下の Danger Zone →
+Change repository visibility** で Private ⇄ Public を切り替えられます。
+現状のコミット内容には秘密情報が含まれていないため、Public化しても安全です。
+
+### 補足
+
+- `git config user.name` / `user.email` はこのリポジトリ限定（`--local`）で設定済みです。
+  別リポジトリで使う場合は適宜設定してください。
+- push時の認証はmacOSキーチェーンに保存済みのGitHubトークン（credential helper）で自動処理されます。
+- 管理画面 (`admin/` 配下と `tests/admin-*`) は
+  意図的にGit管理外 (`.gitignore`) です。ローカルでのみ保持され、GitHubには公開されません。
+- `.gitignore` は既に追跡済みのファイルや過去の履歴を消しません。以前秘密情報をコミットした場合は、その鍵を交換し、履歴からの削除を別途行ってください。
+
+### 別サーバーへの展開
+
+別サーバーでは `git clone https://github.com/<your-account>/Tunedrop.git` で取得し、Python・PHP（PDO SQLite含む）・Apache・cloudflaredを用意してこの手順を繰り返します。データを移す場合はSQLiteバックアップをサーバーへ安全に転送して復元します。GitHubだけではユーザーデータは移りません。
+
+## 8. 更新・バックアップ・常時運用
+
+更新時はDBをバックアップし、Pythonを止めてから次を実行します。
+
+```bash
+git pull --ff-only
+.venv/bin/python -m pip install -r requirements.txt
+GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh
+```
+
+ローカル変更がある場合は内容を確認してコミット等で整理し、強制リセットで消さないでください。サーバー設定を変更した場合は `./start.sh` を再起動します。
+
+定期バックアップ例：同名を上書きしないよう日時を付けます。
+
+```bash
+mkdir -p backups
+sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite'"
+```
+
+復元時は公開とPython・Apacheを停止し、現行DBも退避してからバックアップを `database.sqlite` として戻します。古い `-wal` / `-shm` が残る場合はDB本体とセットで退避し、古いWALを復元DBへ混在させないでください。所有者・書込権限を確認して再起動します。
+
+`database.sqlite` は **WALジャーナル**（`PRAGMA journal_mode = WAL`）で運用されます（PHPとPythonが同じDBを共有するため、読み書きが互いをブロックしないようにする設定です）。`-wal` / `-shm` の一時ファイルは正常な動作で作られるもので、`.gitignore` によりGit管理外です。バックアップは上の `.backup` コマンド（またはサービス停止後のコピー）を使ってください。
+
+常時運用には、Macのスリープを無効にし、Apache・Python・cloudflaredの3つを再起動後も起動するよう設定します。`./start.sh --mamp` はターミナルを閉じると停止するため、常駐化する場合はmacOSのlaunchd、Linuxならsystemdで管理します。Pythonは `.venv/bin/python app.py` を起動し、`.env` またはサービスの環境変数に `PORT=5001` と `GOOGLE_CLIENT_ID` を設定します。Linuxへ移す場合はMAMP用パスをその環境に置き換えてください。今回サービス登録・DNS変更・GitHub送信は自動実行していません。
+
+## 9. 回帰テスト
+
+実データを変更しない一時DBで実行します。PHPの場所は環境に合わせて変更します。
+
+```bash
+.venv/bin/python tests/environment-config.py
+.venv/bin/python tests/php-security-version.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/publication-security.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/public-files.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/sqlite-concurrency.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/radar-visibility.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/random-playlist-privacy.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/radar-analyze-scope.py
+.venv/bin/python tests/tempo-accuracy.py
+.venv/bin/python tests/clap-scoring.py
+```
+
+`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`php-security-version.py` は 2026-10-21 の PHP RCE 2件（CVE-2026-109618 / CVE-2026-109619）に対する起動ゲート（修正版の判定・ローカル検証用の回避・緩和フラグ）を検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` は一時フォルダで PHPビルトインサーバー（`router.php`）を起動し、HTTP配信制限（DB・秘密鍵・ソース・バックアップの403、`/tunedrop/` プレフィックス付きでも同じ判定）を検証します。`sqlite-concurrency.py` は、PHP（`api.php`）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`radar-visibility.py` は Radar の解析済み曲（他ユーザーの非公開リスト由来を含む）をお気に入りにでき、未解析の非公開曲と数値IDは拒否することを検証します。`random-playlist-privacy.py` は、名前が「ランダム」のリストを開いても他人の非公開リストの曲が混ざらない（抽選対象が自分の所有リスト＋公開リストに限定される）ことを検証します。`radar-analyze-scope.py` は、全曲再解析の対象が呼び出し元のライブラリに固定され、クエリで指定した他人の `user_id` と未認証が拒否される（＝誰でも全ユーザーぶんの重い解析を起動できない）ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
+
+## 参考資料
+
+- [Cloudflare Tunnel公式セットアップ](https://developers.cloudflare.com/tunnel/get-started/)
+- [Cloudflare Tunnelの仕組み](https://developers.cloudflare.com/tunnel/)
+- [Google IDトークンのサーバー検証](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token)
+- [GitHub Pagesで実行できるサイト](https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site)

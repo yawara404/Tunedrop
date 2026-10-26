@@ -14,6 +14,7 @@ analysis_recommend.json.tmp
 .sns_demo_credentials
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 .cloudflared/
@@ -44,10 +45,4 @@ backups/
 /.php/
 # プロモーション動画 (mp4 は合計 25MB 超。リポジトリを重くするため GitHub へは載せない)
 /promo_video/*.mp4
-# ============================================================================
-# セルフホスト・デプロイ（複製）を前提にした手順書は公開しない
-#   ローカルには残る (Git 管理から外すだけ)。
-# ============================================================================
-/docs/DEPLOY_GITHUB_CLOUDFLARE.md
-/docs/MYSQL_MIGRATION.md
 
