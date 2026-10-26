@@ -56,9 +56,15 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
 - API接続先の自動検出（同一originの `api.php` → `fallbackApiUrl` / `fallbackApiPorts` のhealthプローブ）とJWTの自動付与
 - 画面だけを静的配信で開いても動く（VS Code Live Server 等で `index.html` を開き、別ターミナルで `./start.sh` を起動。
   Live Server はPHPを実行できないため同じoriginにAPIが無いが、`./start.sh` が使うポート
-  （8888 / 8000 / 8001 / 8002 / 8003 / 8010 / 8080）を順に health で確認してAPIを自動検出する。
-  ※ Live Server でプロジェクト直下をそのまま配信すると `.env`・DB・鍵も見える状態になるため、
-  公開ネットワークへは晒さず、`liveServer.settings.ignoreFiles` で秘密ファイルを除外すること）
+  （8888 / 8000 / 8001 / 8002 / 8003 / 8010 / 8080）を順に health で確認してAPIを自動検出する）。
+  `.vscode/settings.json` の `liveServer.settings.ignoreFiles` が必須。プロジェクト直下の
+  SQLite（`-wal` / `-shm`）や解析結果 JSON はリクエストのたびに書き換わるため、除外しないと
+  「変更検知 → 再読み込み → API呼び出し → また変更検知」で**無限リロード**になる。
+  - この設定は Live Server の**起動時に一度だけ**読まれる。変更したら Live Server を再起動する
+  - `ignoreFiles` は配信を止める指定ではない（監視対象とディレクトリ一覧から外すだけ）。
+    秘密ファイルを配信させないため、Live Server を外部ネットワークへ晒さないこと
+  - `liveServer.settings.proxy` は使わない。Live Server の proxy はクエリをパスへ混ぜて
+    `/api.php/?action=...` に書き換えるため、`router.php` の許可リストに弾かれて 403 になる
 - YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
 - Google Identity ServicesによるGoogleログイン（任意）
 - Inter + Material Symbols Rounded（`icon_names` サブセット約19KB）を使用

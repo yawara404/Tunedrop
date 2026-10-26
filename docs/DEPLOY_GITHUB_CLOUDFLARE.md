@@ -103,7 +103,7 @@ cd /Users/<username>/Tunedrop
 - パッケージ配布が遅れている場合は、公式ソースの 8.5.12 をプロジェクト直下の `.php/` にビルドできます（`.gitignore` 対象）。`start.py` と管理画面の起動スクリプトは `.php/bin/php` を優先します。Homebrew が修正版を配布したら `.php/` を削除してパッケージ管理へ戻してください。
 - 公開URLは `/tunedrop/` 配下です。`router.php` はこのプレフィックスを外して許可判定し、実ファイルの配信と `api.php` / `ogp.php` / 管理画面の実行を行います（Apacheの `Alias /tunedrop` 相当）。`/tunedrop`（末尾スラッシュなし）は `/tunedrop/` へ301リダイレクトします。
 - 使用したポートは `.web_port` に記録され、`npm run dev`（Vite開発サーバー）のAPIプロキシ先と管理画面の起動スクリプトが参照します。
-- 画面だけを静的配信で開く場合（VS Code Live Server 等）は、別ターミナルで `./start.sh` を起動しておけば API 接続先を自動検出します（同じoriginの `api.php` → `frontend/config.js` の `fallbackApiUrl` / `fallbackApiPorts` の順に health を確認）。Live Server はPHPを実行できず、プロジェクト直下をそのまま配信すると `.env`・DB・鍵も取得できてしまうため、公開ネットワークへ晒さず `liveServer.settings.ignoreFiles` で秘密ファイルを除外してください。
+- 画面だけを静的配信で開く場合（VS Code Live Server 等）は、別ターミナルで `./start.sh` を起動しておけば API 接続先を自動検出します（同じoriginの `api.php` → `frontend/config.js` の `fallbackApiUrl` / `fallbackApiPorts` の順に health を確認）。**Live Server では `.vscode/settings.json` の `liveServer.settings.ignoreFiles` が必須です**。プロジェクト直下の SQLite（`-wal` / `-shm`）や解析結果 JSON はリクエストのたびに書き換わるため、除外しないと「変更検知 → 再読み込み → API呼び出し → また変更検知」で無限リロードになり、画面が延々と読み込み中のままになります。この設定は Live Server の起動時に一度だけ読まれるので、変更したら Live Server を再起動してください。`ignoreFiles` は配信を止める指定ではない（監視対象とディレクトリ一覧から外すだけ）ため、Live Server は外部ネットワークへ晒さないでください。`liveServer.settings.proxy` は使えません（クエリをパスへ混ぜて `/api.php/?action=...` に書き換えるため `router.php` の許可リストに弾かれます）。
 
 
 ## 5. 公開前の確認
