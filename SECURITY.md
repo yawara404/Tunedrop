@@ -70,17 +70,6 @@ Tune drop は YouTube の楽曲をコレクション・整理し、公開プレ�
   `api.php` / `ogp.php` / `robots.txt` / `sitemap.xml` / OGPカード画像だけに限定します
   （DB・鍵・ソース・バックアップ・`.git` はHTTPで取得できません）。
 
-## セルフホスト運用者へ
-
-Tune drop は自己のサーバー上で運用することを想定しています。
-公開サーバーとして運用する場合、以下は運用者ご自身の責任で十分に行ってください。
-
-- HTTPSでの公開（リバースプロキシ・トンネルの利用など）
-- 秘密情報の管理（`.env`・署名鍵・管理者トークン類をリポジトリに含めない）
-- 公開ディレクトリの制限（DB・鍵・ソース・バックアップをHTTP配信しない）
-- 依存パッケージとサーバーOSの更新
-- PHP本体の更新（下記「PHP本体のセキュリティ更新」を参照）
-
 ## PHP本体のセキュリティ更新（2026-10-21）
 
 2026-10-21 に PHP プロジェクトから、未認証のリモートコード実行（RCE）につながる
@@ -98,17 +87,8 @@ LiteSpeed に加え、本プロジェクトが使う PHPビルトインサーバ
 Tune drop の対策:
 
 - `start.py`（`./start.sh` / `python start.py`）は起動時に PHP のバージョンを確認し、
-  修正版未満なら **起動を中止** します。エラーメッセージに更新方法を表示します。
-- ローカルでどうしても確認する場合だけ `TUNEDROP_ALLOW_VULNERABLE_PHP=1` を付けて
-  起動できます。**公開（Cloudflare Tunnel）では使わないでください。**
+  修正版未満なら **起動を中止** します。
 - PHPビルトインサーバーには `memory_limit=256M`・`display_errors=0`・
   `log_errors=1`・`expose_php=0` を指定して起動します（OOM 時の影響と情報漏えいの緩和）。
-- 修正版へ更新するまで公開トンネルを停止してください。更新後は PHP と
-  `./start.sh` を再起動します（`brew update && brew upgrade php` /
-  `winget upgrade PHP.PHP` / `sudo apt update && sudo apt upgrade php`）。
-- パッケージ配布が遅れている場合は、公式ソース（8.5.12）をプロジェクト直下の
-  `.php/` にビルドして隔離できます。`start.py` は `.php/bin/php` をシステムの PHP より
-  優先します（`.gitignore` 対象）。Homebrew などが修正版を配布したら `.php/` を削除し、
-  パッケージ管理へ戻してください（放置すると次の更新が届きません）。
 
 参考: [PHP セキュリティアドバイザリ（2026-10-21）](https://www.php.net/archive/2026.php#2026-10-21)
