@@ -1,0 +1,15 @@
+{
+  "name": "tunedrop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tune drop のフロントエンドビルド (Vite)。ソースは frontend/、ビルド成果物はプロジェクト直下 (index.html / assets/)。",
+  "scripts": {
+    "dev": "vite",
+    "build": "rm -rf assets && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}
