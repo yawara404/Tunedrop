@@ -45,35 +45,9 @@ backups/
 # プロモーション動画 (mp4 は合計 25MB 超。リポジトリを重くするため GitHub へは載せない)
 /promo_video/*.mp4
 # ============================================================================
-# セットアップに必要なファイルは公開しない
-#   複製サイトを作られないようにするための措置。ローカルには残る (Git 管理から外すだけ)。
-#   クローンしてもそのままでは起動できない。
+# セルフホスト・デプロイ（複製）を前提にした手順書は公開しない
+#   ローカルには残る (Git 管理から外すだけ)。
 # ============================================================================
-# 起動・運用スクリプト
-/start.sh
-/start.py
-/start.cmd
-/start.ps1
-/start.bat
-/tunnel.sh
-/remote.sh
-/remote.cmd
-/remote.ps1
-# 依存パッケージ定義
-/requirements.txt
-/package.json
-/package-lock.json
-/composer.json
-/composer.lock
-# DB スキーマ
-/setup.sql
-/mysql_schema.sql
-/schema.sql
-# 設定テンプレート
-/.env.example
-# セットアップ手順書
 /docs/DEPLOY_GITHUB_CLOUDFLARE.md
 /docs/MYSQL_MIGRATION.md
-/WINDOWS_DEPLOY.md
-/WEB_SETUP.md
 
