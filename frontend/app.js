@@ -86,17 +86,31 @@ export function handleExpiredSession() {
     showLoginModal();
 }
 
+// ゲスト取得 (POST) の上限時間。API や proxy が応答を返さない場合に
+// 画面が「読み込み中」のまま固まらないよう、エラーとして表面化させる。
+const GUEST_REQUEST_TIMEOUT_MS = 10000;
+
 export async function ensureTunedropGuest(apiUrl) {
     if (tunedropGuestRefreshAt && Date.now() >= tunedropGuestRefreshAt) tunedropGuestPromise = null;
     if (!tunedropGuestPromise) {
         tunedropGuestPromise = (async () => {
             const url = new URL(apiUrl.href);
             url.search = '?action=auth&endpoint=guest';
-            const requestGuest = credential => fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ credential })
-            });
+            const requestGuest = credential => {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), GUEST_REQUEST_TIMEOUT_MS);
+                return fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ credential }),
+                    signal: controller.signal
+                }).catch(error => {
+                    if (error && error.name === 'AbortError') {
+                        throw new Error('認証サーバーの応答がありません。./start.sh が起動しているか確認してください。');
+                    }
+                    throw error;
+                }).finally(() => clearTimeout(timer));
+            };
             const readGuest = async response => {
                 // 古い app.py が動いていると /auth/guest が無く、HTML の 404 が返る
                 // (api.php が JSON の Content-Type を付けているため content-type だけでは防げない)。
