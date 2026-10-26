@@ -61,6 +61,14 @@ const staleHealth = { data: { status: 'ok', service: 'TuneDrop PHP API' } };
         'http://localhost:9999/custom/api.php?action=health': health,
         'http://localhost:9999/custom/api.php?action=create_playlist': { data: { success: true } }
     }, 'http://localhost:9999/custom/api.php?action=create_playlist', { apiUrl: 'http://localhost:9999/custom/api.php' });
+    // Live Server (5503) で開き、./start.sh が 8888 ではなく 8001 で動いている場合でも検出できる。
+    // (start.py は 8888 が使用中だと 8000/8001… へ自動で移る)
+    await scenario('http://localhost:5503/index.html', {
+        'http://localhost:5503/api.php?action=health': { type: 'text/plain', data: '<?php' },
+        'http://127.0.0.1:8001/api.php?action=health': health,
+        'http://127.0.0.1:8001/api.php?action=create_playlist': { data: { success: true } }
+    }, 'http://127.0.0.1:8001/api.php?action=create_playlist',
+       { fallbackApiPorts: [8888, 8000, 8001] });
     // 古い api.php しか無い場合は接続先に採用せず、対処法の分かるエラーにする。
     {
         const replies = {
@@ -72,5 +80,5 @@ const staleHealth = { data: { status: 'ok', service: 'TuneDrop PHP API' } };
         await assert.rejects(vm.runInContext('resolveTunedropApi()', context), /APIに接続できません/);
         assert.equal(calls.filter(call => call.url.includes('endpoint=guest')).length, 0);
     }
-    console.log('PASS: PHP source fallback, custom URL, POST forwarding, cached discovery, stale API rejection');
+    console.log('PASS: PHP source fallback, custom URL, POST forwarding, cached discovery, alternate port discovery, stale API rejection');
 })().catch(error => { console.error(error); process.exitCode = 1; });

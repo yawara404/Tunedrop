@@ -6,12 +6,20 @@ let tunedropGuestRefreshAt = 0;
 
 export async function resolveTunedropApi() {
     const config = window.TUNEDROP_CONFIG || {};
+    // 画面を静的配信 (VS Code Live Server 等) から開くと、同じoriginにはPHPが無い
+    // (Live Server はPHPを実行できない)。./start.sh の Webサーバーは 8888 が使用中だと
+    // 8000/8001… へ自動で移るため、候補を並べて health が一致するものだけを採用する。
+    const ports = Array.isArray(config.fallbackApiPorts) ? config.fallbackApiPorts : [8888];
+    const fallbackUrls = ports.flatMap(port => [
+        `http://localhost:${port}/api.php`,
+        `http://127.0.0.1:${port}/api.php`
+    ]);
     const candidates = config.apiUrl ? [config.apiUrl] : [
         new URL('api.php', window.location.href).href,
         config.fallbackApiUrl || 'http://localhost:8888/api.php',
-        // 画面だけ別サーバー (Vite開発サーバー等) から開いている場合の最後の候補。
+        // 画面だけ別サーバー (Live Server / Vite開発サーバー等) から開いている場合の候補。
         // (古いコピーを向いている場合は health の features 判定で弾かれる)
-        'http://127.0.0.1:8888/api.php'
+        ...fallbackUrls
     ];
     for (const candidate of [...new Set(candidates)]) {
         const url = new URL(candidate, window.location.href);
@@ -2214,6 +2222,7 @@ export async function loadRadarData() {
     if (hud) hud.textContent = '楽曲マップを読み込み中…';
     try {
         // マップとおすすめを並列に取得する (おすすめは12時間キャッシュで即返る)。
+        // マップをおすすめと並列に取得する (おすすめは12時間キャッシュで即返る)。
         const mapPromise = tunedropFetch('api.php?action=radar_map').then(r => r.json());
         const recPromise = fetchRadarRecommend();
         const data = spreadLegacyRadarMap(await mapPromise);
@@ -4203,6 +4212,10 @@ export async function toggleShareFavorite(id, event) {
             if (rec.favorite_count < 0) rec.favorite_count = 0;
         }
         renderSharePlaylists();
+        // Shareでお気に入りに追加した直後に「お気に入りリスト」を開いても
+        // 出遅れないよう、サイドバー/一覧のキャッシュ (allPlaylists) も更新する。
+        // ここを忘れると、ハートは赤くなるのに一覧へ反映されず「壊れた」ように見える。
+        try { await loadPlaylists(); } catch (error) { console.error(error); }
         return data;
     } catch (err) {
         console.error(err);

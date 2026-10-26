@@ -1,4 +1,9 @@
 <?php
+if (is_file(__DIR__ . '/mysql_db.php')) require_once __DIR__ . '/mysql_db.php';
+elseif (getenv('TUNEDROP_MYSQL_HOST')) throw new RuntimeException('mysql_db.php is missing');
+if (!function_exists('tunedrop_mysql_enabled')) {
+    function tunedrop_mysql_enabled(): bool { return false; }
+}
 /**
  * Tune drop: SNS共有用の OGP / Twitterカードを返すエンドポイント
  * ==========================================================
@@ -60,18 +65,18 @@ function ogp_base_url(): string
 /** 公開リストを1件読む。見つからなければ null (非公開・存在しない)。 */
 function ogp_load_playlist(string $db_path, int $playlist_id): ?array
 {
-    if ($playlist_id <= 0 || !is_file($db_path)) {
+    if ($playlist_id <= 0 || (!tunedrop_mysql_enabled() && !is_file($db_path))) {
         return null;
     }
     try {
-        $db = new PDO('sqlite:' . $db_path, null, null, [
+        $db = tunedrop_mysql_enabled() ? tunedrop_mysql_db() : new PDO('sqlite:' . $db_path, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_TIMEOUT => 5,
         ]);
-        $db->exec('PRAGMA busy_timeout = 5000;');
+        if (!tunedrop_mysql_enabled()) $db->exec('PRAGMA busy_timeout = 5000;');
         // display_name は api.php の ensure_schema が後から足す列。
         // まだ無い DB (セットアップ直後) でも動くように有無を確認する。
-        $user_columns = $db->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_COLUMN, 1);
+        $user_columns = tunedrop_mysql_enabled() ? ['display_name'] : $db->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_COLUMN, 1);
         $author_expr = in_array('display_name', $user_columns, true)
             ? 'COALESCE(u.display_name, u.username)'
             : 'u.username';

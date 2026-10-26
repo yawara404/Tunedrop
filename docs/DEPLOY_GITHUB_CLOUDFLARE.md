@@ -2,6 +2,8 @@
 
 対象は現在のmacOS。Web配信は `./start.sh`（PHPビルトインサーバー + `router.php`）が担当します。GitHubにはコードを保存し、PHP・Python・SQLiteは自分のサーバーで動かします。GitHub Pagesではこのアプリ全体を実行できません。
 
+MySQL へ移行する場合は [MySQL 移行手順](MYSQL_MIGRATION.md) に従ってください。以下の SQLite バックアップと WAL の説明は SQLite 利用時のものです。
+
 ```text
 ブラウザ → https://music.example.com/tunedrop/ → Cloudflare Tunnel
                                          ↓
@@ -17,8 +19,8 @@ GitHub → サーバーでコードを取得・更新（git pull → ./start.sh 
 
 ## 1. 今回追加した公開対策
 
-- `.htaccess` は公開するHTML（`index.html`）とビルド済み資産（`assets/*.js`, `*.css`, アイコン）、`api.php`・`ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（`admin/admin.php` とそのJS/CSS）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules` は配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面のシェルスクリプト `admin/admin.sh` は配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。
-- `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と `./admin/admin.sh --serve` はこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
+- `router.php` は公開するHTML（`index.html`）とビルド済み資産（`assets/*.js`, `*.css`, アイコン）、`api.php`・`ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（ローカル専用・Git未公開）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules` は配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面の補助スクリプトは配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。
+- `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と管理画面の起動スクリプトはこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
 - JWT署名鍵はPython起動時に `.jwt_secret` にランダム生成され、PHPも同じファイルを読みます。既知の旧鍵は拒否します。既存ユーザーは更新後に再ログインが必要です。
 - Googleログインは `google-auth` で署名・宛先・発行者・有効期限を検証し、検証失敗や通信失敗をログイン拒否にします。`GOOGLE_CLIENT_ID` 未設定ならGoogleログインは利用できません。
 - Pythonは `127.0.0.1` のみで待ち受けます。外からは `./start.sh`（PHP）経由で利用します。
@@ -90,14 +92,18 @@ Googleログインを使わない場合（現在は未対応）は `PORT=5001 ./
 
 ```bash
 cd /Users/<username>/Tunedrop
-./start.sh          # 8888を優先。使用中なら8000/8001…へ自動でずれ、URLを表示する
+./start.sh          # 8888を優先。使用中なら別の空きポートへ自動でずれ、URLを表示する
 ```
 
 - `./start.sh` は「必要なときだけ `npm run build`」→「認証・解析サーバー（Python）」→「Webサーバー（PHPビルトイン + `router.php`）」を起動します。
 - **公開ファイルの許可リストは `router.php`** が持ちます（従来の `.htaccess` と同じ規則）。DB・秘密鍵・Pythonソース・`.git`・バックアップ・`node_modules` はHTTPで取得できません。`php -S ...` をルーターなしで直接起動しないでください。
 - PHPビルトインサーバーは既定で1件ずつ処理するため、`./start.sh` はワーカー8個で起動します（`TUNEDROP_PHP_WORKERS=16 ./start.sh` で変更）。
-- 公開URLは `/tunedrop/` 配下です。`router.php` はこのプレフィックスを外して許可判定し、実ファイルの配信と `api.php` / `ogp.php` / `admin/admin.php` の実行を行います（Apacheの `Alias /tunedrop` 相当）。`/tunedrop`（末尾スラッシュなし）は `/tunedrop/` へ301リダイレクトします。
-- 使用したポートは `.web_port` に記録され、`npm run dev`（Vite開発サーバー）のAPIプロキシ先と `./admin/admin.sh` が参照します。
+- **PHP は 2026-10-21 に公表された RCE 2件（CVE-2026-109618 / CVE-2026-109619）の修正版（8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降）が必須です。** `./start.sh` は起動時に PHP のバージョンを確認し、未修正なら起動を中止します。パッケージ配布への反映まではトンネルを停止して公開しないでください（詳細とローカル検証用の回避方法は [SECURITY.md](../SECURITY.md)）。
+- ビルトインサーバーは `memory_limit=256M` / `display_errors=0` / `log_errors=1` / `expose_php=0` を付けて起動し、OOM 時の影響と内部情報・PHP バージョンの露出を抑えます。
+- パッケージ配布が遅れている場合は、公式ソースの 8.5.12 をプロジェクト直下の `.php/` にビルドできます（`.gitignore` 対象）。`start.py` と管理画面の起動スクリプトは `.php/bin/php` を優先します。Homebrew が修正版を配布したら `.php/` を削除してパッケージ管理へ戻してください。
+- 公開URLは `/tunedrop/` 配下です。`router.php` はこのプレフィックスを外して許可判定し、実ファイルの配信と `api.php` / `ogp.php` / 管理画面の実行を行います（Apacheの `Alias /tunedrop` 相当）。`/tunedrop`（末尾スラッシュなし）は `/tunedrop/` へ301リダイレクトします。
+- 使用したポートは `.web_port` に記録され、`npm run dev`（Vite開発サーバー）のAPIプロキシ先と管理画面の起動スクリプトが参照します。
+- 画面だけを静的配信で開く場合（VS Code Live Server 等）は、別ターミナルで `./start.sh` を起動しておけば API 接続先を自動検出します（同じoriginの `api.php` → `frontend/config.js` の `fallbackApiUrl` / `fallbackApiPorts` の順に health を確認）。Live Server はPHPを実行できず、プロジェクト直下をそのまま配信すると `.env`・DB・鍵も取得できてしまうため、公開ネットワークへ晒さず `liveServer.settings.ignoreFiles` で秘密ファイルを除外してください。
 
 
 ## 5. 公開前の確認
@@ -121,7 +127,7 @@ python3 tests/public-files.py
 
 ブラウザでは画面表示、新規登録、通常ログイン、楽曲の保存、再読み込み後の保持、Googleログインを確認します。以前のログイン状態は旧鍵で署名されているため、ログアウトしてログインし直します。
 
-既存DBにデモアカウントが残っている場合は、必要なデータを退避してから `./admin/admin.sh` の管理画面で削除してください。今回の変更は既存アカウントを削除しません。管理者トークン付きURLは共有しないでください。
+既存DBにデモアカウントが残っている場合は、必要なデータを退避してから管理画面（ローカル専用・Git未公開）で削除してください。今回の変更は既存アカウントを削除しません。管理者トークン付きURLは共有しないでください。
 
 ## 6. Cloudflare Tunnelで公開
 
@@ -269,14 +275,18 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 
 ```bash
 .venv/bin/python tests/environment-config.py
-PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/publication-security.py
-PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/public-files.py
-PHP_BIN=/Applications/MAMP/bin/php/php8.3.30/bin/php .venv/bin/python tests/sqlite-concurrency.py
+.venv/bin/python tests/php-security-version.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/publication-security.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/public-files.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/sqlite-concurrency.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/radar-visibility.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/random-playlist-privacy.py
+PHP_BIN="$(command -v php)" .venv/bin/python tests/radar-analyze-scope.py
 .venv/bin/python tests/tempo-accuracy.py
 .venv/bin/python tests/clap-scoring.py
 ```
 
-`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` は一時フォルダで PHPビルトインサーバー（`router.php`）を起動し、HTTP配信制限（DB・秘密鍵・ソース・バックアップの403、`/tunedrop/` プレフィックス付きでも同じ判定）を検証します。`sqlite-concurrency.py` は、PHP（`api.php`）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
+`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`php-security-version.py` は 2026-10-21 の PHP RCE 2件（CVE-2026-109618 / CVE-2026-109619）に対する起動ゲート（修正版の判定・ローカル検証用の回避・緩和フラグ）を検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` は一時フォルダで PHPビルトインサーバー（`router.php`）を起動し、HTTP配信制限（DB・秘密鍵・ソース・バックアップの403、`/tunedrop/` プレフィックス付きでも同じ判定）を検証します。`sqlite-concurrency.py` は、PHP（`api.php`）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`radar-visibility.py` は Radar の解析済み曲（他ユーザーの非公開リスト由来を含む）をお気に入りにでき、未解析の非公開曲と数値IDは拒否することを検証します。`random-playlist-privacy.py` は、名前が「ランダム」のリストを開いても他人の非公開リストの曲が混ざらない（抽選対象が自分の所有リスト＋公開リストに限定される）ことを検証します。`radar-analyze-scope.py` は、全曲再解析の対象が呼び出し元のライブラリに固定され、クエリで指定した他人の `user_id` と未認証が拒否される（＝誰でも全ユーザーぶんの重い解析を起動できない）ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
 
 ## 参考資料
 

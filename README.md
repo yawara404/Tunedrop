@@ -20,6 +20,7 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 
 - ブックマークした楽曲の「雰囲気」をAI×音源解析で2Dマップ化し、視覚的に探索
 - みんなの公開プレイリストの探索・再生
+- Radar に出ている解析済みの曲はプレイヤーの♥からお気に入りにできる（他ユーザーの非公開リスト由来の曲は、自分の「未整理」へコピーして保存）
 - **Tune lot**: ランダム抽選で思いがけない1曲を発掘
 - マップはマウス（ホイール/ドラッグ）とキーボード（`:` / `;` でズーム、`F` 全体表示、`0` リセット、矢印で移動、`Enter` で再生）の両方で操作可能
 
@@ -37,9 +38,10 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 ```text
 ブラウザ (SPA)
 ├─ フロントエンド: Vanilla JS (Vite でビルドした ES Modules) + Canvas マップ描画
-├─ データ管理API: PHP + SQLite (PDO, WAL)
+├─ データ管理API: PHP + MySQL (PDO) / SQLite (移行前の互換動作)
 └─ 認証・解析サーバー: Python (Flask + Waitress) + 楽曲解析エンジン
 配信: PHPビルトインサーバー (./start.sh / Windows は python start.py :8888) + Cloudflare Tunnel。開発は Vite開発サーバー (npm run dev :5173、APIはstart.pyへプロキシ)。
+PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RCE 2件 CVE-2026-109618 / CVE-2026-109619 の修正版）。未修正の PHP では start.py が起動を中止する。修正版をプロジェクト内 `.php/` に置いた場合はそちらを優先する。
 ビルド: Vite (ソースは frontend/、成果物はプロジェクト直下の index.html + assets/)
 ```
 
@@ -51,7 +53,12 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
   テンプレートは `frontend/index.html`。`start.py`（`./start.sh` / `python start.py`）と `./sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
 - `app.js` のトップレベル関数は `main.js` の `Object.assign(window, app)` で window に公開し、
   マークアップの `onclick="..."` と外部スクリプト（YouTube IFrame API / Google Identity Services）のコールバックから呼べる
-- API接続先の自動検出（同一originの `api.php` → `fallbackApiUrl` のhealthプローブ）とJWTの自動付与
+- API接続先の自動検出（同一originの `api.php` → `fallbackApiUrl` / `fallbackApiPorts` のhealthプローブ）とJWTの自動付与
+- 画面だけを静的配信で開いても動く（VS Code Live Server 等で `index.html` を開き、別ターミナルで `./start.sh` を起動。
+  Live Server はPHPを実行できないため同じoriginにAPIが無いが、`./start.sh` が使うポート
+  （8888 / 8000 / 8001 / 8002 / 8003 / 8010 / 8080）を順に health で確認してAPIを自動検出する。
+  ※ Live Server でプロジェクト直下をそのまま配信すると `.env`・DB・鍵も見える状態になるため、
+  公開ネットワークへは晒さず、`liveServer.settings.ignoreFiles` で秘密ファイルを除外すること）
 - YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
 - Google Identity ServicesによるGoogleログイン（任意）
 - Inter + Material Symbols Rounded（`icon_names` サブセット約19KB）を使用
@@ -60,15 +67,16 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 
 ### データ管理API
 
-- PHP + SQLite (PDO) によるプレイリスト・ブックマーク・公開プレイリストのCRUD
+- PHP + MySQL (PDO) によるプレイリスト・ブックマーク・公開プレイリストのCRUD。`TUNEDROP_MYSQL_HOST` が空なら SQLite を使用
 - トークンベースのセッション管理によるユーザーごとのデータ分離
 - SQLiteはWALジャーナル + busy_timeoutで運用し、データAPI（PHP）と解析エンジン（Python）が
   同じDBを同時に読み書きしてもリクエストが待たされない構成（スキーマ更新は版管理で必要時のみ実行）
-- 認証系はFlaskサーバーへのプロキシ（`.auth_port` → 既知ポート走査で動的検出）
-- 公開ファイル制限は `.htaccess`（Apache）と `router.php`（開発サーバー）の許可リストで実施。
-  FastCGI向けのAuthorizationヘッダ補正、gzip圧縮、キャッシュ制御付き。配信するのは画面の
-  ビルド成果物（`index.html` と `assets/` のハッシュ付き資産）とOGPカード画像（`frontend/favicon-card.png`）だけで、
-  ビルド元の `frontend/*.js`・`*.css` や `node_modules` は配信しない
+- MySQL スキーマ作成と既存データの移行は [MySQL 移行手順](docs/MYSQL_MIGRATION.md) を参照
+- 認証系はFlaskサーバーへのプロキシ（`.auth_port` から稼働ポートを動的検出）
+- 公開ファイル制限は `router.php`（PHPビルトインサーバーのルーター）の許可リストで実施。
+  配信するのは画面のビルド成果物（`index.html` と `assets/` のハッシュ付き資産）、`api.php`・`ogp.php`・
+  `robots.txt`・`sitemap.xml` とOGPカード画像（`frontend/favicon-card.png`）だけで、
+  ビルド元の `frontend/*.js`・`*.css`、`node_modules`、DB・鍵・ソース・バックアップは配信しない
   （`assets/` はファイル名に内容のハッシュが入るため長期キャッシュ、`index.html` は毎回検証）
 
 ### 認証サーバー

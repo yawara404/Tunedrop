@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import sqlite3
+import mysql_db
 import sys
 import time
 from pathlib import Path
@@ -30,9 +31,12 @@ DEFAULT_DB = ROOT / "database.sqlite"
 def fetch_bookmarks(db_path):
     """bookmarks を playlist の category と結合して取得 (重複IDは除去)。"""
     # 解析サーバー (app.py) や PHP (api.php) と同時に動くためロック待ちを明示する
-    conn = sqlite3.connect(db_path, timeout=5)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout = 5000;")
+    if mysql_db.enabled():
+        conn = mysql_db.connect()
+    else:
+        conn = sqlite3.connect(db_path, timeout=5)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 5000;")
     rows = conn.execute("""
         SELECT b.youtube_id, b.title, b.channel, p.category
         FROM bookmarks b
@@ -66,7 +70,7 @@ def main():
     args = ap.parse_args()
 
     db_path = Path(args.db).expanduser().resolve()
-    if not db_path.is_file():
+    if not mysql_db.enabled() and not db_path.is_file():
         print(f"database.sqlite が見つかりません: {db_path}", file=sys.stderr)
         return 1
 

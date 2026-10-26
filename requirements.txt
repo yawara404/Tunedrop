@@ -43,4 +43,5 @@ numpy>=1.26
 #      (import 時に必要) / librosa 全体 (lazy_loader のため) / pandas・PIL・h5py・
 #      webdataset・torchvision・transformers 本体・huggingface_hub・narwhals /
 #      cryptography (Google ログイン) / sympy・mpmath・tokenizers (推論チェーンで必要) / pip
-
+# MySQL backend (shared by Flask, analysis jobs and the SQLite migration tool)
+PyMySQL>=1.1,<2

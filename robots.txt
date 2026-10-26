@@ -12,10 +12,10 @@
 User-agent: *
 Allow: /
 
-# Tune drop の内部API (JSON) と管理者画面は検索結果に出す意味がなく、
-# クロール予算を使うため除外する。
+# Tune drop の内部API (JSON) は検索結果に出す意味がなく、クロール予算を使うため除外する。
+# ※ 管理画面は Disallow しない。robots.txt に書くと「そこに何かある」と教えることになり、
+#    隠す効果は無い (保護は管理者トークンで行う)。
 Disallow: /tunedrop/api.php
-Disallow: /tunedrop/admin/
 
 # ※ ogp.php (共有カード) は robots.txt で止めない。robots.txt でブロックすると
 #    Google が HTML 内の noindex を読めず、URL だけが残ることがあるため

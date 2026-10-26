@@ -13,9 +13,10 @@
 
 環境変数:
   PYTHON_BIN            使用する Python (未指定は .venv → 実行中の Python)
-  PHP_BIN               PHP の実行ファイル (未指定は PATH から php)
+  PHP_BIN               PHP の実行ファイル (未指定は .php/ → PATH から php)
   TUNEDROP_PORT         Webサーバーの第一候補ポート (既定 8888)
   TUNEDROP_PHP_WORKERS  PHPビルトインサーバーのワーカー数 (POSIX のみ有効。既定 8)
+  TUNEDROP_ALLOW_VULNERABLE_PHP  1 で未修正 PHP でも起動する (ローカル検証専用)
   TUNEDROP_PIP_PROXY    --setup の pip に渡すプロキシ (http://user:pass@host:port)
   TUNEDROP_PIP_INDEX_URL / TUNEDROP_PIP_EXTRA_ARGS   pip の index-url / 追加引数
   (プロジェクト直下に wheelhouse/ があれば --setup は --no-index でオフライン導入する)
@@ -40,6 +41,28 @@ IS_WINDOWS = os.name == 'nt'
 FRONTEND_SOURCES = (
     'frontend/index.html', 'frontend/main.js', 'frontend/app.js',
     'frontend/config.js', 'frontend/style.css',
+)
+
+# 2026-10-21 の PHP セキュリティアドバイザリで修正されたバージョン。
+#   CVE-2026-109618: OOM 処理中に内部リクエストデータが未初期化のままになり、
+#                    後始末で不正なデータを有効として扱う (未認証 RCE)
+#   CVE-2026-109619: 解放済みメモリ上の古いグローバル状態を同じワーカーの
+#                    後続リクエストが使う (未認証 RCE)
+# PHP-FPM / mod_php / php-cgi / FrankenPHP / LiteSpeed と、このプロジェクトが使う
+# ビルトインサーバー (CLI) が対象。公開経路では修正版以外で起動しない。
+PHP_SECURITY_FIXES = {(8, 5): 12, (8, 4): 27, (8, 3): 36, (8, 2): 35}
+PHP_SECURITY_MINIMUM = (8, 2, 35)
+PHP_SECURITY_FIXED_LABEL = 'PHP 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35'
+PHP_SECURITY_ADVISORY = 'https://www.php.net/archive/2026.php#2026-10-21'
+
+# 修正版へ上げるまでの緩和策。CLI の memory_limit は既定で無制限 (-1) のため、
+# OOM でホストごと落ちないよう有限にする。display_errors は内部パスや設定を
+# 応答へ出さない (api.php / admin/admin.php も同じ設定をしている)。
+PHP_HARDENING_FLAGS = (
+    '-d', 'memory_limit=256M',
+    '-d', 'display_errors=0',
+    '-d', 'log_errors=1',
+    '-d', 'expose_php=0',
 )
 
 
@@ -71,14 +94,22 @@ def resolve_python() -> str:
 
 
 def resolve_php() -> str | None:
-    """PHP の実行ファイルを探す (PHP_BIN → PATH → よくあるインストール先)。
+    """PHP の実行ファイルを探す (PHP_BIN → プロジェクト内 .php → PATH → よくあるインストール先)。
 
+    プロジェクト直下の `.php/bin/php` は、修正版を公式ソースからビルドして隔離した
+    ランタイム (gitignore 対象)。システムの PHP より優先する。
     winget / ZIP / XAMPP などで入れた直後は PATH がまだ効いていないことが多いため、
     代表的な場所も見に行く。
     """
     override = (os.environ.get('PHP_BIN') or '').strip()
     if override:
         return override
+    project_php = ROOT / '.php' / 'bin' / ('php.exe' if IS_WINDOWS else 'php')
+    try:
+        if project_php.is_file():
+            return str(project_php)
+    except OSError:
+        pass
     found = shutil.which('php') or shutil.which('php.exe')
     if found:
         return found
@@ -111,6 +142,77 @@ def resolve_php() -> str | None:
             except OSError:
                 pass
     return None
+
+
+def parse_php_version(text: str | None) -> tuple[int, int, int] | None:
+    """'PHP 8.5.11 (cli)' のような文字列から (8, 5, 11) を取り出す。"""
+    if not text:
+        return None
+    match = re.search(r'(\d+)\.(\d+)\.(\d+)', text)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def php_security_issue(version: tuple[int, int, int] | None) -> str | None:
+    """2026-10-21 の 2 件の RCE 修正を含まない PHP なら、その理由を返す。
+
+    8.2〜8.5 は系統ごとの修正版と比較する (例: 8.5.12 未満の 8.5 系は未修正)。
+    8.1 以前は PHP プロジェクトのサポートが終了しており、修正版が無いため拒否する。
+    8.6 以降の次期版は修正が取り込まれている前提で許可する (開発版は非推奨)。
+    """
+    if version is None:
+        return 'PHP のバージョンを取得できませんでした'
+    major, minor, patch = version
+    fixed = PHP_SECURITY_FIXES.get((major, minor))
+    if fixed is not None:
+        if patch < fixed:
+            return f'PHP {major}.{minor}.{patch} は修正版 {major}.{minor}.{fixed} 未満です'
+        return None
+    if version < PHP_SECURITY_MINIMUM:
+        return f'PHP {major}.{minor}.{patch} はサポート終了 (8.1 以前) で修正版がありません'
+    return None
+
+
+def detect_php_version(php: str) -> str | None:
+    """PHP のバージョン文字列を取得する (実行できない場合は None)。"""
+    try:
+        result = subprocess.run(
+            [php, '-r', 'echo PHP_VERSION;'], cwd=str(ROOT),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.decode('utf-8', 'replace').strip()
+
+
+def check_php_security(php: str) -> bool:
+    """未修正の PHP では起動を止める (公開時の未認証 RCE を防ぐ)。
+
+    ローカルでどうしても動かす場合だけ TUNEDROP_ALLOW_VULNERABLE_PHP=1 を使う。
+    """
+    version = detect_php_version(php)
+    issue = php_security_issue(parse_php_version(version))
+    if issue is None:
+        return True
+    print(f'!! 危険: {issue}', file=sys.stderr)
+    print(f'   2026-10-21 発表の 2 件の RCE (CVE-2026-109618 / CVE-2026-109619) は '
+          f'{PHP_SECURITY_FIXED_LABEL} で修正されています。', file=sys.stderr)
+    print(f'   詳細: {PHP_SECURITY_ADVISORY}', file=sys.stderr)
+    print('   更新例: macOS(Homebrew) `brew update && brew upgrade php` / '
+          'Windows `winget upgrade PHP.PHP` / Debian系 `sudo apt update && sudo apt upgrade php`',
+          file=sys.stderr)
+    print('   配布パッケージへの反映には時間がかかります。未修正の間は Cloudflare Tunnel を止めて公開しないでください。',
+          file=sys.stderr)
+    if (os.environ.get('TUNEDROP_ALLOW_VULNERABLE_PHP') or '').strip() == '1':
+        print('   TUNEDROP_ALLOW_VULNERABLE_PHP=1 が指定されているため続行します (ローカル検証専用)。',
+              file=sys.stderr)
+        return True
+    print('   ローカルで動作確認するだけなら TUNEDROP_ALLOW_VULNERABLE_PHP=1 python start.py で起動できます。',
+          file=sys.stderr)
+    return False
 
 
 def resolve_npm() -> str | None:
@@ -402,6 +504,9 @@ def serve(argv) -> int:
         print('PHPが見つかりません。PHPをインストールして新しいターミナルで再実行するか、'
               'PHP_BIN=C:\\php\\php.exe のように指定してください。', file=sys.stderr)
         return 1
+    # 2026-10-21 の未認証 RCE 2 件 (CVE-2026-109618 / CVE-2026-109619) の修正版か確認する。
+    if not check_php_security(php):
+        return 1
     if not build_frontend_if_needed():
         return 1
     ensure_env_file()
@@ -451,7 +556,8 @@ def serve(argv) -> int:
         print('開発時: 別ターミナルで npm run dev (Vite: http://localhost:5173/)', flush=True)
 
         php_proc = popen_server(
-            [php, '-S', f'127.0.0.1:{web_port}', '-t', str(ROOT), str(ROOT / 'router.php')],
+            [php, *PHP_HARDENING_FLAGS, '-S', f'127.0.0.1:{web_port}',
+             '-t', str(ROOT), str(ROOT / 'router.php')],
             env,
         )
         php_proc.wait()
