@@ -44,6 +44,6 @@ backups/
 /docs/TEST_USER.md
 # プロジェクト内に隔離した PHP ランタイム (公式ソースをビルドしたもの)
 /.php/
-# プロモーション動画 (mp4 は合計 25MB 超。リポジトリを重くするため GitHub へは載せない)
-/promo_video/*.mp4
+# プロモーション動画フォルダ (mp4 は合計 25MB 超。撮影スクリプトごと GitHub へは載せない)
+/promo_video/
 
