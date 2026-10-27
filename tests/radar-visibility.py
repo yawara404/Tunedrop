@@ -12,10 +12,10 @@ with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'radar-favorite.sqlite'
     api = Path(directory) / 'api.php'
     # CLI には php://input が無いため、HTTP の本文境界だけテスト用に差し替える。
-    source = (ROOT / 'api.php').read_text().replace("file_get_contents('php://input')", "getenv('TEST_BODY')")
+    source = (ROOT / 'backend' / 'api.php').read_text().replace("file_get_contents('php://input')", "getenv('TEST_BODY')")
     api.write_text(source)
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
         # 他ユーザー (1) の非公開リスト曲。解析前は Radar に出ない = お気に入り不可。
         db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (40,1,'private',0)")

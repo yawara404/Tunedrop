@@ -1343,7 +1343,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="librosa(+CLAP) で音源の雰囲気を解析")
     ap.add_argument("video_id", nargs="?", help="YouTube video ID")
     ap.add_argument("--wav", help="ローカル WAV を解析する")
-    ap.add_argument("--db", default=str(Path(__file__).with_name("database.sqlite")))
+    ap.add_argument("--db", default=str(Path(__file__).resolve().parent.parent / "database.sqlite"))
     ap.add_argument("--refresh", action="store_true")
     ap.add_argument("--no-clap", action="store_true")
     ap.add_argument("--engine", action="store_true", help="利用可能エンジンを表示")

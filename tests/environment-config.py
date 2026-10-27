@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory() as temporary:
     project = work / 'project'
     project.mkdir()
     for name in ['runtime_config.py', 'app.py', 'ai_analyzer.py', 'audio_download.py']:
-        shutil.copy(ROOT / name, project / name)
+        shutil.copy(ROOT / 'backend' / name, project / name)
     sentinel = work / 'must-not-exist'
     (project / '.env').write_text(
         '# isolated settings\nGOOGLE_CLIENT_ID="fixture-client"\n'

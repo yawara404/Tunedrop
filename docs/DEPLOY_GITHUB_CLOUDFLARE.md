@@ -1,29 +1,31 @@
 # TuneDrop：GitHub管理・Cloudflare Tunnelで自作サーバー公開
 
-対象は現在のmacOS。Web配信は `./start.sh`（PHPビルトインサーバー + `router.php`）が担当します。GitHubにはコードを保存し、PHP・Python・SQLiteは自分のサーバーで動かします。GitHub Pagesではこのアプリ全体を実行できません。
+対象は現在のmacOS。Web配信は `./backend/start.sh`（PHPビルトインサーバー + `backend/router.php`）が担当します。GitHubにはコードを保存し、PHP・Python・SQLiteは自分のサーバーで動かします。GitHub Pagesではこのアプリ全体を実行できません。
+
+サーバー側は `backend/`、画面側は `frontend/`（ソース + ビルド成果物 `frontend/dist/`）にまとめてあります。**公開URLは整理前と同じ**で、`backend/router.php` が対応付けます（`/api.php` → `backend/api.php`、`/assets/...` → `frontend/dist/assets/...`、`/` → `frontend/dist/index.html`）。
 
 MySQL へ移行する場合は [MySQL 移行手順](MYSQL_MIGRATION.md) に従ってください。以下の SQLite バックアップと WAL の説明は SQLite 利用時のものです。
 
 ```text
 ブラウザ → https://music.example.com/tunedrop/ → Cloudflare Tunnel
                                          ↓
-                    ./start.sh (127.0.0.1:8888)
-                      ├ PHPビルトインサーバー + router.php（公開ファイル許可リスト / /tunedrop プレフィックス対応）
-                      ├ 画面: Viteのビルド成果物 (index.html / assets/)
-                      ├ API: api.php（SQLite database.sqlite を直接読み書き）
-                      └ Python / Waitress (127.0.0.1:5001) … 認証・音源/AI解析
-GitHub → サーバーでコードを取得・更新（git pull → ./start.sh を再起動）
+                    ./backend/start.sh (127.0.0.1:8888)
+                      ├ PHPビルトインサーバー + backend/router.php（公開ファイル許可リスト / /tunedrop プレフィックス対応）
+                      ├ 画面: frontend/dist/ のビルド成果物 (index.html / assets/)
+                      ├ API: backend/api.php（SQLite database.sqlite を直接読み書き）
+                      └ Python / Waitress (127.0.0.1:5001) … backend/app.py（認証・音源/AI解析）
+GitHub → サーバーでコードを取得・更新（git pull → ./backend/start.sh を再起動）
 ```
 
 `music.example.com`・GitHubの所有者名などは自分の値に置き換えてください。固定URL用にはCloudflareでDNS管理するドメインが必要です。PCを停止・スリープすると公開も止まります。
 
 ## 1. 今回追加した公開対策
 
-- `router.php` は公開するHTML（`index.html`）とビルド済み資産（`assets/*.js`, `*.css`, アイコン）、`api.php`・`ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（ローカル専用・Git未公開）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules` は配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面の補助スクリプトは配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。
-- `router.php` はPHP開発サーバー用の同じ制限です。`./start.sh` と管理画面の起動スクリプトはこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
+- `backend/router.php` は公開するHTML（`frontend/dist/index.html`）とビルド済み資産（`frontend/dist/assets/*.js`, `*.css`, アイコン）、`backend/api.php`・`backend/ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（ローカル専用・Git未公開）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules`、`backend/` のソースは配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面の補助スクリプトは配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。
+- `backend/router.php` はPHP開発サーバー用の同じ制限です。`./backend/start.sh` と管理画面の起動スクリプトはこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
 - JWT署名鍵はPython起動時に `.jwt_secret` にランダム生成され、PHPも同じファイルを読みます。既知の旧鍵は拒否します。既存ユーザーは更新後に再ログインが必要です。
 - Googleログインは `google-auth` で署名・宛先・発行者・有効期限を検証し、検証失敗や通信失敗をログイン拒否にします。`GOOGLE_CLIENT_ID` 未設定ならGoogleログインは利用できません。
-- Pythonは `127.0.0.1` のみで待ち受けます。外からは `./start.sh`（PHP）経由で利用します。
+- Pythonは `127.0.0.1` のみで待ち受けます。外からは `./backend/start.sh`（PHP）経由で利用します。
 - `.gitignore` はDB、鍵、環境設定、バックアップなどを除外します。YouTube／Gemini APIキーはソースから除去し、環境変数で読み込みます。
 - 初回起動では空のDBを作り、デモアカウントを自動投入しません。既存DBはそのまま使います。
 - **DB は配信フォルダの外に置いてください**（`.env` の `TUNEDROP_DB`）。プロジェクト直下に置くと、Live Server / Vite などのファイル監視がリクエストごとの `-wal` / `-shm` の書き換えを拾って画面が無限リロードになり、さらに静的配信サーバーから DB を丸ごとダウンロードできてしまいます（Live Server は `0.0.0.0` で待ち受けるため同一ネットワークの端末から取得可能）。`analysis_recommend.json` / `analysis_batch_state.json` も DB と同じフォルダに作られるため、一緒に外へ出ます。
@@ -52,7 +54,7 @@ python3 -m venv .venv
 
 `.env.example` を参考に `.env` を作成し、`chmod 600 .env` で保護します。既存の `.env` は上書きしないでください。この環境ではソース内のYouTube／Gemini APIキーを `.env` に移動済みです。
 
-Pythonは `python-dotenv` でプロジェクト直下の `.env` を自動読み込みします。`./start.sh`、`python app.py`、解析スクリプトの直接実行でも利用できます。起動時の作業ディレクトリには依存しません。**OSやコマンドで指定した環境変数を優先**し、`.env` は未設定の値を補います。値は文字列として読み、シェルコマンドや `${VAR}` の展開は実行しません。変更後はPythonを再起動してください。
+Pythonは `python-dotenv` でプロジェクト直下の `.env` を自動読み込みします。`./backend/start.sh`、`python app.py`、解析スクリプトの直接実行でも利用できます。起動時の作業ディレクトリには依存しません。**OSやコマンドで指定した環境変数を優先**し、`.env` は未設定の値を補います。値は文字列として読み、シェルコマンドや `${VAR}` の展開は実行しません。変更後はPythonを再起動してください。
 
 別の設定ファイルを使う場合は `TUNEDROP_ENV_FILE=/absolute/path/server.env` を起動環境に設定します。指定したファイルがない場合は環境変数と既定値のみを使います。GoogleクライアントIDを `.env` に保存すれば毎回の指定は不要です。
 
@@ -78,33 +80,39 @@ Google Cloud Consoleでウェブアプリ用OAuthクライアントを設定し�
 既存Pythonプロセスは元のターミナルでCtrl+Cで止め、次で起動します。
 
 ```bash
-GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh
+GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./backend/start.sh
 ```
 
-Googleログインを使わない場合（現在は未対応）は `PORT=5001 ./start.sh` で起動し、`frontend/config.js` の `googleClientId` を空文字にします。通常の新規登録・パスワードログインは使えます。
+Googleログインを使わない場合（現在は未対応）は `PORT=5001 ./backend/start.sh` で起動し、`frontend/config.js` の `googleClientId` を空文字にします。通常の新規登録・パスワードログインは使えます。
 
 `.jwt_secret` は一度生成したものを再利用します。中身をGitHub、チャット、ログへ貼らないでください。PHPの実行ユーザーがこのファイルを読める必要があります。既定の権限は600です。PHPを別ユーザーで動かす構成では専用グループと640などで読取権限を付け、全員が読める権限にはしないでください。
 
-高度な設定：`SECRET_KEY` を使う場合は32文字以上のランダム値をPHPとPythonの**両方**に設定します。`./start.sh` は `.env` を読み込んでPHPとPythonの両方に渡すため、`.env` に書けば両方へ反映されます。`TUNEDROP_SECRET_FILE` を使う場合は同じファイルパスを両プロセスへ設定してください。
+高度な設定：`SECRET_KEY` を使う場合は32文字以上のランダム値をPHPとPythonの**両方**に設定します。`./backend/start.sh` は `.env` を読み込んでPHPとPythonの両方に渡すため、`.env` に書けば両方へ反映されます。`TUNEDROP_SECRET_FILE` を使う場合は同じファイルパスを両プロセスへ設定してください。
 
 ## 4. Webサーバーの設定（PHPビルトインサーバー）
 
-配信は `./start.sh` が行います。Webサーバー側の設定はこれだけです。
+配信は `./backend/start.sh` が行います。Webサーバー側の設定はこれだけです。
 
 ```bash
 cd /Users/<username>/Tunedrop
-./start.sh          # 8888を優先。使用中なら別の空きポートへ自動でずれ、URLを表示する
+./backend/start.sh          # 8888を優先。使用中なら別の空きポートへ自動でずれ、URLを表示する
 ```
 
-- `./start.sh` は「必要なときだけ `npm run build`」→「認証・解析サーバー（Python）」→「Webサーバー（PHPビルトイン + `router.php`）」を起動します。
-- **公開ファイルの許可リストは `router.php`** が持ちます（従来の `.htaccess` と同じ規則）。DB・秘密鍵・Pythonソース・`.git`・バックアップ・`node_modules` はHTTPで取得できません。`php -S ...` をルーターなしで直接起動しないでください。
-- PHPビルトインサーバーは既定で1件ずつ処理するため、`./start.sh` はワーカー8個で起動します（`TUNEDROP_PHP_WORKERS=16 ./start.sh` で変更）。
-- **PHP は 2026-10-21 に公表された RCE 2件（CVE-2026-109618 / CVE-2026-109619）の修正版（8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降）が必須です。** `./start.sh` は起動時に PHP のバージョンを確認し、未修正なら起動を中止します。パッケージ配布への反映まではトンネルを停止して公開しないでください（詳細とローカル検証用の回避方法は [SECURITY.md](../SECURITY.md)）。
-- ビルトインサーバーは `memory_limit=256M` / `display_errors=0` / `log_errors=1` / `expose_php=0` を付けて起動し、OOM 時の影響と内部情報・PHP バージョンの露出を抑えます。
+- `./backend/start.sh` は「必要なときだけ `npm run build`」→「認証・解析サーバー（Python）」→「Webサーバー（PHPビルトイン + `backend/router.php`）」を起動します。
+- **公開ファイルの許可リストは `backend/router.php`** が持ちます（従来の `.htaccess` と同じ規則）。DB・秘密鍵・Pythonソース・`.git`・バックアップ・`node_modules` はHTTPで取得できません。`php -S ...` をルーターなしで直接起動しないでください。
+- PHPビルトインサーバーは既定で1件ずつ処理するため、`./backend/start.sh` はワーカー16個で起動します（`TUNEDROP_PHP_WORKERS=8 ./backend/start.sh` で変更）。APIは重い処理をFlask（`backend/app.py`）へ同期プロキシする間もワーカーを1つ占有するため、同時アクセスが多い環境ではコア数に合わせて調整してください。
+- **PHP は 2026-10-21 に公表された RCE 2件（CVE-2026-109618 / CVE-2026-109619）の修正版（8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降）が必須です。** `./backend/start.sh` は起動時に PHP のバージョンを確認し、未修正なら起動を中止します。パッケージ配布への反映まではトンネルを停止して公開しないでください（詳細とローカル検証用の回避方法は [SECURITY.md](../SECURITY.md)）。
+- ビルトインサーバーは `memory_limit=256M` / `display_errors=0` / `log_errors=1` / `expose_php=0` を付けて起動し、OOM 時の影響と内部情報・PHP バージョンの露出を抑えます。加えて **OPcache + JIT（`opcache.enable_cli=1`）を有効化**します（CLI SAPI では OPcache が既定で無効のため、以前は `backend/api.php`（約1400行）と `backend/router.php` を毎リクエスト読み直してコンパイルしていました）。
+- 高速化の既定値（`.env` または起動時の環境変数で変更できます）:
+  - `TUNEDROP_PHP_WORKERS`（16）: PHPビルトインサーバーのワーカー数
+  - `TUNEDROP_AUTH_THREADS`（16）: 認証・解析サーバー（Waitress）のスレッド数（既定4では同時アクセスで順番待ちになる）
+  - `TUNEDROP_MAP_CACHE_TTL`（300秒）: `/radar/map` 応答のキャッシュ秒数（内容が変われば即座に作り直す）
+  - 配信ヘッダ: `assets/` は内容ハッシュ付きファイル名で1年（immutable）、`index.html` は `ETag` で再検証（変わっていなければ 304 で本文なし）、一覧系API（`radar_map` / `get_public_playlists`）も `ETag` 付き（`radar_map` は共有キャッシュ可、`get_public_playlists` はビューアごとのお気に入り状態を含むためブラウザ内のみ）
+  - 補足: Cloudflare は圧縮（gzip/br）した応答の `ETag` を落とすため、公開URLではブラウザは `Last-Modified` で再検証します（実測で 304）。また HTML は既定では CF にキャッシュされません（`cf-cache-status: DYNAMIC`）。`s-maxage` をエッジで効かせたい場合だけ Cloudflare の Cache Rule（例: `music.wawa-app.me/tunedrop/` の HTML を 60 秒キャッシュ）を追加し、公開後は `scripts/purge-cloudflare-cache.sh` で消してください
 - パッケージ配布が遅れている場合は、公式ソースの 8.5.12 をプロジェクト直下の `.php/` にビルドできます（`.gitignore` 対象）。`start.py` と管理画面の起動スクリプトは `.php/bin/php` を優先します。Homebrew が修正版を配布したら `.php/` を削除してパッケージ管理へ戻してください。
-- 公開URLは `/tunedrop/` 配下です。`router.php` はこのプレフィックスを外して許可判定し、実ファイルの配信と `api.php` / `ogp.php` / 管理画面の実行を行います（Apacheの `Alias /tunedrop` 相当）。`/tunedrop`（末尾スラッシュなし）は `/tunedrop/` へ301リダイレクトします。
+- 公開URLは `/tunedrop/` 配下です。`backend/router.php` はこのプレフィックスを外して許可判定し、実ファイルの配信と `backend/api.php` / `backend/ogp.php` / 管理画面の実行を行います（Apacheの `Alias /tunedrop` 相当）。`/tunedrop`（末尾スラッシュなし）は `/tunedrop/` へ301リダイレクトします。
 - 使用したポートは `.web_port` に記録され、`npm run dev`（Vite開発サーバー）のAPIプロキシ先と管理画面の起動スクリプトが参照します。
-- 画面だけを静的配信で開く場合（VS Code Live Server 等）は、別ターミナルで `./start.sh` を起動しておけば API 接続先を自動検出します（同じoriginの `api.php` → `frontend/config.js` の `fallbackApiUrl` / `fallbackApiPorts` の順に health を確認）。**Live Server では `.vscode/settings.json` の `liveServer.settings.ignoreFiles` が必須です**。プロジェクト直下の SQLite（`-wal` / `-shm`）や解析結果 JSON はリクエストのたびに書き換わるため、除外しないと「変更検知 → 再読み込み → API呼び出し → また変更検知」で無限リロードになり、画面が延々と読み込み中のままになります。この設定は Live Server の起動時に一度だけ読まれるので、変更したら Live Server を再起動してください。**パターンは `*` で始めないでください**（`*.sqlite-*` のような書き方では無視されません。Live Server は `*` 始まりのパターンをワークスペースパスと結合せず watcher へ渡すため絶対パスに一致しません。`database.sqlite*` のように名前で書きます。`/` 始まりも絶対パス扱いになり一致しません）。`ignoreFiles` は配信を止める指定ではない（監視対象とディレクトリ一覧から外すだけ）ため、Live Server は外部ネットワークへ晒さないでください。`liveServer.settings.proxy` は使えません（クエリをパスへ混ぜて `/api.php/?action=...` に書き換えるため `router.php` の許可リストに弾かれます）。
+- 画面だけを静的配信で開く場合（VS Code Live Server 等）は、別ターミナルで `./backend/start.sh` を起動しておけば API 接続先を自動検出します（同じoriginの `backend/api.php` → `frontend/config.js` の `fallbackApiUrl` / `fallbackApiPorts` の順に health を確認）。**Live Server では `.vscode/settings.json` の `liveServer.settings.ignoreFiles` が必須です**。プロジェクト直下の SQLite（`-wal` / `-shm`）や解析結果 JSON はリクエストのたびに書き換わるため、除外しないと「変更検知 → 再読み込み → API呼び出し → また変更検知」で無限リロードになり、画面が延々と読み込み中のままになります。この設定は Live Server の起動時に一度だけ読まれるので、変更したら Live Server を再起動してください。**パターンは `*` で始めないでください**（`*.sqlite-*` のような書き方では無視されません。Live Server は `*` 始まりのパターンをワークスペースパスと結合せず watcher へ渡すため絶対パスに一致しません。`database.sqlite*` のように名前で書きます。`/` 始まりも絶対パス扱いになり一致しません）。`ignoreFiles` は配信を止める指定ではない（監視対象とディレクトリ一覧から外すだけ）ため、Live Server は外部ネットワークへ晒さないでください。`liveServer.settings.proxy` は使えません（クエリをパスへ混ぜて `/api.php/?action=...` に書き換えるため `backend/router.php` の許可リストに弾かれます）。
 
 
 ## 5. 公開前の確認
@@ -148,11 +156,11 @@ brew install cloudflared
 | 公開ホスト名 | `music.example.com` |
 | Service URL | `http://localhost:8888` |
 
-`cloudflared` と `./start.sh` を同じマシンで動かす設定です。ブラウザ側はHTTPSになり、ローカルのPHPビルトインサーバーへの接続はHTTPです。ルーターで受信ポートを開放する必要はありません。公開URLのパスが `/tunedrop/` の場合はそのまま `/tunedrop/...` を `http://localhost:8888` へ渡してください（`router.php` がプレフィックスを処理します）。
+`cloudflared` と `./backend/start.sh` を同じマシンで動かす設定です。ブラウザ側はHTTPSになり、ローカルのPHPビルトインサーバーへの接続はHTTPです。ルーターで受信ポートを開放する必要はありません。公開URLのパスが `/tunedrop/` の場合はそのまま `/tunedrop/...` を `http://localhost:8888` へ渡してください（`backend/router.php` がプレフィックスを処理します）。
 
 `https://music.example.com` を開き、前節のHTTP確認も同じ公開ホスト名で繰り返します。携帯回線からログイン・保存を試します。APIや管理画面を「Cache Everything」などのルールでキャッシュしないでください。
 
-公開トンネルを繰り返し立ち上げる場合は `./tunnel.sh` を使えます（`./tunnel.sh start | stop | restart | status`）。これは Cloudflare ダッシュボード管理のトンネルを **トークンで起動**するもので、トークンは `~/.cloudflared/tunedrop.token`（600）に置きます。**トークンは秘密情報なのでコミットしないこと**（`.cloudflared/` は `.gitignore` 済み）。ingress はダッシュボード側にあるため、ローカルに設定ファイルは不要です。
+公開トンネルを繰り返し立ち上げる場合は `./backend/tunnel.sh` を使えます（`./backend/tunnel.sh start | stop | restart | status`）。これは Cloudflare ダッシュボード管理のトンネルを **トークンで起動**するもので、トークンは `~/.cloudflared/tunedrop.token`（600）に置きます。**トークンは秘密情報なのでコミットしないこと**（`.cloudflared/` は `.gitignore` 済み）。ingress はダッシュボード側にあるため、ローカルに設定ファイルは不要です。
 
 固定ドメインを用意する前の短時間の確認には以下も使えます。ランダムなURLが表示されます。これは開発用で、常設公開には名前付きトンネルを使います。
 
@@ -222,9 +230,9 @@ git push                      # origin/main へ反映
 push前に `git diff --cached --stat` でステージング内容を確認し、
 `.env`・DB・鍵ファイルなどが誤って含まれていないか目視チェックしてください。
 
-ワンコマンドで済ませる場合は `./sync.sh` を使えます
+ワンコマンドで済ませる場合は `./backend/sync.sh` を使えます
 （fetch → リモート変更のrebase → コミット → push を一括実行。
-コミットメッセージは `./sync.sh "変更内容の説明"` のように指定できます）。
+コミットメッセージは `./backend/sync.sh "変更内容の説明"` のように指定できます）。
 
 ### リポジトリの公開設定を変えたいとき
 
@@ -252,10 +260,18 @@ Change repository visibility** で Private ⇄ Public を切り替えられま�
 ```bash
 git pull --ff-only
 .venv/bin/python -m pip install -r requirements.txt
-GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./start.sh
+GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./backend/start.sh
 ```
 
-ローカル変更がある場合は内容を確認してコミット等で整理し、強制リセットで消さないでください。サーバー設定を変更した場合は `./start.sh` を再起動します。
+ローカル変更がある場合は内容を確認してコミット等で整理し、強制リセットで消さないでください。サーバー設定を変更した場合は `./backend/start.sh` を再起動します。
+
+画面を再ビルドして公開したときは、Cloudflare のエッジに残った古い `index.html` を消します。`backend/router.php` は HTML に `s-maxage=60` を付けており、ビルドでは `frontend/dist/` を作り直す（古いハッシュのファイルは消える）ため、古い HTML を配ると画面が真っ白になります。
+
+```bash
+CF_API_TOKEN='...' CF_ZONE_ID='...' ./scripts/purge-cloudflare-cache.sh
+```
+
+トークンの権限は Zone → Cache Purge だけで十分です。毎回の指定を避けるなら `~/.cloudflare/tunedrop-purge.env`（`chmod 600`）に `CF_API_TOKEN` / `CF_ZONE_ID` を書きます（リポジトリには置かないでください）。`--everything` を付けるとゾーン全体を消します。
 
 定期バックアップ例：同名を上書きしないよう日時を付けます。
 
@@ -268,7 +284,7 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 
 `database.sqlite` は **WALジャーナル**（`PRAGMA journal_mode = WAL`）で運用されます（PHPとPythonが同じDBを共有するため、読み書きが互いをブロックしないようにする設定です）。`-wal` / `-shm` の一時ファイルは正常な動作で作られるもので、`.gitignore` によりGit管理外です。バックアップは上の `.backup` コマンド（またはサービス停止後のコピー）を使ってください。
 
-常時運用には、Macのスリープを無効にし、Apache・Python・cloudflaredの3つを再起動後も起動するよう設定します。`./start.sh --mamp` はターミナルを閉じると停止するため、常駐化する場合はmacOSのlaunchd、Linuxならsystemdで管理します。Pythonは `.venv/bin/python app.py` を起動し、`.env` またはサービスの環境変数に `PORT=5001` と `GOOGLE_CLIENT_ID` を設定します。Linuxへ移す場合はMAMP用パスをその環境に置き換えてください。今回サービス登録・DNS変更・GitHub送信は自動実行していません。
+常時運用には、Macのスリープを無効にし、Apache・Python・cloudflaredの3つを再起動後も起動するよう設定します。`./backend/start.sh --mamp` はターミナルを閉じると停止するため、常駐化する場合はmacOSのlaunchd、Linuxならsystemdで管理します。Pythonは `.venv/bin/python app.py` を起動し、`.env` またはサービスの環境変数に `PORT=5001` と `GOOGLE_CLIENT_ID` を設定します。Linuxへ移す場合はMAMP用パスをその環境に置き換えてください。今回サービス登録・DNS変更・GitHub送信は自動実行していません。
 
 ## 9. 回帰テスト
 
@@ -287,7 +303,7 @@ PHP_BIN="$(command -v php)" .venv/bin/python tests/radar-analyze-scope.py
 .venv/bin/python tests/clap-scoring.py
 ```
 
-`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`php-security-version.py` は 2026-10-21 の PHP RCE 2件（CVE-2026-109618 / CVE-2026-109619）に対する起動ゲート（修正版の判定・ローカル検証用の回避・緩和フラグ）を検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` は一時フォルダで PHPビルトインサーバー（`router.php`）を起動し、HTTP配信制限（DB・秘密鍵・ソース・バックアップの403、`/tunedrop/` プレフィックス付きでも同じ判定）を検証します。`sqlite-concurrency.py` は、PHP（`api.php`）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`radar-visibility.py` は Radar の解析済み曲（他ユーザーの非公開リスト由来を含む）をお気に入りにでき、未解析の非公開曲と数値IDは拒否することを検証します。`random-playlist-privacy.py` は、名前が「ランダム」のリストを開いても他人の非公開リストの曲が混ざらない（抽選対象が自分の所有リスト＋公開リストに限定される）ことを検証します。`radar-analyze-scope.py` は、全曲再解析の対象が呼び出し元のライブラリに固定され、クエリで指定した他人の `user_id` と未認証が拒否される（＝誰でも全ユーザーぶんの重い解析を起動できない）ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
+`environment-config.py` は直接起動時の `.env` 読込・優先順位・別ファイル指定・シェル文字列を実行しないことを検証します。`php-security-version.py` は 2026-10-21 の PHP RCE 2件（CVE-2026-109618 / CVE-2026-109619）に対する起動ゲート（修正版の判定・ローカル検証用の回避・緩和フラグ）を検証します。`publication-security.py` は共有鍵とPHP/PythonのJWT互換性・Google認証失敗時の拒否を検証します。Googleの外部検証部分はモックであり、実アカウントのログイン確認は別途必要です。`public-files.py` は一時フォルダで PHPビルトインサーバー（`backend/router.php`）を起動し、HTTP配信制限（DB・秘密鍵・ソース・バックアップの403、`/tunedrop/` プレフィックス付きでも同じ判定）を検証します。`sqlite-concurrency.py` は、PHP（`backend/api.php`）とPythonが同じDBを使う構成で「閲覧は他プロセスの書き込みロックに待たされない（WAL）」「書き込みが重なっても短時間で復帰可能なエラー（503 / retryable）を返す」「閲覧リクエストではDBが書き換わらない（スキーマ版管理）」ことを検証します。`radar-visibility.py` は Radar の解析済み曲（他ユーザーの非公開リスト由来を含む）をお気に入りにでき、未解析の非公開曲と数値IDは拒否することを検証します。`random-playlist-privacy.py` は、名前が「ランダム」のリストを開いても他人の非公開リストの曲が混ざらない（抽選対象が自分の所有リスト＋公開リストに限定される）ことを検証します。`radar-analyze-scope.py` は、全曲再解析の対象が呼び出し元のライブラリに固定され、クエリで指定した他人の `user_id` と未認証が拒否される（＝誰でも全ユーザーぶんの重い解析を起動できない）ことを検証します。`tempo-accuracy.py` は合成オンセット列（既知BPMのクリック列）を与え、実測BPMの半速/倍速（オクターブ）判定が証拠に基づき、AI推定BPMは証拠が拮抗しているときだけ採用されることを検証します（librosa不要）。`clap-scoring.py` はCLAPモデルをスタブに差し替え、クリップ選定（サビ候補優先）・温度設定・テキスト埋め込みのキャッシュ・インスト判定の上書き規則・読み込み再試行を検証します（laion-clap/torch不要）。
 
 ## 参考資料
 

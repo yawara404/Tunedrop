@@ -25,7 +25,9 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+# このスクリプトは backend/ にあり、DB の既定値はプロジェクト直下 (docroot)。
+# 実運用では .env の TUNEDROP_DB (配信フォルダの外) が優先される。
+ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = ROOT / "database.sqlite"
 
 

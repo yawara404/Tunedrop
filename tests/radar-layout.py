@@ -2,7 +2,7 @@
 import math
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 from radar_layout import spread_map_points
 
 wide = [[.1,.2],[.101,.201],[.105,.202],[.9,.8]]

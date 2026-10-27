@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     # api.php は __DIR__ の .auth_port を最優先で見るため、複製した api.php と同じ
     # フォルダにスタブサーバーのポートを書いて、実サーバーに依存しないようにする。
-    (work / 'api.php').write_bytes((ROOT / 'api.php').read_bytes())
+    (work / 'api.php').write_bytes((ROOT / 'backend' / 'api.php').read_bytes())
     port = free_port()
     server = HTTPServer(('127.0.0.1', port), StaleAuthServer)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory() as directory:
 
     database = work / 'database.sqlite'
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
 
     def call_auth(endpoint):
         code = ('$_SERVER["REQUEST_METHOD"]="POST"; $_GET=["action"=>"auth","endpoint"=>$argv[1]];'

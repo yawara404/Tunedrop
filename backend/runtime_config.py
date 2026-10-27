@@ -6,9 +6,21 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+def project_file(name):
+    """`.env` / `.jwt_secret` の場所を返す。
+
+    このモジュールは backend/ にあるが、設定と鍵はプロジェクト直下 (docroot) に置く
+    (PHP と共有するため、整理で移動していない)。モジュールと同じフォルダに
+    ファイルがあればそちらを優先する (単体配置やテスト用)。
+    """
+    here = Path(__file__).resolve().parent
+    local = here / name
+    return local if local.exists() else here.parent / name
+
+
 def load_environment():
     """Read project .env without overriding process variables or executing shell code."""
-    path = os.environ.get("TUNEDROP_ENV_FILE") or Path(__file__).with_name(".env")
+    path = os.environ.get("TUNEDROP_ENV_FILE") or project_file(".env")
     load_dotenv(dotenv_path=path, override=False, interpolate=False)
 
 
@@ -16,7 +28,7 @@ def load_secret():
     load_environment()
     secret = os.environ.get('SECRET_KEY', '').strip()
     if not secret:
-        path = Path(os.environ.get('TUNEDROP_SECRET_FILE', str(Path(__file__).with_name('.jwt_secret'))))
+        path = Path(os.environ.get('TUNEDROP_SECRET_FILE', str(project_file('.jwt_secret'))))
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:

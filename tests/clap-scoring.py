@@ -24,7 +24,7 @@ import types
 import numpy as np
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 import vibe_analyzer as va
 
 SR = 48000          # CLAP の入力サンプルレート (librosa のリサンプルを通さない)

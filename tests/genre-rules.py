@@ -17,7 +17,7 @@ import time
 import types
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 
 with tempfile.TemporaryDirectory() as directory:
     db_path = Path(directory) / 'genre.sqlite'

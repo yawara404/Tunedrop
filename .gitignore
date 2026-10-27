@@ -26,8 +26,9 @@ __pycache__/
 _backup*/
 backups/
 .vscode/
-# Node / Vite (ビルド成果物の index.html と assets/ はコミットする)
+# Node / Vite (ビルド成果物の frontend/dist/ はコミットする)
 /node_modules/
+/frontend/node_modules/
 .vite/
 # オフライン導入用の wheel 置き場 (pip download の出力。コミットしない)
 /wheelhouse/

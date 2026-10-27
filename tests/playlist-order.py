@@ -18,10 +18,10 @@ with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'order.sqlite'
     api = Path(directory) / 'api.php'
     # CLI has no php://input; adapt only the HTTP request-body boundary.
-    api.write_text((ROOT / 'api.php').read_text()
+    api.write_text((ROOT / 'backend' / 'api.php').read_text()
                    .replace("file_get_contents('php://input')", "getenv('TEST_BODY')"))
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
         # 固定タブ (先頭に固定されるべき2件)
         db.execute("INSERT INTO playlists (id,user_id,name,category,is_public,system_key,sort_order)"

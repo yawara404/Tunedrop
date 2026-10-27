@@ -11,7 +11,7 @@ import types
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 PHP = os.environ.get('PHP_BIN', 'php')
 with tempfile.TemporaryDirectory() as directory:
     secret_file = Path(directory) / 'secret'
@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as directory:
     import jwt
     app.init_db_if_needed()
     # Load only the PHP verifier to avoid touching application state.
-    code = (ROOT / 'api.php').read_text()
+    code = (ROOT / 'backend' / 'api.php').read_text()
     start = code.index('function jwt_b64url_decode')
     end = code.index('/**\n * Authorization', start)
     verifier = Path(directory) / 'verify.php'

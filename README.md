@@ -40,22 +40,23 @@ YouTubeの音楽を自分好みにコレクション・整理し、みんなの�
 ├─ フロントエンド: Vanilla JS (Vite でビルドした ES Modules) + Canvas マップ描画
 ├─ データ管理API: PHP + MySQL (PDO) / SQLite (移行前の互換動作)
 └─ 認証・解析サーバー: Python (Flask + Waitress) + 楽曲解析エンジン
-配信: PHPビルトインサーバー (./start.sh / Windows は python start.py :8888) + Cloudflare Tunnel。開発は Vite開発サーバー (npm run dev :5173、APIはstart.pyへプロキシ)。
-PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RCE 2件 CVE-2026-109618 / CVE-2026-109619 の修正版）。未修正の PHP では start.py が起動を中止する。修正版をプロジェクト内 `.php/` に置いた場合はそちらを優先する。
-ビルド: Vite (ソースは frontend/、成果物はプロジェクト直下の index.html + assets/)
+配信: PHPビルトインサーバー (./backend/start.sh / Windows は python backend/start.py :8888) + Cloudflare Tunnel。開発は Vite開発サーバー (npm run dev :5173、APIはstart.pyへプロキシ)。
+PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RCE 2件 CVE-2026-109618 / CVE-2026-109619 の修正版）。未修正の PHP では backend/start.py が起動を中止する。修正版をプロジェクト内 `.php/` に置いた場合はそちらを優先する。
+ビルド: Vite (ソースは frontend/、成果物は frontend/dist/ の index.html + assets/)
+構成: サーバー側は backend/、画面側は frontend/ (ソース + ビルド成果物 dist/) にまとめてある。公開URLは backend/router.php が対応付けるため整理前と変わらない。
 ```
 
 ### フロントエンド
 
 - フレームワークなしのVanilla JavaScript。ソースは `frontend/main.js`（エントリ）+ `frontend/config.js` + `frontend/app.js` + `frontend/style.css`
   （旧 `api-client.js` / `manager-lists.js` / `text-marquee.js` は `app.js` に統合済み、vendored Vueは削除しVue依存なし）
-- Vite でビルドし、成果物はプロジェクト直下の `index.html` と `assets/`（内容ハッシュ付きファイル名）。
-  テンプレートは `frontend/index.html`。`start.py`（`./start.sh` / `python start.py`）と `./sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
+- Vite でビルドし、成果物は `frontend/dist/` の `index.html` と `assets/`（内容ハッシュ付きファイル名）。
+  テンプレートは `frontend/index.html`。`backend/start.py`（`./backend/start.sh` / `python backend/start.py`）と `./backend/sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
 - `app.js` のトップレベル関数は `main.js` の `Object.assign(window, app)` で window に公開し、
   マークアップの `onclick="..."` と外部スクリプト（YouTube IFrame API / Google Identity Services）のコールバックから呼べる
-- API接続先の自動検出（同一originの `api.php` → `fallbackApiUrl` / `fallbackApiPorts` のhealthプローブ）とJWTの自動付与
-- 画面だけを静的配信で開いても動く（VS Code Live Server 等で `index.html` を開き、別ターミナルで `./start.sh` を起動。
-  Live Server はPHPを実行できないため同じoriginにAPIが無いが、`./start.sh` が使うポート
+- API接続先の自動検出（同一originの `backend/api.php` → `fallbackApiUrl` / `fallbackApiPorts` のhealthプローブ）とJWTの自動付与
+- 画面だけを静的配信で開いても動く（VS Code Live Server 等で `frontend/dist/index.html` を開き、別ターミナルで `./backend/start.sh` を起動。
+  Live Server はPHPを実行できないため同じoriginにAPIが無いが、`./backend/start.sh` が使うポート
   （8888 / 8000 / 8001 / 8002 / 8003 / 8010 / 8080）を順に health で確認してAPIを自動検出する）。
   `.vscode/settings.json` の `liveServer.settings.ignoreFiles` が必須。プロジェクト直下の
   SQLite（`-wal` / `-shm`）や解析結果 JSON はリクエストのたびに書き換わるため、除外しないと
@@ -67,7 +68,7 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
   - `ignoreFiles` は配信を止める指定ではない（監視対象とディレクトリ一覧から外すだけ）。
     秘密ファイルを配信させないため、Live Server を外部ネットワークへ晒さないこと
   - `liveServer.settings.proxy` は使わない。Live Server の proxy はクエリをパスへ混ぜて
-    `/api.php/?action=...` に書き換えるため、`router.php` の許可リストに弾かれて 403 になる
+    `/api.php/?action=...` に書き換えるため、`backend/router.php` の許可リストに弾かれて 403 になる
 - YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
 - Google Identity ServicesによるGoogleログイン（任意）
 - Inter + Material Symbols Rounded（`icon_names` サブセット約19KB）を使用
@@ -86,11 +87,12 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
   同じDBを同時に読み書きしてもリクエストが待たされない構成（スキーマ更新は版管理で必要時のみ実行）
 - MySQL スキーマ作成と既存データの移行は [MySQL 移行手順](docs/MYSQL_MIGRATION.md) を参照
 - 認証系はFlaskサーバーへのプロキシ（`.auth_port` から稼働ポートを動的検出）
-- 公開ファイル制限は `router.php`（PHPビルトインサーバーのルーター）の許可リストで実施。
-  配信するのは画面のビルド成果物（`index.html` と `assets/` のハッシュ付き資産）、`api.php`・`ogp.php`・
+- 公開ファイル制限は `backend/router.php`（PHPビルトインサーバーのルーター）の許可リストで実施。
+  配信するのは画面のビルド成果物（`frontend/dist/` の `index.html` と `assets/` のハッシュ付き資産。
+  公開URLは整理前と同じ `/` と `/assets/...`）、`backend/api.php`・`backend/ogp.php`・
   `robots.txt`・`sitemap.xml` とOGPカード画像（`frontend/favicon-card.png`）だけで、
-  ビルド元の `frontend/*.js`・`*.css`、`node_modules`、DB・鍵・ソース・バックアップは配信しない
-  （`assets/` はファイル名に内容のハッシュが入るため長期キャッシュ、`index.html` は毎回検証）
+  ビルド元の `frontend/*.js`・`*.css`、`backend/` のソース、`node_modules`、DB・鍵・バックアップは配信しない
+  （`assets/` はファイル名に内容のハッシュが入るため長期キャッシュ、`index.html` は ETag / Last-Modified で毎回検証し 304 で本文を送らない）
 
 ### 認証サーバー
 
@@ -158,7 +160,9 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
 **負荷対策**
 
 - 音源解析（librosa / CLAP・torch）は `TUNEDROP_CPU_THREADS`（既定: コア数の半分、`all` で無制限）でスレッド数を制限し、解析バッチは `TUNEDROP_ANALYZE_THROTTLE`（既定 0.5秒）で曲間に待ちを入れてマシンを占有し続けないようにする
-- `/radar/map` の応答はキャッシュ（`TUNEDROP_MAP_CACHE_TTL`、既定60秒。ブックマークや解析結果が変われば即座に作り直す）
+- `/radar/map` の応答はキャッシュ（`TUNEDROP_MAP_CACHE_TTL`、既定300秒。ブックマークや解析結果が変われば即座に作り直す）
+- 配信側は PHP を16ワーカー（`TUNEDROP_PHP_WORKERS`）で起動し、**OPcache + JIT**（CLI SAPI では既定で無効）で `backend/api.php` / `backend/router.php` を使い回す。認証・解析サーバー（Waitress）のスレッド数は `TUNEDROP_AUTH_THREADS`（既定16。既定4だと同時アクセスで順番待ちになる）
+- `index.html` は `ETag` 付きで返し、再訪時は 304（本文なし）で済ませる。`assets/` は内容ハッシュ付きのファイル名で1年キャッシュ。一覧系 API（`radar_map` / `get_public_playlists`）も `ETag` で再検証できる（`radar_map` は誰が見ても同じなので共有キャッシュ可、`get_public_playlists` はビューアごとのお気に入り状態を含むためブラウザ内のみ）。なお Cloudflare は圧縮した応答の `ETag` を落とすため、公開URLでは `Last-Modified` での再検証になる（これも 304 になる）。更新後は `scripts/purge-cloudflare-cache.sh` で Cloudflare のエッジを消す
 - UMAP の計算はロックで直列化する（numba の workqueue スレッド層はスレッドセーフではなく、同時実行でプロセスごと落ちるため）
 
 ## 注意

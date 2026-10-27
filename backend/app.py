@@ -37,8 +37,13 @@ load_environment()
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+# このファイルは backend/ にあり、.env / .jwt_secret / .auth_port / DB(既定値) は
+# プロジェクト直下 (docroot) に置く (PHP と共有するため整理で動かしていない)。
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+
 # Config
-DB_PATH = os.environ.get('TUNEDROP_DB', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database.sqlite'))
+DB_PATH = os.environ.get('TUNEDROP_DB', os.path.join(PROJECT_ROOT, 'database.sqlite'))
 SECRET_KEY = load_secret()
 JWT_EXPIRATION_HOURS = 24
 
@@ -1035,8 +1040,13 @@ _EMBED_LOCK = threading.Lock()
 
 # /radar/map の応答キャッシュ。UIは画面を開くたび・解析中に何度も呼ぶため、
 # 毎回UMAPを回すと重い (負荷対策)。ブックマークや解析キャッシュが変わったら作り直す。
+#
+# キャッシュキー (ブックマーク/プレイリスト/解析キャッシュの件数と版) が変われば
+# 即座に作り直すため、TTL は「変化が無いまま何秒使い回すか」だけを決める。
+# コールド時の再計算は 1.6 秒かかるので、既定を 60 秒から 300 秒へ延ばして
+# 踏む頻度を下げる (TUNEDROP_MAP_CACHE_TTL で変更可)。
 _MAP_CACHE = {'key': None, 'payload': None, 'at': 0.0}
-MAP_CACHE_TTL = float(os.environ.get('TUNEDROP_MAP_CACHE_TTL', '60') or '60')
+MAP_CACHE_TTL = float(os.environ.get('TUNEDROP_MAP_CACHE_TTL', '300') or '300')
 # 解析バッチ中は内容が数秒ごとに変わるため、変更直後でも最低この秒数は作り直さない
 # (古いキャッシュを返してでもUMAPの連続再計算を防ぐ = 負荷対策)。
 MAP_MIN_INTERVAL = float(os.environ.get('TUNEDROP_MAP_MIN_INTERVAL', '10') or '10')
@@ -1894,7 +1904,7 @@ if __name__ == '__main__':
     port = get_free_port()
 
     # Save active port so frontend / PHP can auto-detect
-    port_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.auth_port')
+    port_file = os.path.join(PROJECT_ROOT, '.auth_port')
     try:
         with open(port_file, 'w') as f:
             f.write(str(port))
@@ -1906,6 +1916,13 @@ if __name__ == '__main__':
     print(f"==================================================", flush=True)
     try:
         from waitress import serve
-        serve(app, host='127.0.0.1', port=port, _quiet=True)
+        # Waitress の既定は4スレッドで、DB待ちや音源解析の間は他のリクエストが
+        # 順番待ちになる (16並列の /radar/map が直列化して1.2秒かかっていた)。
+        # 閲覧の同時アクセスに耐えるよう増やす。TUNEDROP_AUTH_THREADS で変更できる。
+        try:
+            threads = int(os.environ.get('TUNEDROP_AUTH_THREADS', '') or '16')
+        except ValueError:
+            threads = 16
+        serve(app, host='127.0.0.1', port=port, _quiet=True, threads=max(4, threads))
     except ImportError:
         app.run(host='127.0.0.1', port=port, debug=False)

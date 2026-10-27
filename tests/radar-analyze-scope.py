@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     # api.php は __DIR__ の .auth_port を最優先で見るため、複製と同じ場所に
     # スタブサーバーのポートを書いて、実サーバーに依存しないようにする。
-    (work / 'api.php').write_bytes((ROOT / 'api.php').read_bytes())
+    (work / 'api.php').write_bytes((ROOT / 'backend' / 'api.php').read_bytes())
     port = free_port()
     server = HTTPServer(('127.0.0.1', port), StubAuthServer)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory() as directory:
 
     database = work / 'database.sqlite'
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'me','test-only')")
 
     # [1] 他人の user_id を指定しても、転送されるのは呼び出し元の user_id

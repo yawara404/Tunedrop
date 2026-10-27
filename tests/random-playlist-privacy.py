@@ -49,11 +49,11 @@ with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'privacy.sqlite'
     api = Path(directory) / 'api.php'
     # CLI には php://input が無いため、リクエストボディの境界だけ差し替える
-    api.write_text((ROOT / 'api.php').read_text()
+    api.write_text((ROOT / 'backend' / 'api.php').read_text()
                    .replace("file_get_contents('php://input')", "getenv('TEST_BODY')"))
 
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'me','test-only')")
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (98,'other','test-only')")
         playlists = [

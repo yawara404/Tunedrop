@@ -7,7 +7,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 
 with tempfile.TemporaryDirectory() as directory:
     os.environ['TUNEDROP_DB'] = str(Path(directory) / 'guest.sqlite')
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert client.post('/auth/login', json={'username': guest_name, 'password': first['credential']}).status_code == 401
 
     api = Path(directory) / 'api.php'
-    api.write_text((ROOT / 'api.php').read_text().replace("file_get_contents('php://input')", "getenv('TEST_BODY')"))
+    api.write_text((ROOT / 'backend' / 'api.php').read_text().replace("file_get_contents('php://input')", "getenv('TEST_BODY')"))
 
     def request(action, token=None, body=None):
         code = ('$_SERVER["REQUEST_METHOD"]=$argv[1]; $_GET=["action"=>$argv[2]]; '
