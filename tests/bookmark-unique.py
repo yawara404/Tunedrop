@@ -21,11 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 TMP = tempfile.mkdtemp()
 database = Path(TMP) / "unique.sqlite"
 api = Path(TMP) / "api.php"
-src = (ROOT / "api.php").read_text()
+src = (ROOT / "backend" / "api.php").read_text()
 src = src.replace("file_get_contents('php://input')", "getenv('TEST_BODY')")
 api.write_text(src)
 con = sqlite3.connect(str(database))
-con.executescript((ROOT / "setup.sql").read_text())
+con.executescript((ROOT / "backend" / "setup.sql").read_text())
 con.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','x')")
 con.execute("INSERT INTO users (id,username,password_hash) VALUES (98,'regular','x')")
 con.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (91,99,'GA',0)")

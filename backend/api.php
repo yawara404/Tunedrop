@@ -38,14 +38,20 @@ if (($_GET['action'] ?? '') === 'health') {
     exit;
 }
 
-$db_path = getenv('TUNEDROP_DB') ?: __DIR__ . '/database.sqlite';
+$db_path = getenv('TUNEDROP_DB') ?: dirname(__DIR__) . '/database.sqlite';
 
 /**
  * Flask 認証/解析サーバー (app.py) の稼働ポートを動的検出する。
  * .auth_port ファイル → 既知ポート走査の順で探索する。
  */
 function get_active_auth_port(): int {
-    $port_file = __DIR__ . '/.auth_port';
+    // .auth_port はプロジェクト直下 (docroot) に置く (backend/start.py と admin/admin.sh も
+    // 同じ場所を読む)。テストが api.php を一時フォルダへ複製する場合に備えて、
+    // このファイルの隣の .auth_port も見る。
+    $port_file = dirname(__DIR__) . '/.auth_port';
+    if (!is_file($port_file)) {
+        $port_file = __DIR__ . '/.auth_port';
+    }
     $saved = 0;
     if (is_file($port_file)) {
         $saved = (int)trim((string)@file_get_contents($port_file));
@@ -137,7 +143,9 @@ function jwt_b64url_decode(string $s): string {
 function jwt_user_id_from_token(string $token): ?int {
     $secret = trim((string)getenv('SECRET_KEY'));
     if ($secret === '') {
-        $file = getenv('TUNEDROP_SECRET_FILE') ?: __DIR__ . '/.jwt_secret';
+        // 鍵はプロジェクト直下 (docroot) に置く。テストが複製した api.php の隣にも対応する。
+        $file = getenv('TUNEDROP_SECRET_FILE')
+            ?: (is_file(dirname(__DIR__) . '/.jwt_secret') ? dirname(__DIR__) . '/.jwt_secret' : __DIR__ . '/.jwt_secret');
         $secret = trim((string)@file_get_contents($file));
     }
     if (strlen($secret) < 32 || $secret === 'tunedrop-secret-jwt-key-2026-secure') return null;
@@ -553,6 +561,18 @@ function recommend_settings(PDO $db): array {
     return $settings;
 }
 
+// 読み取り専用の GET 応答は ETag で再検証できるようにする。内容が同じなら 304 を
+// 返し、毎回 200 + 全量 (radar_map は 212KB) を送らないため、再訪やモバイル回線での
+// 表示が速くなる。値は付ける Cache-Control。
+//   radar_map            … 誰が見ても同じ内容 (ビューア依存の項目を含まない) なので共有キャッシュ可
+//   get_public_playlists … is_favorite がビューアごとに変わるため private (ブラウザ内のみ)
+// 認証で内容が変わる他の応答 (自分のライブラリ等) は対象外にする。
+$revalidatable_actions = [
+    'radar_map' => 'public, max-age=30, stale-while-revalidate=60',
+    'get_public_playlists' => 'private, max-age=30, stale-while-revalidate=60',
+];
+$revalidatable = false;
+
 try {
     $db = open_tunedrop_db($db_path);
     ensure_schema($db);
@@ -566,6 +586,13 @@ try {
     $action = $_GET['action'] ?? '';
     $method = $_SERVER['REQUEST_METHOD'];
     $input = json_decode(file_get_contents('php://input'), true);
+
+    // 対象の応答はバッファリングし、本文が揃ってから ETag を計算する
+    // (try/catch の外で閉じるため、DBエラー時も本文はそのまま返る)。
+    $revalidatable = $method === 'GET' && isset($revalidatable_actions[$action]);
+    if ($revalidatable) {
+        ob_start();
+    }
 
     switch ($action) {
         case 'get_playlists':
@@ -1398,5 +1425,26 @@ try {
             : 'データベースエラーが発生しました。サーバーのログを確認してください。',
         'retryable' => $locked,
     ], JSON_UNESCAPED_UNICODE);
+}
+
+// バッファした応答へ ETag とキャッシュ指示を付ける。
+//  - 内容が変わっていれば (If-None-Match 不一致) そのまま 200 で返す
+//  - 同じなら 304 を返し、本文は送らない (ブラウザは持っている内容を再利用する)
+// 公開データのみが対象で、内容が変われば ETag も必ず変わるため取り違えない。
+if ($revalidatable) {
+    $body = (string)ob_get_clean();
+    if (http_response_code() === 200 && $body !== '') {
+        $etag = '"' . md5($body) . '"';
+        header('ETag: ' . $etag);
+        // エッジ/ブラウザへの持たせ方はアクションごとに決める (radar_map は共有可、
+        // get_public_playlists はビューア依存のため private)。
+        header('Cache-Control: ' . $revalidatable_actions[$action]);
+        $if_none_match = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
+        if ($if_none_match !== '' && ($if_none_match === $etag || $if_none_match === '*')) {
+            http_response_code(304);
+            $body = '';
+        }
+    }
+    echo $body;
 }
 ?>

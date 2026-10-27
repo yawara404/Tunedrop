@@ -6,7 +6,7 @@
   "description": "Tune drop のフロントエンドビルド (Vite)。ソースは frontend/、ビルド成果物はプロジェクト直下 (index.html / assets/)。",
   "scripts": {
     "dev": "vite",
-    "build": "rm -rf assets && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "devDependencies": {

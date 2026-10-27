@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""frontend/favicon-card.png (512x512) を生成する。
+"""favicon-card.png (512x512) を生成する (このスクリプトは frontend/ にある)。
 
 なぜ必要か
 ----------
@@ -8,14 +8,14 @@ SNS (X / LINE / Discord など) や Google の検索結果に出す og:image に
 そこで「ファビコンと同じ意匠」を 512x512 の PNG にしたものを og:image に使う。
 文字入りの横長カード (1200x630) は使わない (Midair.io と同じ方式)。
 
-デザインは frontend/favicon.svg と対になっている (背景色・アクセント色・"T" の位置と大きさ)。
+デザインは favicon.svg と対になっている (背景色・アクセント色・"T" の位置と大きさ)。
 favicon.svg を変えたときは、このスクリプトの数値も合わせて直して再実行し、
 Git に PNG の差分として残す。
 
 使い方
 ------
-    .venv/bin/python make_favicon_card.py          # frontend/favicon-card.png を更新
-    .venv/bin/python make_favicon_card.py out.png  # 出力先を指定
+    .venv/bin/python frontend/make_favicon_card.py          # frontend/favicon-card.png を更新
+    .venv/bin/python frontend/make_favicon_card.py out.png  # 出力先を指定
 """
 import sys
 from pathlib import Path
@@ -26,8 +26,8 @@ from PIL import Image, ImageDraw, ImageFont
 # 「unknown file extension: .png」で保存に失敗するため、必ず先に呼ぶ。
 Image.init()
 
-ROOT = Path(__file__).resolve().parent
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'frontend' / 'favicon-card.png'
+FRONTEND_DIR = Path(__file__).resolve().parent
+OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else FRONTEND_DIR / 'favicon-card.png'
 
 SIZE = 512
 VIEW = 64                     # frontend/favicon.svg の viewBox は 0 0 64 64

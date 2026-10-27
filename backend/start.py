@@ -2,20 +2,26 @@
 """Tune drop クロスプラットフォーム・ランチャー (Windows / macOS / Linux)。
 
 `start.sh` と同じ処理を Python で実装し、Windows (ネイティブ) でもそのまま使える:
-  1. 画面 (frontend/) が新しければ npm run build (node_modules があるときだけ)
-  2. 認証・解析サーバー (app.py) を起動 (未起動なら)
-  3. PHP ビルトインサーバー (router.php) を起動して画面と API を配信
+  1. 画面 (frontend/) が新しければ frontend/ で npm run build (node_modules があるときだけ)
+  2. 認証・解析サーバー (backend/app.py) を起動 (未起動なら)
+  3. PHP ビルトインサーバー (backend/router.php、docroot はプロジェクト直下) を起動して画面と API を配信
+
+構成 (公開URLは変えない):
+  https://<host>/tunedrop/         → frontend/dist/index.html
+  https://<host>/tunedrop/assets/* → frontend/dist/assets/*
+  https://<host>/tunedrop/api.php  → backend/api.php (実行)
+  https://<host>/tunedrop/ogp.php  → backend/ogp.php (実行)
 
 使い方:
-  python start.py          起動 (macOS/Linux は ./start.sh でも同じ)
-  python start.py --setup  初回セットアップ (.venv 作成 + pip install + npm install + .env 作成)
-  python start.py --help   このヘルプ
+  python backend/start.py          起動 (macOS/Linux は ./backend/start.sh でも同じ)
+  python backend/start.py --setup  初回セットアップ (.venv 作成 + pip install + npm install + .env 作成)
+  python backend/start.py --help   このヘルプ
 
 環境変数:
   PYTHON_BIN            使用する Python (未指定は .venv → 実行中の Python)
   PHP_BIN               PHP の実行ファイル (未指定は .php/ → PATH から php)
   TUNEDROP_PORT         Webサーバーの第一候補ポート (既定 8888)
-  TUNEDROP_PHP_WORKERS  PHPビルトインサーバーのワーカー数 (POSIX のみ有効。既定 8)
+  TUNEDROP_PHP_WORKERS  PHPビルトインサーバーのワーカー数 (POSIX のみ有効。既定 16)
   TUNEDROP_ALLOW_VULNERABLE_PHP  1 で未修正 PHP でも起動する (ローカル検証専用)
   TUNEDROP_PIP_PROXY    --setup の pip に渡すプロキシ (http://user:pass@host:port)
   TUNEDROP_PIP_INDEX_URL / TUNEDROP_PIP_EXTRA_ARGS   pip の index-url / 追加引数
@@ -35,7 +41,15 @@ import sys
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+# このスクリプトは backend/ にあり、配信の docroot はプロジェクト直下 (その親)。
+#   ROOT        … プロジェクト直下。docroot であり、.env / .venv / .php / admin/ /
+#                 tests/ / robots.txt / sitemap.xml の置き場でもある
+#   BACKEND_DIR … サーバー側 (このスクリプト、app.py、api.php、router.php、SQL)
+#   FRONTEND_DIR/DIST_DIR … 画面のソースとビルド成果物 (dist/ が配信される)
+BACKEND_DIR = Path(__file__).resolve().parent
+ROOT = BACKEND_DIR.parent
+FRONTEND_DIR = ROOT / 'frontend'
+DIST_DIR = FRONTEND_DIR / 'dist'
 IS_WINDOWS = os.name == 'nt'
 # 画面のビルド元 (start.sh と同じ監視対象)
 FRONTEND_SOURCES = (
@@ -58,11 +72,25 @@ PHP_SECURITY_ADVISORY = 'https://www.php.net/archive/2026.php#2026-10-21'
 # 修正版へ上げるまでの緩和策。CLI の memory_limit は既定で無制限 (-1) のため、
 # OOM でホストごと落ちないよう有限にする。display_errors は内部パスや設定を
 # 応答へ出さない (api.php / admin/admin.php も同じ設定をしている)。
+#
+# OPcache は CLI SAPI では既定で無効 (opcache.enable_cli=Off) のため、ビルトイン
+# サーバーは api.php (約1400行) と router.php を毎リクエスト読み直してコンパイル
+# していた。共有メモリへ載せて使い回し、ホットな関数は JIT でネイティブ化する。
+# validate_timestamps=1 / revalidate_freq=2 はソース編集が2秒以内に反映される
+# ようにするため (運用では ./start.sh の再起動で即時反映)。opcache を持たない
+# PHP では未知の -d は無視されるだけで、起動は妨げない。
 PHP_HARDENING_FLAGS = (
     '-d', 'memory_limit=256M',
     '-d', 'display_errors=0',
     '-d', 'log_errors=1',
     '-d', 'expose_php=0',
+    '-d', 'opcache.enable_cli=1',
+    '-d', 'opcache.memory_consumption=128',
+    '-d', 'opcache.max_accelerated_files=20000',
+    '-d', 'opcache.validate_timestamps=1',
+    '-d', 'opcache.revalidate_freq=2',
+    '-d', 'opcache.jit=tracing',
+    '-d', 'opcache.jit_buffer_size=64M',
 )
 
 
@@ -219,17 +247,19 @@ def resolve_npm() -> str | None:
     return shutil.which('npm') or shutil.which('npm.cmd')
 
 
-def run_command(cmd, env=None, check=True):
+def run_command(cmd, env=None, check=True, cwd=None):
     """npm は Windows では npm.cmd のため、cmd 経由 (shell=True) で実行する。
 
     表示時はプロキシURLの資格情報 (`user:pass@`) をマスクする。
+    cwd を省略するとプロジェクト直下で実行する (npm は frontend/ で実行する)。
     """
     display = re.sub(r'://[^@/\s]*@', '://***@', ' '.join(str(part) for part in cmd))
     print('+ ' + display, flush=True)
+    target = str(cwd or ROOT)
     if IS_WINDOWS:
         line = subprocess.list2cmdline([str(part) for part in cmd])
-        return subprocess.run(line, cwd=str(ROOT), env=env, shell=True, check=check)
-    return subprocess.run([str(part) for part in cmd], cwd=str(ROOT), env=env, check=check)
+        return subprocess.run(line, cwd=target, env=env, shell=True, check=check)
+    return subprocess.run([str(part) for part in cmd], cwd=target, env=env, check=check)
 
 
 def pip_works(python: str) -> bool:
@@ -349,7 +379,7 @@ def load_project_env() -> dict:
     """`.env` の内容を環境変数へ取り込む (PHP へ渡すため)。dotenv が無くても起動できる。"""
     env = os.environ.copy()
     try:
-        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(BACKEND_DIR))
         from runtime_config import load_environment  # noqa: WPS433 (実行時 import)
         load_environment()
         env = os.environ.copy()
@@ -359,8 +389,8 @@ def load_project_env() -> dict:
 
 
 def needs_frontend_build() -> bool:
-    index = ROOT / 'index.html'
-    if not index.exists() or not (ROOT / 'assets').is_dir():
+    index = DIST_DIR / 'index.html'
+    if not index.exists() or not (DIST_DIR / 'assets').is_dir():
         return True
     index_mtime = index.stat().st_mtime
     return any(
@@ -371,22 +401,22 @@ def needs_frontend_build() -> bool:
 
 def build_frontend_if_needed() -> bool:
     """戻り値: 起動してよければ True。"""
-    if (ROOT / 'node_modules').is_dir():
+    if (FRONTEND_DIR / 'node_modules').is_dir():
         if not needs_frontend_build():
             return True
         npm = resolve_npm()
         if not npm:
-            print('npm が見つからないため画面をビルドできません (npm install を実行してください)。', file=sys.stderr)
+            print('npm が見つからないため画面をビルドできません (frontend/ で npm install を実行してください)。', file=sys.stderr)
             return False
-        print('画面をビルドしています (npm run build)...', flush=True)
+        print('画面をビルドしています (frontend/ で npm run build)...', flush=True)
         try:
-            run_command([npm, 'run', 'build'])
+            run_command([npm, 'run', 'build'], cwd=FRONTEND_DIR)
         except subprocess.CalledProcessError:
             return False
         return True
-    # node_modules が無い場合は同梱のビルド成果物 (index.html + assets/) を使う。
-    if not (ROOT / 'index.html').exists():
-        print('画面 (index.html) がありません。npm install && npm run build を実行してください。', file=sys.stderr)
+    # node_modules が無い場合は同梱のビルド成果物 (frontend/dist/) を使う。
+    if not (DIST_DIR / 'index.html').exists():
+        print('画面 (frontend/dist/index.html) がありません。frontend/ で npm install && npm run build を実行してください。', file=sys.stderr)
         return False
     return True
 
@@ -458,7 +488,7 @@ def setup() -> int:
     print('-- Python 依存関係をインストール --', flush=True)
     try:
         run_command([python, '-m', 'pip', 'install', '--upgrade', 'pip', *args])
-        run_command([python, '-m', 'pip', 'install', '-r', str(ROOT / 'requirements.txt'), *args])
+        run_command([python, '-m', 'pip', 'install', '-r', str(BACKEND_DIR / 'requirements.txt'), *args])
     except subprocess.CalledProcessError:
         print('!! pip install に失敗しました。', file=sys.stderr)
         print('   ネットワーク / SSL / プロキシが原因のことが多いです。次のいずれかを試してください:', file=sys.stderr)
@@ -470,9 +500,9 @@ def setup() -> int:
     # 4) .env と npm
     ensure_env_file()
     npm = resolve_npm()
-    if npm and (ROOT / 'package.json').exists():
-        print('-- フロントエンド依存関係をインストール (npm install) --', flush=True)
-        run_command([npm, 'install'])
+    if npm and (FRONTEND_DIR / 'package.json').exists():
+        print('-- フロントエンド依存関係をインストール (frontend/ で npm install) --', flush=True)
+        run_command([npm, 'install'], cwd=FRONTEND_DIR)
     else:
         print('npm が見つからないため npm install をスキップします (同梱のビルド成果物を使用)。')
 
@@ -525,7 +555,11 @@ def serve(argv) -> int:
     env = load_project_env()
     # PHPビルトインサーバーは既定で1リクエストずつ処理するため、ワーカーを増やす。
     # (PHP 7.4+ の POSIX 機能。Windows では無視される)
-    env['PHP_CLI_SERVER_WORKERS'] = env.get('TUNEDROP_PHP_WORKERS') or '8'
+    #
+    # API は重い処理を Flask (app.py) へ同期プロキシする間もワーカーを1つ占有する。
+    # 既定を8にしていたときは、解析や /radar/map が重なると閲覧リクエストが
+    # 空きワーカー待ちになったため、16 へ増やす (TUNEDROP_PHP_WORKERS で変更可)。
+    env['PHP_CLI_SERVER_WORKERS'] = env.get('TUNEDROP_PHP_WORKERS') or '16'
     # 子プロセス (app.py) の絵文字出力が Windows の cp932 コンソールで落ちないようにする。
     env['PYTHONIOENCODING'] = 'utf-8'
 
@@ -544,7 +578,7 @@ def serve(argv) -> int:
     php_proc = None
     try:
         if start_auth:
-            auth_proc = popen_server([python, str(ROOT / 'app.py')], env)
+            auth_proc = popen_server([python, str(BACKEND_DIR / 'app.py')], env)
         try:
             (ROOT / '.web_port').write_text(f'{web_port}\n', encoding='utf-8')
         except OSError as exc:
@@ -557,7 +591,7 @@ def serve(argv) -> int:
 
         php_proc = popen_server(
             [php, *PHP_HARDENING_FLAGS, '-S', f'127.0.0.1:{web_port}',
-             '-t', str(ROOT), str(ROOT / 'router.php')],
+             '-t', str(ROOT), str(BACKEND_DIR / 'router.php')],
             env,
         )
         php_proc.wait()

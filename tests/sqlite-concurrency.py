@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # api.php の TUNEDROP_SCHEMA_VERSION と同期させる (ベタ書きだと更新時にずれる)
 SCHEMA_VERSION = int(re.search(
     r'const TUNEDROP_SCHEMA_VERSION\s*=\s*(\d+)',
-    (ROOT / 'api.php').read_text(encoding='utf-8')).group(1))
+    (ROOT / 'backend' / 'api.php').read_text(encoding='utf-8')).group(1))
 BUSY_TIMEOUT_WAIT = 5      # api.php の TUNEDROP_BUSY_TIMEOUT_MS と合わせる
 MAX_ACCEPTABLE_SECONDS = 15  # サーバーの idle timeout (30秒) より十分短いこと
 
@@ -56,11 +56,11 @@ with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'concurrency.sqlite'
     api = Path(directory) / 'api.php'
     # CLI には php://input が無いため、リクエストボディの境界だけ差し替える
-    api.write_text((ROOT / 'api.php').read_text()
+    api.write_text((ROOT / 'backend' / 'api.php').read_text()
                    .replace("file_get_contents('php://input')", "getenv('TEST_BODY')"))
 
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
         # 固定タブを用意しておき、閲覧だけのリクエストでは書き込みが発生しない状態にする
         db.execute("INSERT INTO playlists (id,user_id,name,category,is_public,is_favorite,system_key,sort_order)"

@@ -19,8 +19,9 @@ def main():
     args = parser.parse_args()
     load_environment()
     if not args.sqlite:
-        # DB を配信フォルダの外に置く運用 (TUNEDROP_DB) にも追随する
-        args.sqlite = os.environ.get('TUNEDROP_DB') or str(Path(__file__).with_name('database.sqlite'))
+        # DB を配信フォルダの外に置く運用 (TUNEDROP_DB) にも追随する。
+        # 既定はプロジェクト直下 (docroot) で、このスクリプトは backend/ にある。
+        args.sqlite = os.environ.get('TUNEDROP_DB') or str(Path(__file__).resolve().parent.parent / 'database.sqlite')
     import mysql_db
     if not mysql_db.enabled():
         parser.error('set TUNEDROP_MYSQL_HOST, USER, PASSWORD, DATABASE in .env first')

@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location('tunedrop_start', ROOT / 'start.py')
+SPEC = importlib.util.spec_from_file_location('tunedrop_start', ROOT / 'backend' / 'start.py')
 start = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(start)
 

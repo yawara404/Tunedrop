@@ -12,7 +12,7 @@ PHP = os.environ.get('PHP_BIN', 'php')
 with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'ogp.sqlite'
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         # カバー未設定の公開リスト (最後に追加した曲のサムネイルを使う)
         db.execute("INSERT INTO playlists (id,user_id,name,is_public,category,cover_id) VALUES (30,1,'夜のドライブ',1,'Other',NULL)")
         for i in range(3):
@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory() as directory:
                 '$_SERVER["HTTP_HOST"]="example.test";$_SERVER["SCRIPT_NAME"]="/tunedrop/ogp.php";'
                 '$_SERVER["HTTPS"]="on";require $argv[1];')
         return subprocess.check_output(
-            [PHP, '-r', code, str(ROOT / 'ogp.php')],
+            [PHP, '-r', code, str(ROOT / 'backend' / 'ogp.php')],
             env={**os.environ, 'TUNEDROP_DB': str(database)}, text=True,
         )
 

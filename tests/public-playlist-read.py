@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'public-read.sqlite'
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
         db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (99,99,'Guest private',0)")
         db.execute("INSERT INTO bookmarks (playlist_id,youtube_id) VALUES (99,'guest-track')")
@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as directory:
     def read(playlist):
         code = '$_SERVER["REQUEST_METHOD"]="GET"; $_SERVER["HTTP_AUTHORIZATION"]=$argv[3]; $_GET=["action"=>"get_my_bookmarks","playlist_id"=>$argv[1]]; require $argv[2];'
         return json.loads(subprocess.check_output(
-            [os.environ.get('PHP_BIN', 'php'), '-r', code, str(playlist), str(ROOT / 'api.php'), bearer()],
+            [os.environ.get('PHP_BIN', 'php'), '-r', code, str(playlist), str(ROOT / 'backend' / 'api.php'), bearer()],
             env={**os.environ, 'TUNEDROP_DB': str(database), 'SECRET_KEY': SECRET}, text=True,
         ))
 

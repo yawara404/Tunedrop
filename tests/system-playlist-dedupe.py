@@ -17,10 +17,10 @@ with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'dedupe.sqlite'
     api = Path(directory) / 'api.php'
     # CLI has no php://input; adapt only the HTTP request-body boundary.
-    source = (ROOT / 'api.php').read_text().replace("file_get_contents('php://input')", "getenv('TEST_BODY')")
+    source = (ROOT / 'backend' / 'api.php').read_text().replace("file_get_contents('php://input')", "getenv('TEST_BODY')")
     api.write_text(source)
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         # 閲覧者
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
         db.execute("INSERT INTO playlists (id,user_id,name,is_public) VALUES (99,99,'Guest private',0)")

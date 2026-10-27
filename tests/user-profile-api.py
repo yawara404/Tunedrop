@@ -16,10 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'userprofile.sqlite'
     api = Path(directory) / 'api.php'
-    api.write_text((ROOT / 'api.php').read_text()
+    api.write_text((ROOT / 'backend' / 'api.php').read_text()
                    .replace("file_get_contents('php://input')", "getenv('TEST_BODY')"))
     with sqlite3.connect(database) as db:
-        db.executescript((ROOT / 'setup.sql').read_text())
+        db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (500,'guest','x')")
         db.execute("INSERT INTO users (id,username,password_hash,created_at)"
                    " VALUES (501,'demo-user','x','2026-01-02 03:04:05')")

@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 
 
 def check(name, condition, detail=""):
@@ -17,7 +17,7 @@ def check(name, condition, detail=""):
 
 
 # 1) radar_map の応答に energy / valence が含まれる（ガイドの向き推定に使用）
-src = (ROOT / "app.py").read_text(encoding="utf-8")
+src = (ROOT / "backend" / "app.py").read_text(encoding="utf-8")
 check("radar_map応答にenergyを含む", '"energy": it["energy"]' in src)
 check("radar_map応答にvalenceを含む", '"valence": it.get("valence")' in src)
 check("_db_bookmarksがvalenceを運ぶ", 'item["valence"] = d.get("valence")' in src)

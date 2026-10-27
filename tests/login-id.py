@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 
 with tempfile.TemporaryDirectory() as directory:
     os.environ['TUNEDROP_DB'] = str(Path(directory) / 'login-id.sqlite')

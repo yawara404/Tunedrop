@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'covers.sqlite'
     db = sqlite3.connect(database)
-    db.executescript((ROOT / 'setup.sql').read_text())
+    db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
     # 閲覧者の固定タブ
     db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'guest','test-only')")
     db.execute("INSERT INTO playlists (id,user_id,name,category,is_public,cover_id,is_favorite,sort_order,system_key) "
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory() as directory:
     def playlists(action='get_playlists'):
         script = '$_SERVER["REQUEST_METHOD"]="GET"; $_SERVER["HTTP_AUTHORIZATION"]=$argv[3]; $_GET["action"]=$argv[1]; require $argv[2];'
         output = subprocess.check_output(
-            [os.environ.get('PHP_BIN', 'php'), '-r', script, action, str(ROOT / 'api.php'), bearer()],
+            [os.environ.get('PHP_BIN', 'php'), '-r', script, action, str(ROOT / 'backend' / 'api.php'), bearer()],
             env={**os.environ, 'TUNEDROP_DB': str(database), 'SECRET_KEY': SECRET}, text=True,
         )
         return {row['id']: row for row in json.loads(output)}
@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory() as directory:
         assert not any(row['system_key'] for row in public.values())  # 固定タブは共有しない
 
     # Use the API's actual move statement to verify playlist arrival ordering.
-    source = (ROOT / 'api.php').read_text()
+    source = (ROOT / 'backend' / 'api.php').read_text()
     move_sql = source.split('$db->prepare("UPDATE bookmarks SET added_at = ', 1)[1].split('");', 1)[0]
     # api.php は MySQL と SQLite で現在時刻の式を切り替えるため、PHP の変数補間
     # ({$timestamp_sql}) が SQL 文に残る。SQLite 用の式へ戻してから実行する。

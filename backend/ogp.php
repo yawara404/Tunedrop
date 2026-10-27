@@ -109,7 +109,7 @@ function ogp_load_playlist(string $db_path, int $playlist_id): ?array
     }
 }
 
-$db_path = getenv('TUNEDROP_DB') ?: __DIR__ . '/database.sqlite';
+$db_path = getenv('TUNEDROP_DB') ?: dirname(__DIR__) . '/database.sqlite';
 $base = ogp_base_url();
 $playlist_id = (int)($_GET['playlist'] ?? 0);
 $playlist = ogp_load_playlist($db_path, $playlist_id);
