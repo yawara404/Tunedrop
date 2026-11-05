@@ -14,6 +14,12 @@ import tempfile
 
 ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'backend'))
+
+# テストは一時 SQLite を使う。.env に MySQL 設定がある環境でも実DBへ接続しないよう、
+# 存在しない .env を指して読み込みを止める (他のテストと同じ方式)。
+os.environ['TUNEDROP_ENV_FILE'] = str(ROOT / 'tests' / 'none.env')
+os.environ.pop('TUNEDROP_MYSQL_HOST', None)
+
 import analysis_cache as ac
 
 db = tempfile.mktemp(suffix=".sqlite")

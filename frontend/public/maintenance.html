@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Tune drop - メンテナンス中</title>
+    <style>
+        :root {
+            --bg: #121212;
+            --text: #f0f0f0;
+            --sub: #a0a0a0;
+            --accent: #d4e157;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background:
+                radial-gradient(120% 120% at 0% 0%, rgba(212, 225, 87, 0.12), transparent 55%),
+                radial-gradient(120% 120% at 100% 0%, rgba(90, 160, 255, 0.08), transparent 60%),
+                var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 440px;
+            padding: 36px 28px;
+            border: 1px solid rgba(212, 225, 87, 0.18);
+            border-radius: 20px;
+            background: linear-gradient(160deg, #1d1d18, #161616);
+            box-shadow: 0 30px 60px -40px #000;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 21px;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            color: var(--accent);
+        }
+
+        .eyebrow {
+            margin-top: 22px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.2em;
+            color: var(--accent);
+        }
+
+        h1 {
+            margin-top: 8px;
+            font-size: 22px;
+            line-height: 1.35;
+            text-wrap: balance;
+        }
+
+        .message {
+            margin-top: 14px;
+            color: var(--sub);
+            font-size: 13px;
+            line-height: 1.75;
+            white-space: pre-line;
+        }
+
+        .actions {
+            margin-top: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        button {
+            min-width: 190px;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #14160a;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: 0.75;
+        }
+
+        .note {
+            margin-top: 14px;
+            color: var(--sub);
+            font-size: 11px;
+            line-height: 1.6;
+        }
+
+        .spinner {
+            display: none;
+            width: 13px;
+            height: 13px;
+            margin-right: 6px;
+            border: 2px solid rgba(20, 22, 10, 0.25);
+            border-top-color: #14160a;
+            border-radius: 50%;
+            vertical-align: -2px;
+            animation: spin 0.9s linear infinite;
+        }
+
+        .checking .spinner {
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="card" role="alert" aria-live="polite">
+        <div class="logo">Tune drop</div>
+        <p class="eyebrow">MAINTENANCE</p>
+        <h1>ただいまメンテナンス中です</h1>
+        <p class="message" id="maintenance-message"><!-- MAINTENANCE_MESSAGE --></p>
+        <div class="actions">
+            <button type="button" id="maintenance-retry"><span class="spinner" aria-hidden="true"></span>再試行</button>
+        </div>
+        <p class="note" id="maintenance-note">復旧すると自動で再読み込みします。</p>
+    </main>
+    <script>
+        (function () {
+            var button = document.getElementById('maintenance-retry');
+            var note = document.getElementById('maintenance-note');
+            var card = document.querySelector('.card');
+            var checking = false;
+
+            function check() {
+                if (checking) return;
+                checking = true;
+                card.classList.add('checking');
+                button.disabled = true;
+                fetch('api.php?action=health', { cache: 'no-store' })
+                    .then(function (response) {
+                        if (!response.ok) return null;
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        if (data && data.status === 'ok') {
+                            note.textContent = '復旧しました。再読み込みします…';
+                            location.reload();
+                            return;
+                        }
+                        note.textContent = 'まだメンテナンス中です。時間をおいて再試行してください。';
+                    })
+                    .catch(function () {
+                        note.textContent = 'サーバーに接続できません。時間をおいて再試行してください。';
+                    })
+                    .finally(function () {
+                        checking = false;
+                        card.classList.remove('checking');
+                        button.disabled = false;
+                    });
+            }
+
+            button.addEventListener('click', check);
+            // 15秒ごとに自動で復旧を確認する (復旧すれば自動で再読み込み)
+            setInterval(check, 15000);
+            check();
+        })();
+    </script>
+</body>
+
+</html>

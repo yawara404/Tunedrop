@@ -44,6 +44,9 @@ export async function resolveTunedropApi() {
             clearTimeout(timer);
         }
     }
+    // サーバー停止中・メンテナンス中は画面全体で案内する
+    // (各画面のトーストだけだと、何が起きたのか分かりにくい)
+    showMaintenanceScreen();
     throw new Error('APIに接続できません。./start.sh (PHPビルトインサーバー) を実行し、接続先 (既定: http://localhost:8888/api.php) と公開フォルダを確認してください。');
 }
 
@@ -62,16 +65,110 @@ export async function tunedropFetch(path, options) {
     const isAuthRequest = new URL(path, window.location.href).searchParams.get('action') === 'auth';
     const token = accountToken || (isAuthRequest ? null : await ensureTunedropGuest(url));
     if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
-    const response = await fetch(url, Object.assign({}, options, { headers }));
+    let response;
+    try {
+        response = await fetch(url, Object.assign({}, options, { headers }));
+    } catch (error) {
+        showMaintenanceScreen();
+        throw error;
+    }
     if (!response.headers.get('content-type')?.includes('application/json')) {
         tunedropApiPromise = null;
         throw new Error('APIからJSONが返りません。PHPサーバー (./start.sh) の状態と config.js を確認してください。');
+    }
+    // メンテナンス中は API が 503 + { maintenance: true } を返す。
+    // (DBロック等の一時的な503は maintenance フラグが無いので表示しない)
+    if (response.status === 503) {
+        response.clone().json()
+            .then(data => { if (data && data.maintenance === true) showMaintenanceScreen(data.error); })
+            .catch(() => { });
     }
     // ログイン中に 401 が返ったらトークンが期限切れ・無効。
     // 何もしないと一覧が空のまま「プレイリストがありません」に見えてしまうため、
     // セッションを捨ててログインし直してもらう (ゲスト利用時の401とは区別する)。
     if (response.status === 401 && accountToken && !isAuthRequest) handleExpiredSession();
     return response;
+}
+
+// ==========================================================
+// メンテナンス / サーバー停止中の案内
+// ----------------------------------------------------------
+// API が 503 (maintenance: true) を返す、または接続できないときに
+// 画面全体を覆う案内を出す。15秒ごとに復旧を確認し、復旧したら
+// 自動で再読み込みする。静的ページ (maintenance.html) と同じ見た目。
+// ==========================================================
+let maintenanceTimer = null;
+let maintenanceChecking = false;
+
+export function showMaintenanceScreen(message) {
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+    const overlay = document.getElementById('maintenance-overlay');
+    if (!overlay) return;
+    const alreadyVisible = !overlay.hidden;
+    const messageEl = document.getElementById('maintenance-message');
+    // すでに表示中ならメッセージを勝手に戻さない (503の詳細を上書きしない)
+    if (messageEl && (message || !alreadyVisible)) {
+        messageEl.textContent = message || 'ただいまメンテナンス中です。時間をおいて再試行してください。';
+    }
+    const note = document.getElementById('maintenance-note');
+    if (note) note.textContent = '復旧すると自動で再読み込みします。';
+    overlay.hidden = false;
+    if (document.body && document.body.classList) document.body.classList.add('maintenance-open');
+    if (!maintenanceTimer && typeof setInterval === 'function') {
+        maintenanceTimer = setInterval(checkMaintenanceRecovery, 15000);
+    }
+}
+
+export function hideMaintenanceScreen() {
+    if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+        const overlay = document.getElementById('maintenance-overlay');
+        if (overlay) overlay.hidden = true;
+        if (document.body && document.body.classList) document.body.classList.remove('maintenance-open');
+    }
+    if (maintenanceTimer) {
+        clearInterval(maintenanceTimer);
+        maintenanceTimer = null;
+    }
+}
+
+async function checkMaintenanceRecovery() {
+    if (maintenanceChecking) return;
+    maintenanceChecking = true;
+    try {
+        // 接続先を再探索する (サーバー再起動でポートが変わった場合にも追従)
+        tunedropApiPromise = null;
+        const api = await resolveTunedropApi();
+        const response = await fetch(new URL('api.php?action=health', api.href), { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data && data.status === 'ok') {
+            hideMaintenanceScreen();
+            window.location.reload();
+        }
+    } catch (_) {
+        // まだ停止中
+    } finally {
+        maintenanceChecking = false;
+    }
+}
+
+export async function retryMaintenance() {
+    const note = typeof document !== 'undefined' ? document.getElementById('maintenance-note') : null;
+    if (note) note.textContent = '接続を確認しています…';
+    try {
+        tunedropApiPromise = null;
+        const api = await resolveTunedropApi();
+        const response = await fetch(new URL('api.php?action=health', api.href), { cache: 'no-store' });
+        const data = response.ok ? await response.json() : null;
+        if (data && data.status === 'ok') {
+            hideMaintenanceScreen();
+            window.location.reload();
+            return;
+        }
+    } catch (_) {
+        // 停止中
+    }
+    if (note) note.textContent = 'まだ接続できません。時間をおいてもう一度お試しください。';
 }
 
 // セッション切れの案内は1回だけ出す (並行リクエストで連続表示しない)
@@ -247,6 +344,9 @@ let shareRecommended = [];
 let currentTracks = [];
 let currentDetailTracks = [];
 let selectedTrackIdForMove = null;
+let managerSummary = null;          // Managerホームの集計 (get_manager_summary)
+let managerSummaryPromise = null;   // 同時リクエストの重複防止
+let managerSummaryError = false;    // 集計の取得に失敗したか (再試行の案内に使う)
 let playlistSortMode = 'custom';   // custom | newest | oldest | name
 let trackSortMode = 'custom';      // custom | newest | oldest | name
 
@@ -385,28 +485,90 @@ export function goToHome() {
 }
 
 // ==========================================================
-// ルーティング (URLハッシュでブラウザ戻る/進むボタン対応)
+// ルーティング (History API: 標準的なパスでブラウザ戻る/進む対応)
+// ----------------------------------------------------------
+//   /             … Manager ホーム (サイトURLそのまま)
+//   /radar        … Radar
+//   /share        … Share
+//   /profile      … Profile
+//   /help         … ヘルプ
+//   /playlist/12  … プレイリスト詳細
+//   /user/12      … ユーザープロフィール
+// 本番は /tunedrop/ 配下で配信されるため、そのプレフィックスは basePath として保持する。
+// 旧ハッシュ (#manager / #/manager) は起動時にパスへ移行する。
 // ==========================================================
-const VIEW_FOR_HASH = { manager: 'manager', radar: 'radar', share: 'share', profile: 'profile', user: 'user-profile', help: 'help', playlist: 'playlist-detail' };
+const ROUTE_VIEW = {
+    manager: 'manager',
+    radar: 'radar',
+    share: 'share',
+    profile: 'profile',
+    help: 'help',
+    user: 'user-profile',
+    playlist: 'playlist-detail',
+};
+const SITE_BASE_PATTERN = /^\/(tunedrop)(?=\/|$)/i;
 
-export function currentHashView() {
-    const hash = (location.hash || '').replace(/^#\/?/, '');
-    const parts = hash.split('/');
-    const base = parts[0];
-    if (VIEW_FOR_HASH[base]) return { view: VIEW_FOR_HASH[base], id: parts[1] || null };
-    return { view: 'manager', id: null };
+// 現在のURLを { basePath, route, view, id, normalizedPath } に分解する。
+// /index.html はディレクトリ (トップ) と同じ扱いにし、末尾の / も吸収する。
+export function parseLocationPath() {
+    const rawPath = String((window.location && window.location.pathname) || '/');
+    const cleanPath = rawPath.replace(/\/index\.html?$/i, '/');
+    const baseMatch = cleanPath.match(SITE_BASE_PATTERN);
+    const basePath = baseMatch ? '/' + baseMatch[1] + '/' : '/';
+    const rest = baseMatch ? cleanPath.slice(baseMatch[0].length) : cleanPath.replace(/^\//, '');
+    const segments = rest.split('/').filter(Boolean);
+    const route = segments[0] && ROUTE_VIEW[segments[0]] ? segments[0] : 'manager';
+    const rawId = segments[1];
+    const id = rawId && /^\d+$/.test(rawId) ? rawId : null;
+    const normalizedPath = basePath + (route === 'manager' ? '' : route + (id ? '/' + id : ''));
+    return { basePath, route, view: ROUTE_VIEW[route], id, normalizedPath };
+}
+
+export function currentPathView() {
+    const { view, id } = parseLocationPath();
+    return { view, id };
+}
+
+// ブラウザ履歴にパスを積む (History API が無いテスト環境では pathname を直接更新)
+function pushLocationPath(path) {
+    if (typeof history !== 'undefined' && typeof history.pushState === 'function') {
+        history.pushState(null, '', path);
+        return;
+    }
+    if (typeof location !== 'undefined' && location) {
+        try { location.pathname = path; } catch (error) { /* 読み取り専用なら何もしない */ }
+    }
 }
 
 // ビューをURLに記録しつつ遷移する (戻る履歴へ積む)
 export function navigateView(viewName, id) {
-    let hashPath = viewName === 'playlist-detail' ? 'playlist' : (viewName === 'user-profile' ? 'user' : viewName);
-    if (id) hashPath += '/' + id;
-    if (('#' + hashPath) !== location.hash) {
-        location.hash = hashPath;
-    } else {
-        // ハッシュが既に同じ場合は直接表示 (hashchangeが発火しないため)
-        applyHashView();
+    const route = viewName === 'playlist-detail' ? 'playlist' : (viewName === 'user-profile' ? 'user' : viewName);
+    const { basePath } = parseLocationPath();
+    const path = basePath + (route === 'manager' ? '' : route + (id ? '/' + id : ''));
+    if (path !== location.pathname + (location.search || '')) {
+        pushLocationPath(path);
     }
+    // パスが同じ場合でも直接表示する (pushState はイベントを発火しないため)
+    applyPathView();
+}
+
+// 旧ハッシュ (#manager / #/radar など) を標準パスへ移行する。
+// ページ内アンカー (#help-manager) はルートではないので触らない。
+export function migrateLegacyHash() {
+    const hash = String((window.location && window.location.hash) || '').replace(/^#\/?/, '');
+    if (!hash) return false;
+    const parts = hash.split('/');
+    const route = parts[0];
+    if (!ROUTE_VIEW[route]) return false;
+    const id = parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : '';
+    const { basePath } = parseLocationPath();
+    const path = basePath + (route === 'manager' ? '' : route + (id ? '/' + id : ''));
+    if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+        history.replaceState(null, '', path);
+    } else if (typeof location !== 'undefined' && location) {
+        try { location.pathname = path; location.hash = ''; } catch (error) { /* noop */ }
+    }
+    return true;
 }
 
 // ハッシュからビューを復元して表示する
@@ -416,9 +578,9 @@ export function navigateView(viewName, id) {
 // 本アプリのスクロールは .content-area 等の内側要素で起きるため、
 // ブラウザ標準のスクロール復元が効かない。ハッシュごとに位置を覚えて戻す。
 // ==========================================================
-const scrollPositions = new Map();   // ハッシュ -> スクロール位置
+const scrollPositions = new Map();   // パス -> スクロール位置
 // モジュール読み込み時に評価されるため、ブラウザ/テストどちらでも安全な形で取る
-let lastScrollKey = (window.location && window.location.hash) || '#/manager';
+let lastScrollKey = (window.location && (window.location.pathname || '/')) || '/';
 
 /** 現在のビューのスクロール領域 (無ければ null)。 */
 export function activeScrollContainer() {
@@ -486,22 +648,37 @@ export function applyScrollRestoration(key) {
     attempt();
 }
 
-export function applyHashView() {
-    const { view, id } = currentHashView();
+export function applyPathView() {
+    const { view, id, normalizedPath } = parseLocationPath();
+    // /index.html やクエリ付きURLなどは標準パスへ正規化する
+    // (トップ「/」は Manager ホームとしてURLをそのまま使う)。
+    const currentUrl = location.pathname + (location.search || '');
+    if (normalizedPath !== currentUrl) {
+        if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+            history.replaceState(null, '', normalizedPath);
+        } else if (typeof location !== 'undefined' && location) {
+            try { location.pathname = normalizedPath; } catch (error) { /* noop */ }
+        }
+    }
     // 表示名は pendingDetail / pendingUserProfile が同じIDのときだけ使う
     // (renderPlaylistDetail / renderUserProfile 側で判定するため、ここでは消さない)
     if (view === 'playlist-detail' && id) {
         renderPlaylistDetail(parseInt(id, 10));
     } else if (view === 'user-profile' && id) {
         renderUserProfile(parseInt(id, 10));
+    } else if (view === 'playlist-detail' || view === 'user-profile') {
+        switchView('manager');   // ID の無い詳細URLはトップとして扱う
     } else {
         switchView(view);
     }
     // 切替えが済んでから現在のキーを更新し、その位置を復元する
     // (切替え前に更新すると、離れる側のスクロール位置を新しいキーへ保存してしまう)
-    lastScrollKey = location.hash;
+    lastScrollKey = location.pathname;
     applyScrollRestoration(lastScrollKey);
 }
+
+// 旧名 (hashchange 時代) の互換。外部から呼ばれてもパス方式で動作する。
+export const applyHashView = applyPathView;
 
 export function switchView(viewName) {
     // 切り替える前に、表示中のビューのスクロール位置を控える。
@@ -567,6 +744,11 @@ export function clearSession() {
     localStorage.removeItem('tunedrop_token');
     localStorage.removeItem('tunedrop_username');
     localStorage.removeItem('tunedrop_login_id');
+    // アカウントが変わると集計も変わるため、ダッシュボードのキャッシュを捨てる
+    managerSummary = null;
+    managerSummaryError = false;
+    favoriteTrackSummary = null;
+    favoriteTrackSummaryRequest = null;
     checkLoginStatus();
 }
 
@@ -666,10 +848,7 @@ export function openUserProfile(userId, name) {
         if (nameEl) nameEl.textContent = name;
         if (avatarEl) avatarEl.textContent = name.slice(0, 1).toUpperCase();
     }
-    const targetHash = '#user/' + id;
-    const hashChanges = location.hash !== targetHash;
     navigateView('user-profile', id);
-    if (!hashChanges) renderUserProfile(id);
 }
 
 // 戻る: 直前の画面へ (履歴が無ければ Share へ)
@@ -953,7 +1132,13 @@ export async function loadPlaylists() {
     const response = await tunedropFetch('api.php?action=get_playlists');
     // 未ログイン (401) の場合は空配列で安全に描画する (アカウントごとのデータ分離)
     allPlaylists = response.ok ? await response.json() : [];
+    // お気に入り曲の集計は曲の追加・お気に入り変更で変わるため、次に開いたときに取り直す
+    favoriteTrackSummary = null;
+    favoriteTrackSummaryRequest = null;
     filterManagerPlaylists();
+    // ダッシュボードの集計は Manager ホームが DOM にあるときだけ取得する
+    // (他ビューの読み込みで無駄なリクエストを増やさない)。描画は並行して進める。
+    if (document.getElementById('dash-stats')) loadManagerSummary();
 }
 
 export function filterManagerPlaylists() {
@@ -972,12 +1157,12 @@ export function renderPlaylistNav(playlists) {
     const nav = document.getElementById('playlist-nav');
     nav.innerHTML = `
         <li onclick="selectPlaylist('home')" class="${currentPlaylistId === 'home' ? 'active' : ''}"><span class="material-symbols-rounded nav-li-icon">home</span>ホーム (リスト一覧)</li>
-        <li onclick="selectPlaylist('fav_playlists')" class="${currentPlaylistId === 'fav_playlists' ? 'active' : ''}"><span class="material-symbols-rounded nav-li-icon">favorite</span>お気に入りリスト</li>
-        <li onclick="selectPlaylist('fav_tracks')" class="${currentPlaylistId === 'fav_tracks' ? 'active' : ''}"><span class="material-symbols-rounded nav-li-icon">music_note</span>お気に入り曲</li>
         <li onclick="selectPlaylist(null)" class="${currentPlaylistId === null ? 'active' : ''}"><span class="material-symbols-rounded nav-li-icon">library_music</span>すべてのブックマーク</li>
+        <li onclick="selectPlaylist('fav_playlists')" class="${currentPlaylistId === 'fav_playlists' ? 'active' : ''}"><span class="material-symbols-rounded nav-li-icon">favorite</span>お気に入り (リスト一覧)</li>
+        <li onclick="selectPlaylist('fav_tracks')" class="${currentPlaylistId === 'fav_tracks' ? 'active' : ''}"><span class="material-symbols-rounded nav-li-icon">music_note</span>お気に入り曲</li>
     `;
 
-    // 固定タブ (未整理 / 公開用お気に入り) は全ユーザー共通で「すべてのブックマーク」の直下に常に固定表示する。
+    // 固定タブ (未整理 / 公開用お気に入り) は全ユーザー共通で「お気に入り曲」の直下に常に固定表示する。
     // 検索・カテゴリ絞り込みの影響を受けず、並び替え・削除・タグ変更はできない。
     // ユーザー作成リストのみドラッグ&ドロップで並び替え可能。
     const systemLists = allPlaylists.filter(isSystemPlaylist).sort(compareSystemPlaylists);
@@ -1362,7 +1547,7 @@ export function syncTrackDomOrder() {
     });
 }
 
-export function selectPlaylist(id) {
+export function selectPlaylist(id, options = {}) {
     currentPlaylistId = id;
     filterManagerPlaylists();
     const homeArea = document.getElementById('manager-home-area');
@@ -1379,7 +1564,8 @@ export function selectPlaylist(id) {
             const list = allPlaylists.find(p => p.id === id);
             titleEl.innerText = list ? list.name : "プレイリスト";
         }
-        loadMyBookmarks(id);
+        // 呼び出し側が自分で loadMyBookmarks する場合は二重取得を避ける
+        if (!options.skipLoad) loadMyBookmarks(id);
     }
     // リストを選んだらメニューを閉じて選択内容を見せる
     closeMobileMenu();
@@ -1617,6 +1803,365 @@ export async function updatePlaylistCategory(playlistId, newCategory, event) {
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
 }
 
+// ==========================================================
+// Manager ホーム (ダッシュボード)
+// ----------------------------------------------------------
+// ヒーロー・KPI・最近追加した曲・ジャンル分布をまとめて描画する。
+// 集計はサーバー側 (get_manager_summary) で1回だけ行い、リストや曲が
+// 変わって loadPlaylists() が走るたびに取り直す。
+// ==========================================================
+export async function loadManagerSummary() {
+    if (!document.getElementById('dash-stats')) return;   // Manager 以外の画面では何もしない
+    if (managerSummaryPromise) return managerSummaryPromise;
+
+    renderManagerDashboard();          // 先に前回値 / 読み込み中の見た目を出す
+    managerSummaryPromise = (async () => {
+        try {
+            const response = await tunedropFetch('api.php?action=get_manager_summary');
+            managerSummary = response.ok ? await response.json() : null;
+            managerSummaryError = !response.ok;
+        } catch (error) {
+            managerSummary = null;
+            managerSummaryError = true;
+        } finally {
+            managerSummaryPromise = null;
+            renderManagerDashboard();
+        }
+    })();
+    return managerSummaryPromise;
+}
+
+export function dashboardGreeting() {
+    const hour = new Date().getHours();
+    const part = hour < 5 ? 'こんばんは' : hour < 11 ? 'おはようございます' : hour < 18 ? 'こんにちは' : 'こんばんは';
+    let name = '';
+    try { name = localStorage.getItem('tunedrop_username') || ''; } catch (error) { name = ''; }
+    return name ? `${part}、${name}さん` : part;
+}
+
+// 保存日時を「たった今 / 3分前 / 2日前 / 2026/1/5」のように表す
+export function formatRelativeTime(value) {
+    if (!value) return '';
+    const time = new Date(String(value).replace(' ', 'T')).getTime();
+    if (!Number.isFinite(time)) return '';
+    const diff = Date.now() - time;
+    if (diff < 60 * 1000) return 'たった今';
+    const minutes = Math.floor(diff / (60 * 1000));
+    if (minutes < 60) return `${minutes}分前`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}時間前`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}日前`;
+    const date = new Date(time);
+    return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+export function renderManagerDashboard() {
+    const statsEl = document.getElementById('dash-stats');
+    if (!statsEl) return;
+
+    const greeting = document.getElementById('dash-greeting');
+    if (greeting) greeting.textContent = dashboardGreeting();
+
+    const stats = managerSummary && managerSummary.stats ? managerSummary.stats : null;
+    const statValue = key => (stats ? Number(stats[key]) || 0 : '—');
+    // アイコンは静的な <span> として持たせる (Material Symbols のサブセット検出にも乗る)
+    const statCards = [
+        { key: 'tracks', label: '保存した曲', hint: 'すべてのブックマーク', action: "selectPlaylist(null)", icon: '<span class="material-symbols-rounded">library_music</span>' },
+        { key: 'playlists', label: 'マイリスト', hint: '固定タブを除く', action: "focusPlaylistGrid()", icon: '<span class="material-symbols-rounded">queue_music</span>' },
+        { key: 'public_playlists', label: '公開中', hint: 'Shareに掲載', action: "navigateView('share')", icon: '<span class="material-symbols-rounded">public</span>' },
+        { key: 'favorite_tracks', label: 'お気に入り曲', hint: '★ を付けた曲', action: "selectPlaylist('fav_tracks')", icon: '<span class="material-symbols-rounded">favorite</span>' },
+    ];
+    statsEl.innerHTML = statCards.map(card => `
+        <button type="button" class="dash-stat${stats ? '' : ' is-loading'}" onclick="${card.action}">
+            <span class="dash-stat-icon">${card.icon}</span>
+            <span class="dash-stat-body">
+                <span class="dash-stat-value">${statValue(card.key)}</span>
+                <span class="dash-stat-label">${card.label}</span>
+                <span class="dash-stat-hint">${card.hint}</span>
+            </span>
+        </button>`).join('');
+
+    // 最近追加した曲 (クリックでそのまま再生)
+    const recentEl = document.getElementById('dash-recent-tracks');
+    if (recentEl) {
+        if (!managerSummary) {
+            recentEl.innerHTML = `<div class="dash-panel-empty${managerSummaryError ? '' : ' is-loading'}">
+                ${managerSummaryError
+                    ? '<p>集計を取得できませんでした。</p><button type="button" onclick="loadManagerSummary()">再試行</button>'
+                    : '<p>読み込み中…</p>'}
+            </div>`;
+        } else {
+            const tracks = managerSummary.recent_tracks || [];
+            recentEl.innerHTML = '';
+            if (tracks.length === 0) {
+                recentEl.innerHTML = `<div class="dash-panel-empty">
+                    <span class="material-symbols-rounded">music_note</span>
+                    <p>まだ曲がありません。YouTubeのURLを貼って追加してみましょう。</p>
+                    <button type="button" onclick="openInboxForAdd()">曲を追加する</button>
+                </div>`;
+            } else {
+                tracks.forEach((track, index) => {
+                    const row = document.createElement('button');
+                    row.type = 'button';
+                    row.className = 'dash-track';
+                    row.title = `${track.title} を再生`;
+                    row.innerHTML = `
+                        <span class="dash-track-index">${index + 1}</span>
+                        <img class="dash-track-thumb" src="https://img.youtube.com/vi/${track.youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                        <span class="dash-track-info">
+                            <span class="dash-track-title">${escapeHtml(track.title)}</span>
+                            <span class="dash-track-sub">${escapeHtml(track.channel || 'Unknown Artist')}</span>
+                        </span>
+                        ${Number(track.is_favorite) === 1 ? '<span class="material-symbols-rounded is-filled dash-track-fav">favorite</span>' : ''}
+                        <span class="dash-track-time">${formatRelativeTime(track.added_at)}</span>`;
+                    row.onclick = () => playTrackFromQueue(index, tracks);
+                    recentEl.appendChild(row);
+                });
+            }
+        }
+    }
+
+    // ジャンル (リストのカテゴリ) 分布。行をクリックすると一覧を絞り込む。
+    const genresEl = document.getElementById('dash-genres');
+    if (genresEl) {
+        if (!managerSummary) {
+            genresEl.innerHTML = `<div class="dash-panel-empty${managerSummaryError ? '' : ' is-loading'}">
+                ${managerSummaryError ? '<p>集計を取得できませんでした。</p>' : '<p>読み込み中…</p>'}
+            </div>`;
+        } else {
+            renderGenreRows(genresEl, managerSummary.categories || [], 'リストにカテゴリを設定すると、ここに分布が出ます。');
+        }
+    }
+}
+
+// カテゴリ分布のバーを描画する (通常ホーム / お気に入りホームで共通)
+export function renderGenreRows(container, categories, emptyText) {
+    if (!container) return;
+    container.innerHTML = '';
+    if (!categories.length) {
+        container.innerHTML = `<div class="dash-panel-empty">
+            <span class="material-symbols-rounded">donut_small</span>
+            <p>${escapeHtml(emptyText || 'カテゴリの分布がありません。')}</p>
+        </div>`;
+        return;
+    }
+    const max = Math.max(...categories.map(category => Number(category.tracks) || 0), 1);
+    categories.forEach(category => {
+        const tracks = Number(category.tracks) || 0;
+        const width = tracks > 0 ? Math.max(6, Math.round((tracks / max) * 100)) : 0;
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'dash-genre-row';
+        row.title = `${category.category} のリストだけを表示`;
+        row.innerHTML = `
+            <span class="dash-genre-name">${escapeHtml(category.category)}</span>
+            <span class="dash-genre-bar"><span class="dash-genre-fill" style="width:${width}%"></span></span>
+            <span class="dash-genre-count">${tracks}</span>`;
+        row.onclick = () => applyDashboardCategory(category.category);
+        container.appendChild(row);
+    });
+}
+
+// ==========================================================
+// お気に入りダッシュボード (お気に入りしたブックマーク中心)
+// ----------------------------------------------------------
+// サイドバーで「お気に入り」を選んでいる間だけ表示する。
+// 曲は既存の get_my_bookmarks&playlist_id=fav_tracks から取得し、
+// リストは get_playlists の track_count / is_favorite を使う (API追加なし)。
+// ==========================================================
+let favoriteDashboardLists = [];      // 直近の get_playlists 結果 (再描画用)
+let favoriteTrackSummary = null;      // お気に入り曲の一覧 (null = 未取得)
+let favoriteTrackSummaryRequest = null;
+
+export function renderFavoritesDashboard(lists) {
+    const statsEl = document.getElementById('fav-stats');
+    if (!statsEl) return;
+
+    favoriteDashboardLists = lists || [];
+    const favoriteLists = favoriteDashboardLists.filter(list => !isSystemPlaylist(list) && Number(list.is_favorite) === 1);
+    const categoryMap = new Map();
+    favoriteLists.forEach(list => {
+        const category = String(list.category || 'Other').trim() || 'Other';
+        categoryMap.set(category, (categoryMap.get(category) || 0) + (Number(list.track_count) || 0));
+    });
+
+    const tracks = favoriteTrackSummary;
+    const trackCount = tracks ? tracks.length : '—';
+    const artistCount = tracks ? new Set(tracks.map(track => track.channel || 'Unknown Artist')).size : '—';
+
+    // アイコンは静的な <span> として持たせる (Material Symbols のサブセット検出にも乗る)
+    const statCards = [
+        { label: 'お気に入り曲', value: trackCount, hint: '★ を付けた曲', loading: !tracks, action: "selectPlaylist('fav_tracks')", icon: '<span class="material-symbols-rounded">favorite</span>' },
+        { label: 'アーティスト', value: artistCount, hint: '重複を除く', loading: !tracks, action: "selectPlaylist('fav_tracks')", icon: '<span class="material-symbols-rounded">person</span>' },
+        { label: 'お気に入りリスト', value: favoriteLists.length, hint: '固定タブを除く', loading: false, action: 'focusPlaylistGrid()', icon: '<span class="material-symbols-rounded">queue_music</span>' },
+        { label: 'カテゴリ', value: categoryMap.size, hint: 'ジャンルの広がり', loading: false, action: 'focusCategoryFilter()', icon: '<span class="material-symbols-rounded">insights</span>' },
+    ];
+    statsEl.innerHTML = statCards.map(card => `
+        <button type="button" class="dash-stat${card.loading ? ' is-loading' : ''}" onclick="${card.action}">
+            <span class="dash-stat-icon">${card.icon}</span>
+            <span class="dash-stat-body">
+                <span class="dash-stat-value">${card.value}</span>
+                <span class="dash-stat-label">${card.label}</span>
+                <span class="dash-stat-hint">${card.hint}</span>
+            </span>
+        </button>`).join('');
+
+    // 初回だけお気に入り曲を取得する (完了時にこの関数を呼び直して KPI を更新する)
+    if (!favoriteTrackSummaryRequest) loadFavoriteTrackSummary();
+    renderFavoriteTracksPanel();
+}
+
+// お気に入り曲を取得する (完了後にダッシュボードを再描画)
+export function loadFavoriteTrackSummary() {
+    if (favoriteTrackSummaryRequest) return favoriteTrackSummaryRequest;
+    favoriteTrackSummaryRequest = (async () => {
+        try {
+            const response = await tunedropFetch('api.php?action=get_my_bookmarks&playlist_id=fav_tracks');
+            favoriteTrackSummary = response.ok ? await response.json() : [];
+        } catch (error) {
+            favoriteTrackSummary = [];
+        }
+        renderFavoritesDashboard(favoriteDashboardLists);
+        return favoriteTrackSummary;
+    })();
+    return favoriteTrackSummaryRequest;
+}
+
+// お気に入り曲のパネル (最近お気に入りにした曲 / アーティスト分布)
+export function renderFavoriteTracksPanel() {
+    const recentEl = document.getElementById('fav-recent-tracks');
+    const artistsEl = document.getElementById('fav-artists');
+    if (!recentEl && !artistsEl) return;
+
+    const tracks = favoriteTrackSummary;
+    if (!tracks) {
+        const loading = '<div class="dash-panel-empty is-loading"><p>お気に入り曲を読み込み中…</p></div>';
+        if (recentEl) recentEl.innerHTML = loading;
+        if (artistsEl) artistsEl.innerHTML = loading;
+        return;
+    }
+
+    // 最近お気に入りにした曲 (保存日時の新しい順に最大6曲)
+    if (recentEl) {
+        const recent = [...tracks]
+            .sort((a, b) => String(b.added_at || '').localeCompare(String(a.added_at || '')) || (Number(b.id) || 0) - (Number(a.id) || 0))
+            .slice(0, 6);
+        recentEl.innerHTML = '';
+        if (recent.length === 0) {
+            recentEl.innerHTML = `<div class="dash-panel-empty">
+                <span class="material-symbols-rounded">favorite</span>
+                <p>お気に入りの曲がまだありません。<br>曲カードの★を押すと、ここにたまります。</p>
+                <button type="button" onclick="selectPlaylist(null)">曲を探す</button>
+            </div>`;
+        } else {
+            recent.forEach((track, index) => {
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'dash-track';
+                row.title = `${track.title} を再生`;
+                row.innerHTML = `
+                    <span class="dash-track-index">${index + 1}</span>
+                    <img class="dash-track-thumb" src="https://img.youtube.com/vi/${track.youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                    <span class="dash-track-info">
+                        <span class="dash-track-title">${escapeHtml(track.title)}</span>
+                        <span class="dash-track-sub">${escapeHtml(track.channel || 'Unknown Artist')}</span>
+                    </span>
+                    <span class="dash-track-time">${formatRelativeTime(track.added_at)}</span>`;
+                row.onclick = () => playTrackFromQueue(index, recent);
+                recentEl.appendChild(row);
+            });
+        }
+    }
+
+    // アーティスト分布 (曲数の多い順に最大6人)
+    if (artistsEl) {
+        const counts = new Map();
+        tracks.forEach(track => {
+            const artist = String(track.channel || 'Unknown Artist').trim() || 'Unknown Artist';
+            counts.set(artist, (counts.get(artist) || 0) + 1);
+        });
+        artistsEl.innerHTML = '';
+        if (counts.size === 0) {
+            artistsEl.innerHTML = `<div class="dash-panel-empty">
+                <span class="material-symbols-rounded">person</span>
+                <p>アーティストの分布は、お気に入り曲が増えると表示されます。</p>
+            </div>`;
+        } else {
+            const rows = [...counts.entries()]
+                .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja'))
+                .slice(0, 6);
+            const max = Math.max(...rows.map(row => row[1]), 1);
+            rows.forEach(([artist, count]) => {
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'dash-genre-row';
+                row.title = `${artist} の曲を表示`;
+                row.innerHTML = `
+                    <span class="dash-genre-name">${escapeHtml(artist)}</span>
+                    <span class="dash-genre-bar"><span class="dash-genre-fill" style="width:${Math.max(6, Math.round((count / max) * 100))}%"></span></span>
+                    <span class="dash-genre-count">${count}</span>`;
+                row.onclick = () => openFavoriteTracksByArtist(artist);
+                artistsEl.appendChild(row);
+            });
+        }
+    }
+}
+
+// アーティスト分布の行クリック: お気に入り曲画面でそのアーティストを検索する
+export async function openFavoriteTracksByArtist(artist) {
+    selectPlaylist('fav_tracks', { skipLoad: true });
+    await loadMyBookmarks('fav_tracks');
+    const input = document.getElementById('track-search');
+    if (!input) return;
+    input.value = artist;
+    filterTracks();
+}
+
+// 未整理リストを開いて、すぐ YouTube URL を貼れる状態にする
+export function openInboxForAdd() {
+    const inbox = allPlaylists.find(list => list.system_key === 'inbox');
+    if (!inbox) {
+        showToast('未整理リストが見つかりません。', 'error');
+        return;
+    }
+    selectPlaylist(inbox.id);
+    // トラック画面へ切り替わってから入力欄へフォーカスする
+    setTimeout(() => {
+        const input = document.getElementById('youtube-url');
+        if (input) input.focus();
+    }, 80);
+}
+
+// ダッシュボードの「マイリスト」から一覧へスクロールする
+export function focusPlaylistGrid() {
+    const grid = document.getElementById('my-playlists-grid');
+    if (!grid) return;
+    if (typeof grid.scrollIntoView === 'function') grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ダッシュボードの「カテゴリ」からサイドバーの絞り込みへフォーカスする
+export function focusCategoryFilter() {
+    const select = document.getElementById('manager-category');
+    if (select && typeof select.focus === 'function') select.focus();
+}
+
+// ジャンル分布の行クリック: サイドバーのカテゴリ絞り込みを合わせて一覧を更新する
+export function applyDashboardCategory(category) {
+    const select = document.getElementById('manager-category');
+    if (!select) return;
+    if (![...select.options].some(option => option.value === category)) {
+        const option = document.createElement('option');
+        option.value = category;
+        option.textContent = category;
+        select.appendChild(option);
+    }
+    select.value = category;
+    filterManagerPlaylists();
+    focusPlaylistGrid();
+    showToast(`「${category}」のリストを表示しています。`, 'info');
+}
+
 export function renderManagerHome(playlists) {
     const container = document.getElementById('my-playlists-grid');
     container.innerHTML = '';
@@ -1627,7 +2172,30 @@ export function renderManagerHome(playlists) {
     // ソート適用 (カスタム順は sort_order、既定の並び)
     filtered = sortPlaylists(filtered, playlistSortMode);
 
-    if (filtered.length === 0) return container.innerHTML = '<p style="color:var(--text-sub); grid-column: 1 / -1;">プレイリストがありません。</p>';
+    // お気に入りを開いているときは、お気に入り専用のダッシュボードへ切り替える
+    // (通常ホームの集計は隠し、KPI / ピックアップ / カテゴリ分布を出す)。
+    const favoritesView = currentPlaylistId === 'fav_playlists';
+    const dashboard = document.getElementById('manager-dashboard');
+    if (dashboard) dashboard.classList.toggle('is-favorites-view', favoritesView);
+
+    // お気に入り専用ダッシュボード (KPI / ピックアップ / カテゴリ分布) を描画
+    if (favoritesView) renderFavoritesDashboard(playlists);
+
+    const sub = document.getElementById('dash-lists-sub');
+    if (sub) {
+        // お気に入り画面では「公開用お気に入り」(固定タブ) も一覧に並ぶため、
+        // 合計曲数は KPI (固定タブを除く) と混在させず、表示中の件数だけを出す。
+        sub.textContent = `${filtered.length}件のリストを表示中`;
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="dash-empty">
+            <span class="material-symbols-rounded">library_music</span>
+            <p>${favoritesView ? 'お気に入りのリストがまだありません。' : '条件に合うプレイリストがありません。'}</p>
+            <button type="button" onclick="openCreatePlaylistModal()">新しいリストを作る</button>
+        </div>`;
+        return;
+    }
 
     const categories = ['Vocaloid', 'J-POP', 'Anime', 'Lo-Fi', 'Other'];
     filtered.forEach(list => {
@@ -1647,14 +2215,22 @@ export function renderManagerHome(playlists) {
 
         const dragHandle = isProtected ? '' : `<div class="drag-handle" title="ドラッグで並び替え"><span class="material-symbols-rounded">drag_indicator</span></div>`;
 
+        // 曲数と公開状態をカードに出す (一覧を見ただけで中身の規模が分かるように)
+        const trackCount = Number(list.track_count) || 0;
+        const isPublic = !isProtected && Number(list.is_public) === 1;
         card.innerHTML = `${catSelect}<div class="card-img-wrapper">${coverHtml}</div>
             <div class="info with-handle">
                 <div class="info-text">
                     <div class="title">${escapeHtml(list.name)}</div>
-                    <div class="artist">マイリスト</div>
+                    <div class="artist card-meta-line">
+                        <span class="material-symbols-rounded">music_note</span>
+                        <span>${trackCount}曲</span>
+                        ${isPublic ? '<span class="card-public-badge">公開中</span>' : ''}
+                    </div>
                 </div>
                 ${dragHandle}
             </div>`;
+
 
         if (!isProtected) {
             card.addEventListener('dragstart', (e) => {
@@ -2512,6 +3088,21 @@ export function buildRadarVibeOptions() {
     sel.innerHTML = '<option value="">雰囲気: All</option>' + radarVibeOptions.map(tag =>
         `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
     if (prev && radarVibeOptions.includes(prev)) sel.value = prev;
+}
+
+// モバイル: マップの高さを広げる / 元に戻す (PC では拡大ボタンを出さない)。
+// 高さが変わるとキャンバスの実サイズも変わるため、レーダーを描き直す。
+export function toggleRadarMapExpanded() {
+    const expanded = document.body.classList.toggle('radar-map-expanded');
+    const button = document.getElementById('btn-radar-map-expand');
+    if (button) {
+        const label = expanded ? 'マップを縮める' : 'マップを広げる';
+        button.setAttribute('aria-pressed', String(expanded));
+        button.title = label;
+        button.setAttribute('aria-label', label);
+        button.textContent = expanded ? '縮小' : '拡大';
+    }
+    queueRadarDraw();
 }
 
 // ズームと位置を初期表示 (全曲が収まる全体表示) に戻す。
@@ -3562,20 +4153,17 @@ export function radarZoomToPoint(mx, my, factor) {
 }
 
 
-// プレイリスト詳細を開く (URLハッシュを履歴に積む)
+// プレイリスト詳細を開く (URLパスを履歴に積む)
 let pendingDetail = { id: null, name: '', cover: '' };
 export function openPlaylistDetail(playlistId, playlistName, coverId) {
     pendingDetail = { id: Number(playlistId), name: playlistName || '', cover: coverId || '' };
     // クリック直後に前のリスト名が見えないよう、名前だけ先に反映しておく
-    // (描画本体は hashchange 側。ハッシュが変わらない場合のみここで描画する)
+    // (描画本体は navigateView → applyPathView 側)
     if (playlistName) {
         const titleEl = document.getElementById('detail-title');
         if (titleEl) titleEl.innerText = playlistName;
     }
-    const targetHash = '#playlist/' + playlistId;
-    const hashChanges = location.hash !== targetHash;
     navigateView('playlist-detail', playlistId);
-    if (!hashChanges) renderPlaylistDetail(playlistId, playlistName, coverId);
 }
 
 // プレイリスト詳細のメタ行: 「3曲 · 作成者名」。
@@ -4226,7 +4814,7 @@ export async function toggleShareFavorite(id, event) {
             if (rec.favorite_count < 0) rec.favorite_count = 0;
         }
         renderSharePlaylists();
-        // Shareでお気に入りに追加した直後に「お気に入りリスト」を開いても
+        // Shareでお気に入りに追加した直後に「お気に入り」を開いても
         // 出遅れないよう、サイドバー/一覧のキャッシュ (allPlaylists) も更新する。
         // ここを忘れると、ハートは赤くなるのに一覧へ反映されず「壊れた」ように見える。
         try { await loadPlaylists(); } catch (error) { console.error(error); }
@@ -4492,15 +5080,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (document.getElementById('view-radar').classList.contains('active')) drawRadarMap(vibeFiltered);
     });
 
-    // ルーティング: ハッシュ変更 (ブラウザ戻る/進む/直接URL) をビューへ反映。
-    // popstate も併せて購読すると、戻る/進むでは hashchange と両方発火して
-    // 描画とAPI呼び出しが二重になるため、ハッシュ方式の本アプリでは hashchange のみ購読する。
-    window.addEventListener('hashchange', applyHashView);
+    // ルーティング: 標準パスの変更 (ブラウザ戻る/進む/直接URL) をビューへ反映する。
+    // pushState では popstate が発火しないため、履歴移動のときだけここで復元する。
+    window.addEventListener('popstate', applyPathView);
 
-    // 初期表示 (ハッシュがあればそれを復元、なければ manager)。
-    // 分岐を二重に持つと片方だけ直して不整合になるため applyHashView に一本化する。
-    applyHashView();
-    if (!location.hash) history.replaceState(null, '', '#/manager');
+    // 旧ハッシュ (#/manager など) はパスへ移行してから表示する。
+    // 初期表示はパス (/ なら Manager ホーム) に一本化し、URLを勝手に書き換えない。
+    migrateLegacyHash();
+    applyPathView();
 });
 
 // ===== text-marquee (旧 frontend/text-marquee.js を統合: 長文の自動スクロール) =====

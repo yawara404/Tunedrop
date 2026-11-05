@@ -39,6 +39,14 @@ if (preg_match('#^/[Tt]unedrop(?=/|$)#', $requestPath, $matched)) {
 if ($path === '') {
     $path = '/';
 }
+// 深いSPAルート (/playlist/43 など) では index.html の相対アセット参照
+// (./assets/...) が /playlist/assets/... になる。通常の /assets/... に読み替える。
+foreach (['/playlist/assets/', '/user/assets/'] as $deep_asset_prefix) {
+    if (str_starts_with($path, $deep_asset_prefix)) {
+        $path = '/assets/' . substr($path, strlen($deep_asset_prefix));
+        break;
+    }
+}
 // このルーターは backend/ にあり、docroot (-t) はプロジェクト直下 (その親)。
 // ソースは backend/ と frontend/ に分かれているが、公開URLは変えない:
 //   公開URL                     → 実ファイル
@@ -53,6 +61,7 @@ $projectRoot = dirname(__DIR__);
 $static_map = [
     '/' => $projectRoot . '/frontend/dist/index.html',
     '/index.html' => $projectRoot . '/frontend/dist/index.html',
+    '/maintenance.html' => $projectRoot . '/frontend/dist/maintenance.html',
     '/robots.txt' => $projectRoot . '/robots.txt',
     '/sitemap.xml' => $projectRoot . '/sitemap.xml',
     '/frontend/favicon-card.png' => $projectRoot . '/frontend/favicon-card.png',
@@ -73,9 +82,80 @@ $entry_points = [
 // この形のファイル名だけは個別登録なしで配信する (存在しないパスは404のまま)。
 // 管理画面のシェルスクリプト (admin/admin.sh) は配信しない。
 $asset_pattern = '#^/assets/[A-Za-z0-9_-]+\.(?:js|css|svg|png|jpe?g|webp|gif|ico|woff2?|map)$#';
+// History API の標準パス (/, /radar, /share, ...)。画面側 (app.js) が
+// location.pathname からビューを復元するため、どのルートも同じ index.html を返す。
+// これでリロードや直接アクセス (ブックマーク/共有) でも画面が壊れない。
+$spa_route_pattern = '#^/(?:manager|radar|share|profile|help|playlist/[0-9]+|user/[0-9]+)/?$#';
+
+// ==========================================================
+// メンテナンスモード / サーバー停止中の案内
+// ----------------------------------------------------------
+// フラグファイル (maintenance.flag) または TUNEDROP_MAINTENANCE=1 が
+// ある間は、画面とAPIを 503 で止めて maintenance.html を返す。
+// ・管理画面 (/admin) は解除作業のため通常どおり配信する
+// ・/maintenance.html と assets/ は案内ページの表示に必要なため配信する
+// ==========================================================
+$maintenance_flag = getenv('TUNEDROP_MAINTENANCE_FLAG') ?: ($projectRoot . '/maintenance.flag');
+$maintenance = is_file($maintenance_flag) || getenv('TUNEDROP_MAINTENANCE') === '1';
+$maintenance_message = $maintenance ? trim((string)@file_get_contents($maintenance_flag)) : '';
+if ($maintenance
+    && !preg_match('#^/admin(?:/|$)#', $path)
+    && $path !== '/maintenance.html'
+    && !preg_match($asset_pattern, $path)) {
+    if ($path === '/api.php') {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Retry-After: 300');
+        header('Cache-Control: no-store');
+        $message = $maintenance_message !== '' ? $maintenance_message : 'ただいまメンテナンス中です。時間をおいて再試行してください。';
+        // フロントの接続先自動検出 (health) は maintenance 状態を返し、
+        // それ以外の API は汎用の 503 を返す。
+        if (($_GET['action'] ?? '') === 'health') {
+            echo json_encode([
+                'status' => 'maintenance',
+                'service' => 'TuneDrop PHP API',
+                'features' => ['auth_proxy', 'auth_guest'],
+                'maintenance' => true,
+                'message' => $message,
+            ], JSON_UNESCAPED_UNICODE);
+        } else {
+            echo json_encode([
+                'error' => $message,
+                'maintenance' => true,
+                'retry_after' => 300,
+            ], JSON_UNESCAPED_UNICODE);
+        }
+        return true;
+    }
+    if ($path === '/ogp.php') {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Retry-After: 300');
+        header('Cache-Control: no-store');
+        echo $maintenance_message !== '' ? $maintenance_message : 'ただいまメンテナンス中です。';
+        return true;
+    }
+    http_response_code(503);
+    header('Retry-After: 300');
+    header('Content-Type: text/html; charset=utf-8');
+    header('Cache-Control: no-store');
+    $message = $maintenance_message !== '' ? $maintenance_message : 'ただいまメンテナンス中です。時間をおいて再試行してください。';
+    $maintenance_file = $projectRoot . '/frontend/dist/maintenance.html';
+    if (is_file($maintenance_file)) {
+        $html = (string)file_get_contents($maintenance_file);
+        echo str_replace('<!-- MAINTENANCE_MESSAGE -->', htmlspecialchars($message, ENT_QUOTES, 'UTF-8'), $html);
+    } else {
+        echo '<!DOCTYPE html><html lang="ja"><meta charset="UTF-8"><title>メンテナンス中</title>'
+            . '<body style="background:#121212;color:#f0f0f0;font-family:system-ui;text-align:center;padding:40px;">'
+            . '<h1>Tune drop</h1><p>' . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</p></body></html>';
+    }
+    return true;
+}
+
 if (!preg_match($asset_pattern, $path)
     && !isset($static_map[$path])
     && !isset($entry_points[$path])
+    && !preg_match($spa_route_pattern, $path)
     && !preg_match('#^/google[a-z0-9]+\.html$#i', $path)) {
     http_response_code(403);
     exit('Forbidden');
@@ -101,6 +181,8 @@ if (isset($static_map[$path])) {
     $file = $static_map[$path];
 } elseif (preg_match($asset_pattern, $path)) {
     $file = $projectRoot . '/frontend/dist' . $path;   // /assets/x → frontend/dist/assets/x
+} elseif (preg_match($spa_route_pattern, $path)) {
+    $file = $projectRoot . '/frontend/dist/index.html';   // SPA の各ルート (/radar など)
 } else {
     $file = $projectRoot . $path;   // google<hash>.html
 }
@@ -112,7 +194,7 @@ header('Content-Type: ' . tunedrop_asset_mime($file));
 // .htaccess と同じキャッシュ方針 (assets/ はファイル名が内容に紐づくので長く持たせる)。
 if (str_starts_with($path, '/assets/')) {
     header('Cache-Control: public, max-age=31536000, immutable');
-} elseif ($path === '/' || str_ends_with($path, '.html')) {
+} elseif ($path === '/' || str_ends_with($path, '.html') || preg_match($spa_route_pattern, $path)) {
     // HTML は URL が固定で、ビルドのたびに中身と参照する assets が変わる。
     // ブラウザには毎回 ETag で再検証させ (変わっていなければ 304 で本文ゼロ)、
     // Cloudflare のエッジには s-maxage の範囲だけ持たせる。デプロイ直後に

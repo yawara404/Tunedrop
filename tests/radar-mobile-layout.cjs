@@ -1,15 +1,18 @@
 // ==========================================================
-// モバイル Radar: 動画プレイヤー表示中のマップ枠の大きさ (実ブラウザ) E2E テスト
+// モバイル Radar: マップ枠の大きさとスクロール操作 (実ブラウザ) E2E テスト
 // ----------------------------------------------------------
 // Chrome (headless) + DevTools Protocol で実機相当のモバイル幅を再現し、
-// 「動画を出している間もマップ枠が縦長に潰れず、正方形に近い」ことを検証する。
+// - マップが画面の一部に収まり、下の曲リスト/スクロール領域が残ること
+// - 動画プレイヤー表示中でもマップが潰れず、枠の下端が画面内に収まること
+// - マップ上でも1本指の縦スワイプでページがスクロールできること
+// - 「拡大」ボタンでマップを大きくできること
+// を検証する。
 //
 // 背景:
-//   - 以前はこの状態でマップを 80px まで縮めており、狭すぎた。
-//   - 残りの高さいっぱい (flex: 1) に伸ばす方式では、マップが幅と高さで
-//     別々に正規化されて描かれるため、縦長の枠ではレーダーが縦に間延びして見えた。
-//   - 現在は動画を出している間だけ「横幅と同じくらいの高さ (aspect-ratio: 1 / 1)」に
-//     している。動画を出す前/閉じた後は従来どおり残りの高さいっぱいのまま。
+//   動画プレイヤーは YouTube の規約上サイズを変えられない。以前はマップが
+//   残りの高さいっぱい (flex: 1) を占有し、しかも touch-action: none だったため、
+//   マップ上でスクロールできず操作感が悪かった。現在は高さを画面の約1/3に抑え、
+//   1本指の縦スワイプはページスクロール、2本指で移動・ズームにしている。
 //
 // 使い方:
 //   0) 画面をビルドしておく (プロジェクト直下の index.html と assets/ に出力される):
@@ -84,10 +87,13 @@ async function cdpVersion() {
 
     await call('Page.enable');
     await call('Runtime.enable');
+    await call('Network.enable');
+    await call('Network.setCacheDisabled', { cacheDisabled: true });
     // 実機相当 (iPhone 14 相当の 390x844)。枠の下端が画面内に収まるかも見る。
     await call('Emulation.setDeviceMetricsOverride', {
         width: 390, height: 844, deviceScaleFactor: 3, mobile: true,
     });
+    await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
     await call('Page.navigate', { url: BASE });
 
     async function evaluate(expression) {
@@ -129,6 +135,9 @@ async function cdpVersion() {
         const canvas = document.getElementById('radar-map-canvas');
         const zoom = document.querySelector('.radar-map-zoom');
         const bar = document.querySelector('.bottom-player');
+        const area = document.querySelector('.radar-content-area');
+        const guide = document.querySelector('.radar-touch-guide');
+        const expand = document.getElementById('btn-radar-map-expand');
         const r = box.getBoundingClientRect();
         const z = zoom.getBoundingClientRect();
         return {
@@ -143,16 +152,30 @@ async function cdpVersion() {
             zoomInsideBox: z.top >= r.top - 1 && z.bottom <= r.bottom + 1 && z.right <= r.right + 1,
             viewportH: window.innerHeight,
             playerBarHeight: bar ? Math.round(bar.getBoundingClientRect().height) : 0,
+            // マップ上での1本指スクロール (pan-y) と、スマホ用UIの表示
+            touchAction: getComputedStyle(canvas).touchAction,
+            guideVisible: !!guide && getComputedStyle(guide).display !== 'none',
+            expandVisible: !!expand && getComputedStyle(expand).display !== 'none',
+            mapHeightRatio: Number((r.height / window.innerHeight).toFixed(2)),
+            areaScrollable: !!area && area.scrollHeight > area.clientHeight,
         };
     })()`);
 
-    // 1) 動画を出す前 (= 引っ込む前): 従来どおり「残りの高さいっぱい」で、正方形には固定しない
+    // 1) 動画を出す前: マップは画面の一部 (約1/3) に収まり、下にスクロール領域が残る
     const before = await measure();
     console.log('プレイヤーなし:', JSON.stringify(before));
-    check('動画を出す前もマップが表示されている (高さ200px以上)',
-        before.height >= 200 && before.canvasHeight > 0, JSON.stringify(before));
-    check('動画を出す前は正方形に固定されない (従来どおり縦長のまま = 引っ込む前は前のまま)',
-        before.aspect < 0.95, `aspect=${before.aspect} (${before.width}x${before.height})`);
+    check('マップが表示されている (高さ240px以上)',
+        before.height >= 240 && before.canvasHeight > 0, JSON.stringify(before));
+    check('マップの高さは画面の半分以下 (リスト/スクロール領域を確保)',
+        before.mapHeightRatio <= 0.5, `ratio=${before.mapHeightRatio} height=${before.height}/${before.viewportH}`);
+    check('マップ枠の下端が画面内に収まる',
+        before.boxBottom <= before.viewportH - before.playerBarHeight, JSON.stringify(before));
+    check('スマホではマップ上で1本指の縦スクロールができる (touch-action: pan-y)',
+        before.touchAction === 'pan-y', before.touchAction);
+    check('スマホ用の操作ガイドが表示される',
+        before.guideVisible, String(before.guideVisible));
+    check('スマホ用の拡大ボタンが表示される',
+        before.expandVisible, String(before.expandVisible));
 
     // 2) 曲を選んで動画を出した状態 (app.js の playTrackFromQueue と同じ状態) を作る
     await evaluate(`(() => {
@@ -165,10 +188,12 @@ async function cdpVersion() {
     const playing = await measure();
     console.log('プレイヤー表示中:', JSON.stringify(playing));
 
-    check('動画プレイヤー表示中もマップが潰れない (旧: 80px まで縮んでいた)',
+    check('動画プレイヤー表示中もマップが潰れない (高さ240px以上)',
         playing.height >= 240, `height=${playing.height}`);
-    check('動画プレイヤー表示中はマップ枠が正方形に近い (縦長に伸ばさない)',
-        playing.aspect >= 0.95 && playing.aspect <= 1.05, `aspect=${playing.aspect} (${playing.width}x${playing.height})`);
+    check('動画プレイヤー表示中もマップは画面の半分以下 (スクロール領域を確保)',
+        playing.mapHeightRatio <= 0.5, `ratio=${playing.mapHeightRatio}`);
+    check('動画プレイヤー表示中もマップ枠が縦長になりすぎない',
+        playing.aspect >= 0.8 && playing.aspect <= 2.0, `aspect=${playing.aspect} (${playing.width}x${playing.height})`);
     check('再描画されたビットマップも枠と同じ縦横比 (レーダーが歪まない)',
         playing.bitmapAspect > 0 && Math.abs(playing.bitmapAspect - playing.aspect) <= 0.05,
         `bitmap=${playing.bitmapAspect} box=${playing.aspect}`);
@@ -177,8 +202,69 @@ async function cdpVersion() {
     check('マップ枠の下端が画面内 (プレイヤーバーより上) に収まる',
         playing.boxBottom <= playing.viewportH - playing.playerBarHeight,
         `boxBottom=${playing.boxBottom} limit=${playing.viewportH - playing.playerBarHeight}`);
+    check('動画プレイヤー表示中もマップ上で縦スクロールできる',
+        playing.touchAction === 'pan-y', playing.touchAction);
 
-    // 3) 動画を閉じたら元の大きさに戻る (= 引っ込む前は前のまま)
+    // 3) 拡大ボタン: マップを大きく見たいときだけ高さを広げる
+    await evaluate(`toggleRadarMapExpanded()`);
+    await sleep(700);
+    const expanded = await measure();
+    console.log('拡大中:', JSON.stringify(expanded));
+    check('拡大ボタンでマップが高くなる',
+        expanded.height > playing.height, `${playing.height} -> ${expanded.height}`);
+    check('拡大中はマップ操作を優先する (touch-action: none)',
+        expanded.touchAction === 'none', expanded.touchAction);
+    await evaluate(`toggleRadarMapExpanded()`);
+    await sleep(700);
+
+    // 4) マップ上で1本指スワイプ → ページがスクロールする
+    const scrollStart = await evaluate(`(() => {
+        const area = document.querySelector('.radar-content-area');
+        const filler = document.createElement('div');
+        filler.id = 'e2e-radar-filler';
+        // .radar-content-area は flex コンテナなので、height だけだと flex-shrink で
+        // 縮んでスクロール可能にならない。flex-basis で固定する。
+        filler.style.flex = '0 0 2400px';
+        area.appendChild(filler);
+        area.scrollTop = 0;
+        const box = document.querySelector('.radar-map-container').getBoundingClientRect();
+        return {
+            x: Math.round(box.left + box.width / 2),
+            y: Math.round(box.top + box.height / 2),
+            top: area.scrollTop,
+            scrollable: area.scrollHeight > area.clientHeight,
+        };
+    })()`);
+    const touch = (type, x, y) => call('Input.dispatchTouchEvent', {
+        type,
+        touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 0 }],
+    });
+    await touch('touchStart', scrollStart.x, scrollStart.y);
+    for (let i = 1; i <= 8; i++) {
+        await touch('touchMove', scrollStart.x, scrollStart.y - i * 14);
+        await sleep(20);
+    }
+    await touch('touchEnd', scrollStart.x, scrollStart.y);
+    await sleep(600);
+    let scrolledTop = await evaluate(`document.querySelector('.radar-content-area').scrollTop`);
+    if (!(scrolledTop > 0)) {
+        // CDP のタッチイベントでスクロールしない環境向け: 合成スクロールジェスチャーで再試行
+        await call('Input.synthesizeScrollGesture', {
+            x: scrollStart.x, y: scrollStart.y,
+            xDistance: 0, yDistance: -180,
+            gestureSourceType: 'touch', speed: 800,
+        });
+        await sleep(600);
+        scrolledTop = await evaluate(`document.querySelector('.radar-content-area').scrollTop`);
+    }
+    check('マップ上で1本指スワイプするとページがスクロールする',
+        scrollStart.scrollable && scrolledTop > 0, `scrollTop=${scrolledTop} / start=${scrollStart.top}`);
+    await evaluate(`(() => {
+        document.getElementById('e2e-radar-filler')?.remove();
+        document.querySelector('.radar-content-area').scrollTop = 0;
+    })()`);
+
+    // 5) 動画を閉じたらマップの高さが戻る
     await evaluate(`(() => {
         document.body.classList.remove('player-in-sidebar');
         document.querySelector('.youtube-popup')?.classList.remove('is-active');
@@ -186,9 +272,12 @@ async function cdpVersion() {
     })()`);
     await sleep(1200);
     const closed = await measure();
-    check('動画を閉じると従来どおり画面の高さいっぱいに戻る (正方形指定は解除される)',
-        closed.height > playing.height && closed.aspect < 0.95 && closed.canvasHeight > 0,
-        JSON.stringify(closed));
+    console.log('プレイヤーなし (閉じた後):', JSON.stringify(closed));
+    check('動画を閉じるとマップの高さが戻る',
+        closed.height >= playing.height && closed.canvasHeight > 0,
+        `${playing.height} -> ${closed.height}`);
+    check('動画を閉じてもマップは画面の半分以下',
+        closed.mapHeightRatio <= 0.5, `ratio=${closed.mapHeightRatio}`);
 
     console.log('\n--- ページ内の JS 例外 ---');
     console.log(pageExceptions.length ? pageExceptions.join('\n') : '(なし)');

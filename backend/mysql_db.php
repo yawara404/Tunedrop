@@ -4,7 +4,12 @@ function tunedrop_mysql_load_environment(): void {
     static $loaded = false;
     if ($loaded) return;
     $loaded = true;
-    $path = getenv('TUNEDROP_ENV_FILE') ?: __DIR__ . '/.env';
+    $path = getenv('TUNEDROP_ENV_FILE');
+    if (!$path) {
+        // .env はプロジェクト直下 (docroot) に置く。このファイルは backend/ にあるため、
+        // 直下を優先し、無ければこのファイルの隣 (テストの複製など) を見る。
+        $path = is_readable(dirname(__DIR__) . '/.env') ? dirname(__DIR__) . '/.env' : __DIR__ . '/.env';
+    }
     if (!is_readable($path)) return;
     foreach (file($path, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
         $line = trim($line);

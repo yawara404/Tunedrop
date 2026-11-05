@@ -1,31 +1,68 @@
 # SQLite から MySQL への移行
 
-MySQL 8.0、PHP の `pdo_mysql`、Python の `PyMySQL` が必要です。PHP と Python は同じ `TUNEDROP_MYSQL_*` 環境変数を使用します。`./start.sh` は `.env` の値を両方のプロセスへ渡します。
+MySQL 8.0 以降、PHP の `pdo_mysql`、Python の `PyMySQL` が必要です（このリポジトリの `.php/` と `.venv/` には両方入っています）。PHP と Python は同じ `TUNEDROP_MYSQL_*` 環境変数を使用します。`./backend/start.sh` は `.env` の値を両方のプロセスへ渡します。
 
-1. PHP、Python、公開トンネルを停止します。移行中の SQLite への書き込みを止めてください。
-2. 既存 DB をバックアップします。
+## 1. MySQL を用意する（macOS / Homebrew）
+
+```sh
+brew install mysql
+brew services start mysql          # ログイン時に自動起動する
+mysql -u root -e 'SELECT VERSION();'
+```
+
+続けて、空のデータベースと専用ユーザーを作ります（文字セットは `utf8mb4`）。パスワードは `python3 -c 'import secrets;print(secrets.token_urlsafe(24))'` などで生成し、**リポジトリの外**（例 `~/.tunedrop/mysql.env`、`chmod 600`）に控えてください。
+
+```sh
+mysql -u root -e "
+  CREATE DATABASE IF NOT EXISTS tunedrop CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+  CREATE USER IF NOT EXISTS 'tunedrop'@'localhost' IDENTIFIED BY 'ここに生成したパスワード';
+  CREATE USER IF NOT EXISTS 'tunedrop'@'127.0.0.1' IDENTIFIED BY 'ここに生成したパスワード';
+  GRANT ALL PRIVILEGES ON tunedrop.* TO 'tunedrop'@'localhost';
+  GRANT ALL PRIVILEGES ON tunedrop.* TO 'tunedrop'@'127.0.0.1';
+  FLUSH PRIVILEGES;"
+
+# スキーマ（テーブル6つ）を適用する
+mysql -u root tunedrop < backend/mysql_schema.sql
+mysql -u root tunedrop -e 'SHOW TABLES;'
+```
+
+`tunedrop@localhost`（ソケット）と `tunedrop@127.0.0.1`（TCP）の両方を作るのは、接続方法によって照合されるアカウントが変わるためです。
+
+## 2. データを移す
+
+1. PHP、Python、公開トンネルを停止します。移行中の SQLite への書き込みを止めてください（`pkill -f 'Tunedrop/start.py'` など）。
+2. 既存 DB をバックアップします。DB は配信フォルダの外（`.env` の `TUNEDROP_DB`）にあるため、そのパスを指定します。
 
    ```sh
-   sqlite3 database.sqlite ".backup 'backups/before-mysql.sqlite'"
+   mkdir -p ~/.tunedrop/backups
+   sqlite3 "$(grep '^TUNEDROP_DB=' .env | cut -d= -f2-)" \
+     ".backup '$HOME/.tunedrop/backups/before-mysql.sqlite'"
    ```
 
-3. 空の MySQL データベースと専用ユーザーを作成します。文字セットは `utf8mb4` にします。`mysql_schema.sql` をその DB に適用します。
+3. まず件数を確認し（dry run）、問題なければ `--apply` でコピーします。コピーは MySQL が空のときだけ受け付けます。
 
    ```sh
-   mysql --host=HOST --user=USER --password DATABASE < mysql_schema.sql
+   set -a; . ~/.tunedrop/mysql.env; set +a        # TUNEDROP_MYSQL_* を読み込む
+   PYTHONPATH=backend .venv/bin/python backend/migrate_sqlite_to_mysql.py
+   PYTHONPATH=backend .venv/bin/python backend/migrate_sqlite_to_mysql.py --apply
    ```
 
-4. `python -m pip install 'PyMySQL>=1.1,<2'` を実行します。`.env.example` の `TUNEDROP_MYSQL_*` を `.env` に追加し、パスワードを含む `.env` の権限を `600` にします。
-5. まず件数を確認し、空の MySQL DB へのコピーを実行します。
+4. `.env` の `TUNEDROP_MYSQL_*` を設定し、`chmod 600 .env` にします（`.env.example` に項目があります）。`TUNEDROP_DB` は切り戻し用に残しておくと安全です。
+5. `./backend/start.sh` で起動し、ログイン、プレイリスト、曲の追加、公開ページ、Radar を確認します。`users` などの件数が SQLite 側と一致することを MySQL 側でも確認してください。
 
    ```sh
-   .venv/bin/python migrate_sqlite_to_mysql.py
-   .venv/bin/python migrate_sqlite_to_mysql.py --apply
+   mysql -u root tunedrop -e "SELECT (SELECT COUNT(*) FROM users) users, (SELECT COUNT(*) FROM playlists) playlists, (SELECT COUNT(*) FROM bookmarks) bookmarks;"
    ```
 
-6. MySQL 側で `users`、`playlists`、`bookmarks`、`public_favorites`、`analysis_cache`、`site_settings` の件数を確認します。コピーは MySQL が空の場合だけ受け付けます。失敗時は MySQL DB を作り直してからやり直してください。
-7. `./start.sh` で起動し、ログイン、プレイリスト、曲の追加、公開ページ、Radar を確認します。
+## 3. 運用メモ
 
-MySQL 運用中の完全バックアップには `mysqldump --single-transaction` を使用してください。管理画面の SQLite ファイルバックアップは MySQL では利用できません。
+- **バックアップ**: `mysqldump --single-transaction --databases tunedrop > tunedrop-$(date +%Y%m%d-%H%M%S).sql`。管理画面の SQLite ファイルバックアップは MySQL では利用できません。
+- **テスト**: テストは一時 SQLite を前提に書かれています。`.env` に `TUNEDROP_MYSQL_*` がある状態で個別に実行すると**本番 MySQL へ接続してしまう**ため、同梱のランナーを使ってください（MySQL 設定を空にして実行します）。
 
-切り戻す場合はプロセスを止め、`.env` の `TUNEDROP_MYSQL_HOST` を空にして SQLite バックアップを復元します。MySQL 切り替え後に作成されたデータは SQLite には自動反映されません。
+  ```sh
+  ./tests/run-all.sh                       # 全部
+  ./tests/run-all.sh tests/genre-rules.py  # 個別
+  ```
+
+- **切り戻し**: プロセスを止め、`.env` の `TUNEDROP_MYSQL_HOST` を空にして `./backend/start.sh` を再起動します（SQLite バックアップを戻す場合は DB 本体と `-wal` / `-shm` をセットで扱ってください）。MySQL 切り替え後に作成されたデータは SQLite には自動反映されません。
+

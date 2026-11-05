@@ -47,3 +47,6 @@ backups/
 # プロモーション動画フォルダ (mp4 は合計 25MB 超。撮影スクリプトごと GitHub へは載せない)
 /promo_video/
 
+
+# メンテナンスモードのフラグ (backend/maintenance.sh が作成)
+maintenance.flag

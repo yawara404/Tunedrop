@@ -1,8 +1,10 @@
 // ==========================================================
-// ハッシュルーティング + ロゴ (goToHome) の挙動テスト
+// パスルーティング + ロゴ (goToHome) の挙動テスト
 // ----------------------------------------------------------
 // 実ブラウザを使わず、DOM を最小限スタブして app.js を読み込み
-// - Manager ビューのハッシュが #/tunedrop であること (旧 #/manager も読める)
+// - Manager はトップURL (/) のまま表示されること
+// - /radar などの標準パスへ遷移できること
+// - 旧ハッシュ (#/manager など) がパスへ移行されること
 // - ロゴクリック (goToHome) で Manager + ホーム選択に戻ること
 //
 // 使い方:
@@ -100,9 +102,13 @@ const documentStub = {
     addEventListener() { },
 };
 
-// location.hash の代入をブラウザ同様 '#' 付きに正規化する
+// location.pathname / hash の代入をブラウザ同様に扱う
 const locationStub = {
+    _pathname: '/',
     _hash: '',
+    search: '',
+    get pathname() { return this._pathname; },
+    set pathname(value) { this._pathname = String(value); },
     get hash() { return this._hash; },
     set hash(value) {
         const text = String(value);
@@ -110,6 +116,20 @@ const locationStub = {
         (windowHandlers.get('hashchange') || []).forEach(handler => handler({ type: 'hashchange' }));
     },
     origin: 'http://localhost',
+};
+
+// History API スタブ (pushState / replaceState で pathname を更新する)
+const historyStub = {
+    length: 1,
+    pushState(state, title, path) {
+        locationStub._pathname = String(path);
+        locationStub._hash = '';
+    },
+    replaceState(state, title, path) {
+        locationStub._pathname = String(path);
+        locationStub._hash = '';
+    },
+    back() { },
 };
 
 const windowHandlers = new Map();
@@ -124,6 +144,7 @@ const context = vm.createContext({
         },
     },
     location: locationStub,
+    history: historyStub,
     document: documentStub,
     Element: FakeElement,
     URL, URLSearchParams, Headers, AbortController,
@@ -159,50 +180,88 @@ function activeViewId() {
     return active ? active.id : null;
 }
 
-test('Manager へ遷移するとハッシュが #manager になる', () => {
-    run(`navigateView('manager')`);
-    assert.equal(locationStub.hash, '#manager');
-    run('applyHashView()');   // ブラウザの hashchange 発火を模擬
+test('Manager はトップURL (/) のまま表示される', () => {
+    locationStub._pathname = '/';
+    run('applyPathView()');
     assert.equal(activeViewId(), 'view-manager');
+    assert.equal(locationStub.pathname, '/');
 });
 
-test('旧ハッシュ #/manager でも Manager が復元できる', () => {
+test('Radar へ遷移すると /radar になる', () => {
+    run(`navigateView('radar')`);
+    assert.equal(locationStub.pathname, '/radar');
+    assert.equal(activeViewId(), 'view-radar');
+});
+
+test('旧ハッシュ #/manager はトップ (/) に移行される', () => {
+    locationStub._pathname = '/';
     locationStub._hash = '#/manager';
-    run('applyHashView()');
-    assert.equal(activeViewId(), 'view-manager');
+    run('migrateLegacyHash()');
+    assert.equal(locationStub.pathname, '/');
+    assert.equal(locationStub.hash, '');
 });
 
-test('ヘルプ (#help) を開ける', () => {
+test('旧ハッシュ #help は /help に移行される', () => {
+    locationStub._pathname = '/';
     locationStub._hash = '#help';
-    run('applyHashView()');
+    assert.equal(run('migrateLegacyHash()'), true);
+    assert.equal(locationStub.pathname, '/help');
+    run('applyPathView()');
     assert.equal(activeViewId(), 'view-help');
+});
+
+test('ページ内アンカー (#help-manager) はルートとして扱わない', () => {
+    locationStub._pathname = '/help';
+    locationStub._hash = '#help-manager';
+    assert.equal(run('migrateLegacyHash()'), false);
+    assert.equal(locationStub.pathname, '/help');
+});
+
+test('本番プレフィックス /tunedrop/ でもトップはそのまま Manager ホーム', () => {
+    locationStub._pathname = '/tunedrop/';
+    run('applyPathView()');
+    assert.equal(activeViewId(), 'view-manager');
+    assert.equal(locationStub.pathname, '/tunedrop/');
+});
+
+test('/tunedrop/radar を直接開ける', () => {
+    locationStub._pathname = '/tunedrop/radar';
+    run('applyPathView()');
+    assert.equal(activeViewId(), 'view-radar');
+    assert.equal(locationStub.pathname, '/tunedrop/radar');
+});
+
+test('/index.html はトップ (/) に正規化される', () => {
+    locationStub._pathname = '/index.html';
+    run('applyPathView()');
+    assert.equal(locationStub.pathname, '/');
+    assert.equal(activeViewId(), 'view-manager');
 });
 
 test('ユーザーメニューのナビ点灯は他画面へ移ると解除される', () => {
     run(`navigateView('profile')`);
-    run('applyHashView()');
+    assert.equal(locationStub.pathname, '/profile');
     assert.equal(navProfileBtn.classList.contains('active'), true, 'プロフィール表示中は点灯');
     assert.equal(navHelpBtn.classList.contains('active'), false, 'ヘルプは消灯');
 
     run(`navigateView('manager')`);
-    run('applyHashView()');
+    assert.equal(locationStub.pathname, '/');
     assert.equal(navProfileBtn.classList.contains('active'), false, 'マネージャーへ移ると消灯');
     assert.equal(navProfileBtn.style.color, '', 'インラインの色指定も戻る');
     assert.equal(navManagerBtn.classList.contains('active'), true, 'マネージャーが点灯');
 
     run(`navigateView('help')`);
-    run('applyHashView()');
+    assert.equal(locationStub.pathname, '/help');
     assert.equal(navHelpBtn.classList.contains('active'), true, 'ヘルプ表示中は点灯');
     assert.equal(navProfileBtn.classList.contains('active'), false, 'プロフィールは消灯');
 });
 
 test('ロゴ (goToHome) で Radar から Manager + ホーム選択に戻る', async () => {
     run(`navigateView('radar')`);
-    run('applyHashView()');   // ブラウザの hashchange 発火を模擬
+    assert.equal(locationStub.pathname, '/radar');
     assert.equal(activeViewId(), 'view-radar');
     await run('goToHome()');
-    assert.equal(locationStub.hash, '#manager');
-    run('applyHashView()');   // ブラウザの hashchange 発火を模擬
+    assert.equal(locationStub.pathname, '/');
     assert.equal(activeViewId(), 'view-manager');
     assert.equal(context.window.__selectedPlaylist, 'home');
 });

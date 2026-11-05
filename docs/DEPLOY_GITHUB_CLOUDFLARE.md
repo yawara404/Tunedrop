@@ -21,7 +21,7 @@ GitHub → サーバーでコードを取得・更新（git pull → ./backend/s
 
 ## 1. 今回追加した公開対策
 
-- `backend/router.php` は公開するHTML（`frontend/dist/index.html`）とビルド済み資産（`frontend/dist/assets/*.js`, `*.css`, アイコン）、`backend/api.php`・`backend/ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（ローカル専用・Git未公開）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules`、`backend/` のソースは配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面の補助スクリプトは配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。
+- `backend/router.php` は公開するHTML（`frontend/dist/index.html`）とビルド済み資産（`frontend/dist/assets/*.js`, `*.css`, アイコン）、`backend/api.php`・`backend/ogp.php`・`robots.txt`・`sitemap.xml`、管理画面（ローカル専用・Git未公開）、OGP画像だけを許可します。DB、秘密鍵、Pythonソース、SQL、Markdown、バックアップ、`.git`、`.env` はHTTPで取得できません。画面は Vite のビルド成果物で、ソース（`frontend/` 直下の `index.html`・`main.js`・`app.js`・`config.js`・`style.css`）と `node_modules`、`backend/` のソースは配信されません。資産はファイル名に内容のハッシュが入るため、許可リストは `assets/` 直下の既知の拡張子をまとめて許可する形です（管理画面の補助スクリプトは配信されません）。管理画面など配信する固定ファイルを増やすときは許可リストにも追加してください。History API の標準パス（`/radar`, `/share`, `/profile`, `/help`, `/playlist/<id>`, `/user/<id>`）も同じ `frontend/dist/index.html` を返します。深いパス（`/playlist/<id>`）では index.html の相対アセット参照が `/playlist/assets/...` になるため、`/assets/...` に読み替えて配信します。
 - `backend/router.php` はPHP開発サーバー用の同じ制限です。`./backend/start.sh` と管理画面の起動スクリプトはこのルーターを使います。`php -S ...` をルーターなしで直接起動しないでください。
 - JWT署名鍵はPython起動時に `.jwt_secret` にランダム生成され、PHPも同じファイルを読みます。既知の旧鍵は拒否します。既存ユーザーは更新後に再ログインが必要です。
 - Googleログインは `google-auth` で署名・宛先・発行者・有効期限を検証し、検証失敗や通信失敗をログイン拒否にします。`GOOGLE_CLIENT_ID` 未設定ならGoogleログインは利用できません。
@@ -170,6 +170,17 @@ cloudflared tunnel --url http://localhost:8888
 
 一時URLでGoogleログインも試すなら、そのURLの生成元登録が別途必要です。停止はCtrl+C。
 
+### サーバー停止中・メンテナンス中のページ
+
+- **サーバーを動かしたまま一時停止する**: `./backend/maintenance.sh on "メッセージ"` で
+  プロジェクト直下に `maintenance.flag` が作られ、画面は 503 + `maintenance.html`、
+  API は 503 + JSON (`maintenance: true`) になります。解除は `./backend/maintenance.sh off`。
+  管理画面 (`/admin`) は解除作業のため止まりません。
+- **Cloudflare Tunnel が切れている間**: PHP サーバーから何も配信できないため、
+  Cloudflare ダッシュボードの「カスタムページ」に `frontend/public/maintenance.html` を
+  アップロードしてください。外部CSS/フォントに依存しない自己完結ページです。
+  復旧すると 15秒ごとの自動チェックで再読み込みします。
+
 ## 7. GitHubでコードを管理
 
 **初期設定は完了済みです。** リポジトリ `<your-account>/Tunedrop` を作成し、push済みです。
@@ -289,6 +300,15 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 ## 9. 回帰テスト
 
 実データを変更しない一時DBで実行します。PHPの場所は環境に合わせて変更します。
+
+**MySQL 運用中は必ずランナー経由で実行してください**（テストは一時 SQLite を前提にしており、`TUNEDROP_MYSQL_*` が有効なままだと本番 MySQL へ接続してしまいます。ランナーは MySQL 設定を空にして実行します）。
+
+```bash
+./tests/run-all.sh                        # 全部
+./tests/run-all.sh tests/genre-rules.py   # 個別
+```
+
+個別に実行する場合は MySQL 設定を空にしてください（`TUNEDROP_MYSQL_HOST= .venv/bin/python tests/...`）。以下は従来どおりのコマンドです。
 
 ```bash
 .venv/bin/python tests/environment-config.py

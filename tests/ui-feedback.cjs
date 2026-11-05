@@ -674,6 +674,28 @@ test('並び順に新着順があり、追加日時 (added_at) の新しい順�
 });
 
 // ----------------------------------------------------------
+// メンテナンス画面
+// ----------------------------------------------------------
+test('メンテナンス画面はメッセージ付きで表示でき、解除できる', () => {
+    run("showMaintenanceScreen('データ移行のため停止中です')");
+    const overlay = elementById('maintenance-overlay');
+    assert.equal(overlay.hidden, false, 'オーバーレイが表示される');
+    assert.equal(elementById('maintenance-message').textContent, 'データ移行のため停止中です');
+    assert.equal(run("document.body.classList.contains('maintenance-open')"), true, '背後のスクロールを止める');
+
+    run('hideMaintenanceScreen()');
+    assert.equal(overlay.hidden, true, '解除で隠れる');
+    assert.equal(run("document.body.classList.contains('maintenance-open')"), false);
+});
+
+test('メンテナンス画面のメッセージは再表示で勝手に戻らない', () => {
+    run("showMaintenanceScreen('DBメンテナンス中')");
+    run('showMaintenanceScreen()');
+    assert.equal(elementById('maintenance-message').textContent, 'DBメンテナンス中');
+    run('hideMaintenanceScreen()');
+});
+
+// ----------------------------------------------------------
 // 実行
 // ----------------------------------------------------------
 (async () => {

@@ -22,3 +22,10 @@ import './style.css';
 // Object.assign なので、app.js で新しい関数を宣言すれば自動で window に載る
 // (個別の window.foo = foo を書き足す必要はない)。
 Object.assign(window, app);
+
+// ルーティング関数は popstate やデバッグから直接呼ぶため、名前空間オブジェクトから
+// 明示的に載せる (バンドラの tree-shaking で Object.assign の対象から外れるのを防ぐ)。
+window.applyPathView = app.applyPathView;
+window.parseLocationPath = app.parseLocationPath;
+window.migrateLegacyHash = app.migrateLegacyHash;
+window.applyHashView = app.applyHashView;

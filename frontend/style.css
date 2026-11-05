@@ -1914,6 +1914,611 @@ body.player-in-sidebar .youtube-popup.is-active {
     margin: 20px 0 15px 0;
 }
 
+/* ==========================================================
+   Manager ホームのダッシュボード
+   ----------------------------------------------------------
+   ヒーロー / KPI / 最近追加した曲 / ジャンル分布。
+   既存のカードグリッド (#my-playlists-grid) はそのまま下に続く。
+   ========================================================== */
+.manager-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.dash-hero {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 26px 28px;
+    border-radius: 18px;
+    border: 1px solid rgba(212, 225, 87, 0.16);
+    background:
+        radial-gradient(120% 180% at 0% 0%, rgba(212, 225, 87, 0.16), transparent 55%),
+        radial-gradient(120% 140% at 100% 0%, rgba(90, 160, 255, 0.1), transparent 60%),
+        linear-gradient(135deg, #20211a 0%, #171717 55%, #141414 100%);
+    box-shadow: 0 20px 44px -30px rgba(0, 0, 0, 0.95);
+}
+
+/* 右上の淡いリング (奥行きを出す装飾。内容には影響させない) */
+.dash-hero::before {
+    content: "";
+    position: absolute;
+    top: -70px;
+    right: -40px;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    border: 1px solid rgba(212, 225, 87, 0.18);
+    box-shadow: 0 0 0 24px rgba(212, 225, 87, 0.03), 0 0 0 52px rgba(212, 225, 87, 0.02);
+    pointer-events: none;
+}
+
+.dash-hero-main {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+}
+
+.dash-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 0 6px;
+    color: var(--accent-color);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+}
+
+.dash-eyebrow .material-symbols-rounded {
+    font-size: 15px;
+}
+
+.dash-title {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+}
+
+.dash-lead {
+    margin: 7px 0 0;
+    color: var(--text-sub);
+    font-size: 12.5px;
+    line-height: 1.6;
+}
+
+.dash-actions {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+}
+
+.dash-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.dash-action .material-symbols-rounded {
+    font-size: 17px;
+}
+
+.dash-action:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.dash-action:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.dash-action-primary {
+    background: var(--accent-color);
+    border-color: transparent;
+    color: #14160a;
+}
+
+.dash-action-primary:hover {
+    background: #e0ee66;
+    border-color: transparent;
+}
+
+/* ---- KPI カード ---- */
+.dash-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.dash-stat {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 15px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: linear-gradient(160deg, #1d1d1d, #161616);
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.dash-stat:hover {
+    transform: translateY(-2px);
+    border-color: rgba(212, 225, 87, 0.4);
+    background: linear-gradient(160deg, #23231e, #181818);
+}
+
+.dash-stat:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+.dash-stat-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: rgba(212, 225, 87, 0.12);
+    color: var(--accent-color);
+}
+
+.dash-stat-icon .material-symbols-rounded {
+    font-size: 21px;
+}
+
+.dash-stat-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.dash-stat-value {
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-stat-label {
+    margin-top: 2px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.dash-stat-hint {
+    margin-top: 1px;
+    color: var(--text-sub);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-stat.is-loading .dash-stat-value {
+    color: var(--text-sub);
+    animation: dash-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dash-pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+}
+
+/* ---- パネル (最近追加した曲 / ジャンル分布) ---- */
+.dash-panels {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 12px;
+}
+
+.dash-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 16px 16px 10px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: linear-gradient(180deg, #1a1a1a, #161616);
+}
+
+.dash-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.dash-panel-head h3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.dash-panel-head h3 .material-symbols-rounded {
+    font-size: 17px;
+    color: var(--accent-color);
+}
+
+.dash-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 2px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-sub);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.dash-link:hover {
+    color: var(--accent-color);
+}
+
+.dash-link .material-symbols-rounded {
+    font-size: 15px;
+}
+
+.dash-recent {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.dash-track {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 8px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.16s ease;
+}
+
+.dash-track:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.dash-track:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: -2px;
+}
+
+.dash-track-index {
+    flex: 0 0 auto;
+    width: 14px;
+    color: var(--text-sub);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.dash-track-thumb {
+    flex: 0 0 auto;
+    width: 54px;
+    height: 32px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: #222;
+}
+
+.dash-track-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+.dash-track-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-track-sub {
+    color: var(--text-sub);
+    font-size: 10.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-track-fav {
+    flex: 0 0 auto;
+    color: var(--accent-color);
+    font-size: 14px;
+}
+
+.dash-track-time {
+    flex: 0 0 auto;
+    color: var(--text-sub);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.dash-genres {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    flex: 1;
+}
+
+.dash-genre-row {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr) 34px;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 4px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.dash-genre-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.dash-genre-row:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: -2px;
+}
+
+.dash-genre-name {
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dash-genre-bar {
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.dash-genre-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #d4e157, #8fbc2f);
+    transition: width 0.5s ease;
+}
+
+.dash-genre-count {
+    color: var(--text-sub);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+/* ---- 空状態 / 読み込み中 ---- */
+.dash-panel-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 1;
+    min-height: 100px;
+    padding: 16px 12px;
+    color: var(--text-sub);
+    font-size: 11.5px;
+    text-align: center;
+}
+
+.dash-panel-empty .material-symbols-rounded {
+    font-size: 26px;
+    opacity: 0.6;
+}
+
+.dash-panel-empty p {
+    margin: 0;
+    line-height: 1.6;
+}
+
+.dash-panel-empty button {
+    margin-top: 4px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(212, 225, 87, 0.4);
+    background: rgba(212, 225, 87, 0.1);
+    color: var(--accent-color);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.dash-panel-empty button:hover {
+    background: rgba(212, 225, 87, 0.2);
+}
+
+.dash-panel-empty.is-loading p {
+    animation: dash-pulse 1.2s ease-in-out infinite;
+}
+
+/* ---- リスト見出し ---- */
+.dash-lists-header {
+    align-items: flex-end;
+    margin: 8px 0 2px;
+}
+
+.dash-lists-title {
+    min-width: 0;
+}
+
+.dash-lists-sub {
+    margin-top: 3px;
+    color: var(--text-sub);
+    font-size: 11px;
+}
+
+/* ---- カードの曲数・公開バッジ ---- */
+.card .info .artist.card-meta-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+}
+
+.card-meta-line .material-symbols-rounded {
+    font-size: 13px;
+}
+
+.card-meta-line > span:not(.material-symbols-rounded) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-public-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(212, 225, 87, 0.14);
+    color: var(--accent-color);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+/* 一覧が空のときの案内 (グリッド全幅) */
+#my-playlists-grid .dash-empty {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 36px 16px;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    color: var(--text-sub);
+    text-align: center;
+}
+
+.dash-empty .material-symbols-rounded {
+    font-size: 34px;
+    opacity: 0.55;
+}
+
+.dash-empty p {
+    font-size: 12.5px;
+}
+
+.dash-empty button {
+    padding: 9px 18px;
+    border-radius: 999px;
+    border: none;
+    background: var(--accent-color);
+    color: #101204;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+/* 通常ホームとお気に入りホームは同時に表示しない (JS が is-favorites-view を切り替える) */
+.fav-only {
+    display: none;
+}
+
+.manager-dashboard.is-favorites-view {
+    gap: 12px;
+}
+
+.manager-dashboard.is-favorites-view .dash-main {
+    display: none;
+}
+
+.manager-dashboard.is-favorites-view .dash-stats.fav-only {
+    display: grid;
+}
+
+.manager-dashboard.is-favorites-view .dash-panels.fav-only {
+    display: grid;
+}
+
+.manager-dashboard.is-favorites-view .dash-hero.fav-only {
+    display: flex;
+}
+
+/* お気に入りはピンク寄りのアクセントで「お気に入り」らしさを出す */
+.fav-hero {
+    border-color: rgba(255, 138, 180, 0.18);
+    background:
+        radial-gradient(120% 180% at 0% 0%, rgba(255, 138, 180, 0.15), transparent 55%),
+        radial-gradient(120% 140% at 100% 0%, rgba(212, 225, 87, 0.08), transparent 60%),
+        linear-gradient(135deg, #221a1f 0%, #171717 55%, #141414 100%);
+}
+
+.fav-hero::before {
+    border-color: rgba(255, 138, 180, 0.2);
+    box-shadow: 0 0 0 24px rgba(255, 138, 180, 0.03), 0 0 0 52px rgba(255, 138, 180, 0.02);
+}
+
+.fav-hero .dash-eyebrow {
+    color: #ff9dc0;
+}
+
+/* お気に入りホームの KPI アイコンはピンク系にする */
+.fav-stats .dash-stat-icon {
+    background: rgba(255, 138, 180, 0.12);
+    color: #ff9dc0;
+}
+
 .grid-container {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -3300,6 +3905,12 @@ body.player-in-sidebar .youtube-popup.is-active {
     }
 }
 
+/* スマホ用: マップの高さ切り替えとタッチ操作ガイド (PC では出さない) */
+.radar-map-expand,
+.radar-touch-guide {
+    display: none;
+}
+
 /* The fixed Radar player keeps its position; only the map workspace scrolls. */
 .radar-map-canvas {
     touch-action: none;
@@ -3432,10 +4043,18 @@ body.player-in-sidebar .youtube-popup.is-active {
         font-size: 12px;
     }
 
+    /* マップは画面の一部に抑え、下の曲リストとページスクロールの領域を確保する。
+       動画プレイヤー (規約上サイズ固定) の下でも収まる高さにする。 */
     .radar-content-area .radar-map-container {
-        flex: 1 0 200px;
-        height: auto;
-        min-height: 200px;
+        flex: 0 0 auto;
+        height: min(100vw, 40vh, 340px);
+        min-height: 240px;
+    }
+
+    /* マップ上でも縦スワイプはページスクロールに使う (1本指=スクロール)。
+       マップの移動・ズームは2本指で行う。 */
+    .radar-map-canvas {
+        touch-action: pan-y;
     }
 
     .radar-content-area .radar-map-legend {
@@ -3483,6 +4102,61 @@ body.player-in-sidebar .youtube-popup.is-active {
     .radar-content-area .radar-strip-more {
         padding: 6px 12px;
         font-size: 12px;
+    }
+
+    /* マップ右上: 拡大 / 縮小 */
+    .radar-map-expand {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 21;
+        min-width: 44px;
+        height: 30px;
+        padding: 0 9px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(20, 20, 28, 0.85);
+        color: var(--text-main);
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+    }
+
+    .radar-map-expand:active,
+    .radar-map-expand[aria-pressed="true"] {
+        border-color: var(--accent-color);
+        color: var(--accent-color);
+    }
+
+    /* マップ左下: タッチ操作の短い説明 */
+    .radar-touch-guide {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        z-index: 12;
+        padding: 4px 7px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(10, 10, 14, 0.76);
+        color: var(--text-sub);
+        font-size: 9.5px;
+        pointer-events: none;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+    }
+
+    .radar-touch-guide span {
+        color: var(--text-main);
+        font-weight: 700;
     }
 }
 
@@ -4784,10 +5458,6 @@ body.player-in-sidebar .youtube-popup.is-active {
         white-space: nowrap;
     }
 
-    .radar-content-area .radar-map-container {
-        flex: 1 0 220px;
-        min-height: 220px;
-    }
 }
 
 /* 極小画面 (Galaxy Fold 閉じ等): 余白を詰めてヘッダーを1行に収める */
@@ -4816,12 +5486,20 @@ body.player-in-sidebar .youtube-popup.is-active {
 @media (max-width: 600px) {
     body.player-in-sidebar:has(.youtube-popup.is-active) .radar-content-area .radar-map-container {
         flex: 0 0 auto;
-        /* 幅は content-area いっぱい (モバイルは左右 padding 8px) なので、
-           高さ ≒ 幅の正方形に近い枠になる。height は上のモバイル用ルールの
-           auto が効いているため、aspect-ratio で高さが決まる。 */
-        aspect-ratio: 1 / 1;
-        /* aspect-ratio 非対応環境では height が auto のままで潰れるため下限を持つ */
+        /* プレイヤーの下でもリスト/スクロールの余白を残す高さ */
+        height: min(100vw, 30vh, 260px);
         min-height: 240px;
+    }
+
+    /* 拡大ボタン: マップをじっくり見たいときだけ高さを広げる */
+    body.radar-map-expanded .radar-content-area .radar-map-container,
+    body.radar-map-expanded.player-in-sidebar:has(.youtube-popup.is-active) .radar-content-area .radar-map-container {
+        height: min(100vw, 62vh, 560px);
+    }
+
+    /* 拡大中はマップ操作を優先する (縮めればまたスクロールできる) */
+    body.radar-map-expanded .radar-map-canvas {
+        touch-action: none;
     }
 
     /* 動画プレイヤーの角丸はモバイルの Radar でも維持する
@@ -4861,3 +5539,216 @@ body.player-in-sidebar .youtube-popup.is-active {
     overflow-wrap: anywhere;
 }
 .radar-content-area > .radar-map-legend { padding: 0; }
+
+/* ==========================================================
+   Manager ダッシュボードのレスポンシブ
+   ----------------------------------------------------------
+   上の共通メディアクエリより後に置き、後勝ちで調整する。
+   ========================================================== */
+@media (max-width: 1000px) {
+    .dash-panels {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dash-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .manager-dashboard {
+        gap: 14px;
+    }
+
+    .dash-hero {
+        gap: 14px;
+        padding: 18px;
+        border-radius: 14px;
+    }
+
+    .dash-title {
+        font-size: 20px;
+    }
+
+    .dash-lead {
+        font-size: 12px;
+    }
+
+    .dash-actions {
+        width: 100%;
+    }
+
+    .dash-action {
+        flex: 1 1 auto;
+        justify-content: center;
+        padding: 9px 12px;
+        font-size: 11.5px;
+    }
+
+    .dash-stat {
+        gap: 9px;
+        padding: 12px;
+    }
+
+    .dash-stat-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+    }
+
+    .dash-stat-icon .material-symbols-rounded {
+        font-size: 18px;
+    }
+
+    .dash-stat-value {
+        font-size: 20px;
+    }
+
+    .dash-stat-hint {
+        display: none;
+    }
+
+    .dash-panel {
+        padding: 13px 12px 8px;
+        border-radius: 13px;
+    }
+
+    .dash-track-thumb {
+        width: 46px;
+        height: 28px;
+    }
+
+    .dash-track-time {
+        display: none;
+    }
+
+    .dash-genre-row {
+        grid-template-columns: 62px minmax(0, 1fr) 30px;
+        gap: 8px;
+    }
+
+    .dash-lists-header {
+        margin-top: 2px;
+    }
+
+    #my-playlists-grid .dash-empty {
+        padding: 26px 14px;
+    }
+}
+
+@media (max-width: 380px) {
+    .dash-stat {
+        gap: 8px;
+        padding: 10px;
+    }
+
+    .dash-stat-label {
+        font-size: 11px;
+    }
+
+    .dash-stat-value {
+        font-size: 18px;
+    }
+}
+
+
+/* ==========================================================
+   メンテナンス / サーバー停止中の案内
+   ----------------------------------------------------------
+   API が 503 (maintenance: true) を返す、または接続できないときに
+   画面全体を覆う。静的ページ (maintenance.html) と同じ見た目に揃える。
+   ========================================================== */
+.maintenance-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+        radial-gradient(120% 120% at 0% 0%, rgba(212, 225, 87, 0.12), transparent 55%),
+        radial-gradient(120% 120% at 100% 0%, rgba(90, 160, 255, 0.08), transparent 60%),
+        var(--bg-color);
+    color: var(--text-main);
+    text-align: center;
+}
+
+.maintenance-overlay[hidden] {
+    display: none;
+}
+
+.maintenance-card {
+    width: 100%;
+    max-width: 440px;
+    padding: 36px 28px;
+    border: 1px solid rgba(212, 225, 87, 0.18);
+    border-radius: 20px;
+    background: linear-gradient(160deg, #1d1d18, #161616);
+    box-shadow: 0 30px 60px -40px #000;
+}
+
+.maintenance-logo {
+    font-size: 21px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--accent-color);
+}
+
+.maintenance-eyebrow {
+    margin-top: 22px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    color: var(--accent-color);
+}
+
+.maintenance-card h1 {
+    margin-top: 8px;
+    font-size: 22px;
+    line-height: 1.35;
+    text-wrap: balance;
+}
+
+.maintenance-message {
+    margin-top: 14px;
+    color: var(--text-sub);
+    font-size: 13px;
+    line-height: 1.75;
+    white-space: pre-line;
+}
+
+.maintenance-retry {
+    margin-top: 24px;
+    min-width: 190px;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 999px;
+    background: var(--accent-color);
+    color: #14160a;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.maintenance-retry:active {
+    transform: scale(0.98);
+}
+
+.maintenance-retry:disabled {
+    cursor: default;
+    opacity: 0.75;
+}
+
+.maintenance-note {
+    margin-top: 14px;
+    color: var(--text-sub);
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+body.maintenance-open {
+    overflow: hidden;
+}
+

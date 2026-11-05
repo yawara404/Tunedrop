@@ -85,7 +85,7 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
   ダウンロード**されてしまう（Live Server は `0.0.0.0` で待ち受けるため同一ネットワークから取得できる）
 - SQLiteはWALジャーナル + busy_timeoutで運用し、データAPI（PHP）と解析エンジン（Python）が
   同じDBを同時に読み書きしてもリクエストが待たされない構成（スキーマ更新は版管理で必要時のみ実行）
-- MySQL スキーマ作成と既存データの移行は [MySQL 移行手順](docs/MYSQL_MIGRATION.md) を参照
+- MySQL スキーマ作成と既存データの移行は [MySQL 移行手順](docs/MYSQL_MIGRATION.md) を参照（macOS なら `brew install mysql` から始める手順を記載）。`TUNEDROP_DB`（SQLite）は切り戻し用に残したまま、`.env` の `TUNEDROP_MYSQL_*` を設定すると MySQL 運用になります
 - 認証系はFlaskサーバーへのプロキシ（`.auth_port` から稼働ポートを動的検出）
 - 公開ファイル制限は `backend/router.php`（PHPビルトインサーバーのルーター）の許可リストで実施。
   配信するのは画面のビルド成果物（`frontend/dist/` の `index.html` と `assets/` のハッシュ付き資産。

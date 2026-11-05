@@ -25,8 +25,9 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
             except OSError:
                 time.sleep(.05)
         base = f'http://127.0.0.1:{port}'
-        allowed = ['/', '/index.html', '/assets/index-Ab12Cd.js', '/assets/index-Ab12Cd.css',
+        allowed = ['/', '/index.html', '/maintenance.html', '/assets/index-Ab12Cd.js', '/assets/index-Ab12Cd.css',
                    '/assets/favicon-Ab12Cd.svg',
+                   '/api.php?action=health',
                    '/frontend/favicon-card.png',
                    '/robots.txt', '/sitemap.xml', '/google9f8e7d6c5b4a.html',
                    '/admin/admin.php', '/admin/admin.js', '/admin/admin.css'] + list(extra_allowed)
@@ -97,7 +98,7 @@ def public_prefix_expectations(referenced):
         '/tunedrop': 200,
         '/tunedrop/': 200,
         '/tunedrop/index.html': 200,
-        '/tunedrop/api.php': 200,
+        '/tunedrop/api.php?action=health': 200,
         '/tunedrop/ogp.php': 200,
         '/tunedrop/admin/admin.php': 200,
         '/tunedrop/admin/admin.js': 200,
@@ -137,7 +138,7 @@ with tempfile.TemporaryDirectory() as temporary:
     #   /                    → frontend/dist/index.html
     #   /assets/<hash>.<ext> → frontend/dist/assets/<hash>.<ext>
     #   /api.php, /ogp.php   → backend/*.php (実行)
-    for name in ['frontend/dist/index.html','frontend/favicon-card.png',
+    for name in ['frontend/dist/index.html','frontend/dist/maintenance.html','frontend/favicon-card.png',
                  'frontend/dist/assets/index-Ab12Cd.js','frontend/dist/assets/index-Ab12Cd.css',
                  'frontend/dist/assets/favicon-Ab12Cd.svg',
                  # 配信してはいけないもの (存在していても403になること)

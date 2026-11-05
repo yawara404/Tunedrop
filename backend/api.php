@@ -24,17 +24,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+// メンテナンスフラグ (router.php と同じ場所)。通常は router.php が 503 を返すため
+// ここへは来ないが、api.php を直接実行するテストや別配信でも同じ応答にする。
+$maintenance_flag = getenv('TUNEDROP_MAINTENANCE_FLAG') ?: (dirname(__DIR__) . '/maintenance.flag');
+$maintenance = is_file($maintenance_flag) || getenv('TUNEDROP_MAINTENANCE') === '1';
+$maintenance_message = $maintenance ? trim((string)@file_get_contents($maintenance_flag)) : '';
+
 if (($_GET['action'] ?? '') === 'health') {
     // features: フロントの接続先自動検出 (frontend/app.js の resolveTunedropApi) が
     // 「別フォルダに残った古い api.php」を接続先に選ばないための目印。
     // 古いコピーも health には同じ service 名で応答してしまうため、
     // 認証プロキシ (guest 等) に対応したビルドであることを明示する。
     // tests/api-client.cjs が「features の無い API を採用しない」ことを検証する。
+    if ($maintenance) {
+        http_response_code(503);
+        header('Retry-After: 300');
+        header('Cache-Control: no-store');
+        echo json_encode([
+            'status' => 'maintenance',
+            'service' => 'TuneDrop PHP API',
+            'features' => ['auth_proxy', 'auth_guest'],
+            'maintenance' => true,
+            'message' => $maintenance_message !== '' ? $maintenance_message : 'ただいまメンテナンス中です。時間をおいて再試行してください。',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
     echo json_encode([
         'status' => 'ok',
         'service' => 'TuneDrop PHP API',
         'features' => ['auth_proxy', 'auth_guest'],
     ]);
+    exit;
+}
+
+// メンテナンス中はすべての API を 503 で止める (フロントは maintenance を見て案内を出す)。
+if ($maintenance) {
+    http_response_code(503);
+    header('Retry-After: 300');
+    header('Cache-Control: no-store');
+    echo json_encode([
+        'error' => $maintenance_message !== '' ? $maintenance_message : 'ただいまメンテナンス中です。時間をおいて再試行してください。',
+        'maintenance' => true,
+        'retry_after' => 300,
+    ], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -602,6 +634,7 @@ try {
             // 全ユーザー共通の固定タブ (未整理 / 公開用お気に入り) を必ず用意する
             ensure_system_playlists($db, $user_id);
             $stmt = $db->prepare("SELECT p.*,
+                    (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
                     ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
                      + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
                 FROM playlists p WHERE p.user_id = ? OR (p.system_key IS NULL AND p.is_public=1 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id))
@@ -618,6 +651,88 @@ try {
             unset($playlist);
             echo json_encode($playlists, JSON_UNESCAPED_UNICODE);
             break;
+
+        case 'get_manager_summary': {
+            // Manager ホーム (ダッシュボード) 用の集計。画面を開いたときに1回だけ取得する想定で、
+            // リスト数・曲数・公開状況・カテゴリ分布・最近追加した曲をまとめて返す。
+            $user_id = require_user_or_guest($db);
+            ensure_system_playlists($db, $user_id);
+
+            $lists_stmt = $db->prepare(
+                "SELECT p.id, p.category, p.is_public, p.system_key,
+                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count
+                 FROM playlists p WHERE p.user_id = ?"
+            );
+            $lists_stmt->execute([$user_id]);
+            $lists = $lists_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $playlists_count = 0;
+            $public_playlists = 0;
+            $category_map = [];
+            foreach ($lists as $list) {
+                if (!empty($list['system_key'])) continue;   // 固定タブは集計から外す
+                $playlists_count++;
+                if ((int)$list['is_public'] === 1) $public_playlists++;
+                $category = trim((string)($list['category'] ?? ''));
+                if ($category === '') $category = 'Other';
+                if (!isset($category_map[$category])) {
+                    $category_map[$category] = ['category' => $category, 'playlists' => 0, 'tracks' => 0];
+                }
+                $category_map[$category]['playlists']++;
+                $category_map[$category]['tracks'] += (int)$list['track_count'];
+            }
+            $categories = array_values($category_map);
+            usort($categories, function ($a, $b) {
+                return ($b['tracks'] <=> $a['tracks']) ?: strcmp($a['category'], $b['category']);
+            });
+
+            // 曲数は「すべてのブックマーク」と同じく youtube_id の重複を除いて数える
+            $track_count_stmt = $db->prepare(
+                "SELECT COUNT(DISTINCT b.youtube_id) FROM bookmarks b
+                 JOIN playlists p ON p.id = b.playlist_id WHERE p.user_id = ?"
+            );
+            $track_count_stmt->execute([$user_id]);
+            $favorite_stmt = $db->prepare(
+                "SELECT COUNT(DISTINCT b.youtube_id) FROM bookmarks b
+                 JOIN playlists p ON p.id = b.playlist_id
+                 WHERE p.user_id = ? AND b.is_favorite = 1"
+            );
+            $favorite_stmt->execute([$user_id]);
+
+            // 最近追加した曲 (同じ曲が複数リストにある場合は最新の保存1件だけ)
+            $recent_stmt = $db->prepare(
+                "SELECT b.id, b.youtube_id, b.title, b.channel, b.added_at, b.playlist_id, b.is_favorite
+                 FROM bookmarks b
+                 JOIN (
+                     SELECT MAX(x.id) AS id FROM bookmarks x
+                     JOIN playlists px ON px.id = x.playlist_id
+                     WHERE px.user_id = ?
+                     GROUP BY x.youtube_id
+                 ) latest ON latest.id = b.id
+                 ORDER BY b.added_at DESC, b.id DESC
+                 LIMIT 6"
+            );
+            $recent_stmt->execute([$user_id]);
+            $recent_tracks = $recent_stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($recent_tracks as &$recent_track) {
+                $recent_track['id'] = (int)$recent_track['id'];
+                $recent_track['playlist_id'] = (int)$recent_track['playlist_id'];
+                $recent_track['is_favorite'] = track_favorite_state($db, $user_id, (string)$recent_track['youtube_id']);
+            }
+            unset($recent_track);
+
+            echo json_encode([
+                'stats' => [
+                    'playlists' => $playlists_count,
+                    'tracks' => (int)$track_count_stmt->fetchColumn(),
+                    'public_playlists' => $public_playlists,
+                    'favorite_tracks' => (int)$favorite_stmt->fetchColumn(),
+                ],
+                'categories' => $categories,
+                'recent_tracks' => $recent_tracks,
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
 
         case 'create_playlist':
             if ($method === 'POST' && !empty($input['name'])) {
