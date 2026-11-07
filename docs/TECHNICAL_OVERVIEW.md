@@ -1,0 +1,138 @@
+# Tune drop — 技術解説
+
+[← サービス紹介に戻る](../README.md)
+
+画面・API・認証・楽曲解析の構成と、実装上の工夫をまとめています。
+
+## 全体構成
+
+```text
+ブラウザ (SPA)
+├─ フロントエンド: Vanilla JS (Vite でビルドした ES Modules) + Canvas マップ描画
+├─ データ管理API: PHP + MySQL (PDO) / SQLite (移行前の互換動作)
+└─ 認証・解析サーバー: Python (Flask + Waitress) + 楽曲解析エンジン
+配信: PHPビルトインサーバー (./backend/start.sh / Windows は python backend/start.py :8888) + Cloudflare Tunnel。開発は Vite開発サーバー (npm run dev :5173、APIはstart.pyへプロキシ)。
+PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RCE 2件 CVE-2026-109618 / CVE-2026-109619 の修正版）。未修正の PHP では backend/start.py が起動を中止する。修正版をプロジェクト内 `.php/` に置いた場合はそちらを優先する。
+ビルド: Vite (ソースは frontend/、成果物は frontend/dist/ の index.html + assets/)
+構成: サーバー側は backend/、画面側は frontend/ (ソース + ビルド成果物 dist/) にまとめてある。公開URLは backend/router.php が対応付けるため整理前と変わらない。
+```
+
+## フロントエンド
+
+- フレームワークなしのVanilla JavaScript。ソースは `frontend/main.js`（エントリ）+ `frontend/config.js` + `frontend/app.js` + `frontend/style.css`
+  （旧 `api-client.js` / `manager-lists.js` / `text-marquee.js` は `app.js` に統合済み、vendored Vueは削除しVue依存なし）
+- Vite でビルドし、成果物は `frontend/dist/` の `index.html` と `assets/`（内容ハッシュ付きファイル名）。
+  テンプレートは `frontend/index.html`。`backend/start.py`（`./backend/start.sh` / `python backend/start.py`）と `./backend/sync.sh` はビルド元が新しいとき `npm run build` を自動実行する
+- `app.js` のトップレベル関数は `main.js` の `Object.assign(window, app)` で window に公開し、
+  マークアップの `onclick="..."` と外部スクリプト（YouTube IFrame API / Google Identity Services）のコールバックから呼べる
+- API接続先の自動検出（同一originの `backend/api.php` → `fallbackApiUrl` / `fallbackApiPorts` のhealthプローブ）とJWTの自動付与
+- 画面だけを静的配信で開いても動く（VS Code Live Server 等で `frontend/dist/index.html` を開き、別ターミナルで `./backend/start.sh` を起動。
+  Live Server はPHPを実行できないため同じoriginにAPIが無いが、`./backend/start.sh` が使うポート
+  （8888 / 8000 / 8001 / 8002 / 8003 / 8010 / 8080）を順に health で確認してAPIを自動検出する）。
+  `.vscode/settings.json` の `liveServer.settings.ignoreFiles` が必須。プロジェクト直下の
+  SQLite（`-wal` / `-shm`）や解析結果 JSON はリクエストのたびに書き換わるため、除外しないと
+  「変更検知 → 再読み込み → API呼び出し → また変更検知」で**無限リロード**になる。
+  - この設定は Live Server の**起動時に一度だけ**読まれる。変更したら Live Server を再起動する
+  - **パターンは `*` で始めない**（`*.sqlite-*` のような書き方では無視されない）。Live Server は
+    `*` 始まりのパターンをワークスペースパスと結合せず watcher へ渡すため、絶対パスに一致しない。
+    `database.sqlite*` のように名前で書く（`/` 始まりも絶対パス扱いになり一致しない）
+  - `ignoreFiles` は配信を止める指定ではない（監視対象とディレクトリ一覧から外すだけ）。
+    秘密ファイルを配信させないため、Live Server を外部ネットワークへ晒さないこと
+  - `liveServer.settings.proxy` は使わない。Live Server の proxy はクエリをパスへ混ぜて
+    `/api.php/?action=...` に書き換えるため、`backend/router.php` の許可リストに弾かれて 403 になる
+- YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
+- Google Identity ServicesによるGoogleログイン（任意）
+- ログイン専用の画面構成。未ログイン時は機能紹介と静的なデモ (サンプル) を表示し、Manager / Radar / Share / Profile はログイン後にのみ利用できる。ログイン後は未ログイン時に開こうとしたURLの画面へ復帰する
+- Inter + Material Symbols Rounded（`icon_names` サブセット約19KB）を使用
+- 楽曲マップはCanvas描画で、ズーム・パン・色分け（カテゴリ別）に対応
+- モダンCSS（CSS変数・`:has()`・pointer-events）によるタッチ／マウス両対応のドラッグ並び替えと、CSS変数ベースのテーマ
+
+## データ管理API
+
+- PHP + MySQL (PDO) によるプレイリスト・ブックマーク・公開プレイリストのCRUD。`TUNEDROP_MYSQL_HOST` が空なら SQLite を使用
+- トークンベースのセッション管理によるユーザーごとのデータ分離
+- **DB ファイルは配信フォルダの外に置く**（`.env` の `TUNEDROP_DB` で指定。未設定ならプロジェクト直下）。
+  プロジェクト直下に置くと、Live Server / Vite などのファイル監視がリクエストごとの `-wal` / `-shm` の
+  書き換えを拾って**ページが無限リロード**になり、さらに静的配信サーバーから **DB を丸ごと
+  ダウンロード**されてしまう（Live Server は `0.0.0.0` で待ち受けるため同一ネットワークから取得できる）
+- SQLiteはWALジャーナル + busy_timeoutで運用し、データAPI（PHP）と解析エンジン（Python）が
+  同じDBを同時に読み書きしてもリクエストが待たされない構成（スキーマ更新は版管理で必要時のみ実行）
+- MySQL スキーマ作成と既存データの移行は [MySQL 移行手順](MYSQL_MIGRATION.md) を参照（macOS なら `brew install mysql` から始める手順を記載）。`TUNEDROP_DB`（SQLite）は切り戻し用に残したまま、`.env` の `TUNEDROP_MYSQL_*` を設定すると MySQL 運用になります
+- 認証系はFlaskサーバーへのプロキシ（`.auth_port` から稼働ポートを動的検出）
+- 公開ファイル制限は `backend/router.php`（PHPビルトインサーバーのルーター）の許可リストで実施。
+  配信するのは画面のビルド成果物（`frontend/dist/` の `index.html` と `assets/` のハッシュ付き資産。
+  公開URLは整理前と同じ `/` と `/assets/...`）、`backend/api.php`・`backend/ogp.php`・
+  `robots.txt`・`sitemap.xml` とOGPカード画像（`frontend/favicon-card.png`）だけで、
+  ビルド元の `frontend/*.js`・`*.css`、`backend/` のソース、`node_modules`、DB・鍵・バックアップは配信しない
+  （`assets/` はファイル名に内容のハッシュが入るため長期キャッシュ、`index.html` は ETag / Last-Modified で毎回検証し 304 で本文を送らない）
+
+## 認証サーバー
+
+- Python (Flask + flask-cors + PyJWT + Werkzeug + google-auth) によるメール登録・ログイン・Googleログイン検証
+- ログインIDは登録時に入力した値（メールアドレスなど）で、プロフィールで変更できる「表示名」とは別。プロフィール画面にログインIDを表示して取り違えを防ぐ
+- ゲスト認証 (`/auth/guest`) はAPI互換のため残しているが、画面はログイン専用で、未ログイン時はデモ表示のみ（APIは呼ばない）。旧ゲストの `localStorage` 認証情報は画面からは利用しない
+- Waitressで配信（未導入時はFlask開発サーバーにフォールバック）。空きポートを自動選択し `.auth_port` に記録
+- パスワードはハッシュ化して保存し、署名付きJWT（24時間）でセッションを維持
+- 楽曲メタデータ取得はYouTube Data API v3（任意、未設定時はoEmbed/noembedフォールバック）
+
+## 楽曲解析エンジン（Radarの中核）
+
+**音源の実測解析（librosa）**
+
+- yt-dlp + ffmpeg でYouTube音源を取得し、librosaで直接解析
+- ブックマーク登録時はAI推定を即時反映しつつ、**バックグラウンドで音源解析を自動実行**して実測BPM・雰囲気で上書きする（1曲ずつ順に処理）
+- HPSSで分離した打楽器成分と楽曲全体の両方から独立にテンポ候補を取り、証拠を統合して**実測BPM・ビート位置**を算出
+- BPMは候補（半速/倍速/4倍と付点・3連=3:2）を、**オンセット包絡の自己相関**（周期の証拠）・格子が捉えたオンセット量・格子の強さ・120BPM付近を好む対数正規事前分布・**CLAPのテンポ感**で採点し、各候補の近傍を微調整して決める
+  （AI推定BPMは、別のテンポ系列の候補がほぼ同点のときだけ採用。アルゴリズム版をキャッシュに記録し、版が上がった曲は再測定する）
+- スペクトル重心・ロールオフ・フラットネス・ゼロ交差率・HPSS・クロマ等の解析結果から、energy / danceability / valence / acousticness / instrumentalness / speechiness / liveness の**雰囲気特徴量**と、マップ配置用の8次元特徴ベクトルを算出
+
+**mood判定（laion-clap / CLAP、任意）**
+
+- 音声×テキスト類似度モデル（CLAP）により、happy / sad / calm / energetic / dark / dreamy / aggressive / warm のmoodラベルを判定
+- 埋め込みはサビ候補（RMS最大区間）と曲全体をカバーする10秒区間から取り、クリップ単位で確率化して平均する
+  （テキスト埋め込みはプロセス内キャッシュ。確率の尖り方は `TUNEDROP_CLAP_TEMPERATURE` で調整）
+- **英語プロンプトによる「テンポ感」**（slow / mid / upbeat / fast）も判定し、実測BPMの候補選びに効かせる
+  （重みは `TUNEDROP_CLAP_TEMPO_WEIGHT`。ドラムが薄くビートの証拠が弱い曲で効く）
+- インストゥルメンタル／ボーカル判定は、CLAPが僅差で決めた場合は上書きせずlibrosaの推定を残す。声域推定のプロンプトも内蔵
+- 未導入時はlibrosaの特徴量からのフォールバック推定で動作
+
+**AI推定（Gemini / Ollama）**
+
+- 曲名・アーティスト名から音楽特徴量（tempo / energy / valence 等）とジャンルを推定（音源ダウンロード不要。Gemini 3系は `thinkingBudget=0` でJSON取得）
+- Gemini が未設定・失敗時（課金切れの HTTP 402 など）は **ローカルの Ollama にフォールバック**（既定モデル `qwen3:8b`。`TUNEDROP_AI_ENGINE=auto|gemini|ollama|rules` で固定できる）
+- どちらも不可のときは決定的なルールベースにフォールバックする（`engine: rules`）
+- 推定したジャンルは `ai_category` として保存する
+- Vocaloid は実際に合成音声が歌っている場合に限定し、LLM に歌唱主体（人声/合成音声）を個別判定させる
+- 表示ジャンル（カテゴリ）の決め方:
+  1. 曲名/アーティストにボカロ歌手名（初音ミク, 可不, 歌愛ユキ 等）がある → **Vocaloid**（解析前でも即時反映）
+  2. LLM が曲ごとに判定したジャンル（`ai_category`）。人声と判定された曲を Vocaloid と回答した場合は **J-POP** に補正
+  3. それ以外（未解析）は **Other**
+  プレイリストのカテゴリは表示には使わない（複数ジャンルを混ぜたリストで実態と合わないため）
+- 「⟳ 全曲解析」は **Gemini のAI推定値を保護**し、未解析/旧版の音源特徴だけを更新する。AI自体をやり直す曲は管理者ページの「解析キャッシュ」で削除してから実行する（「Geminiのみ」で絞り込める）
+
+**マップ配置（UMAP、任意）**
+
+- 8次元特徴ベクトルをUMAPで2次元へ射影し、[0,1]に正規化してマップ描画に使用（numpy必須、UMAP任意）
+- UMAP未導入・サンプル数不足時はPCA / 円配置にフォールバック
+
+**おすすめ順（Ollama による自動推薦）**
+
+- Radar の「おすすめ順」は、Ollama が好みプロファイル（ジャンル/ムード分布・テンポ・エネルギー概況）を解釈して「優先するジャンル/ムード/テンポ」のレシピを出し、お気に入り・発掘（少数派ジャンル/ムード）・好み一致・新着をスコア化して曲を並べる（新着は弱いタイブレークのみ）
+- おすすめ結果は **12時間ごとに再計算**し、`analysis_recommend.json` に永続化して再起動後も即返す（ブックマーク/解析結果が変われば即再計算）。画面遷移のたびに Ollama を呼ばないため切り替えが速い（`TUNEDROP_RECOMMEND_CACHE_TTL` で間隔変更）
+- Ollama が使えない場合は分布上位を既定の好みとして決定的スコアで並べる（`/radar/recommend`）
+
+**解析キャッシュ**
+
+- 解析結果は `analysis_cache.py` にキャッシュして再利用し、AI推定値より音源実測値（librosa / CLAP）を優先してマージ保存
+- `TUNEDROP_AUDIO_ENGINE=none` で音源解析をスキップ可。全曲再解析は `reanalyze_songs.py` でバッチ実行
+- 全曲解析の際は実測BPMが既にある曲の音源再取得を省略し、高速化（アルゴリズム版が古い曲は測り直す）
+- 全曲解析は**途中保存**される。1曲ごとに結果を `analysis_cache` へ、進捗を `analysis_batch_state.json` へ逐次保存するため、サーバ再起動や中断で完了済みの曲は失われず、再実行すると未解析の残りだけを続行する（`/radar/analyze_all?resume=1` で前回の残キューを優先、`reset=1` で最初から）
+- ツールチップのBPM表示には、実測/推定の別に加えてオクターブ補正の有無も表示する
+
+**負荷対策**
+
+- 音源解析（librosa / CLAP・torch）は `TUNEDROP_CPU_THREADS`（既定: コア数の半分、`all` で無制限）でスレッド数を制限し、解析バッチは `TUNEDROP_ANALYZE_THROTTLE`（既定 0.5秒）で曲間に待ちを入れてマシンを占有し続けないようにする
+- `/radar/map` の応答はキャッシュ（`TUNEDROP_MAP_CACHE_TTL`、既定300秒。ブックマークや解析結果が変われば即座に作り直す）
+- 配信側は PHP を16ワーカー（`TUNEDROP_PHP_WORKERS`）で起動し、**OPcache + JIT**（CLI SAPI では既定で無効）で `backend/api.php` / `backend/router.php` を使い回す。認証・解析サーバー（Waitress）のスレッド数は `TUNEDROP_AUTH_THREADS`（既定16。既定4だと同時アクセスで順番待ちになる）
+- `index.html` は `ETag` 付きで返し、再訪時は 304（本文なし）で済ませる。`assets/` は内容ハッシュ付きのファイル名で1年キャッシュ。一覧系 API（`radar_map` / `get_public_playlists`）も `ETag` で再検証できる（`radar_map` は誰が見ても同じなので共有キャッシュ可、`get_public_playlists` はビューアごとのお気に入り状態を含むためブラウザ内のみ）。なお Cloudflare は圧縮した応答の `ETag` を落とすため、公開URLでは `Last-Modified` での再検証になる（これも 304 になる）。更新後は `scripts/purge-cloudflare-cache.sh` で Cloudflare のエッジを消す
+- UMAP の計算はロックで直列化する（numba の workqueue スレッド層はスレッドセーフではなく、同時実行でプロセスごと落ちるため）
