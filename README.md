@@ -1,7 +1,7 @@
 <div align="center">
   <img src="frontend/favicon.svg" width="64" height="64" alt="Tune dropのロゴ">
   <h1>Tune drop</h1>
-  <p><strong>音楽で触れあるブックマーク</strong></p>
+  <p><strong>音楽で触れ合うブックマーク</strong></p>
   <p>好きな曲をブックマークし、プレイリストを通して音楽や人と出会うWebアプリ。</p>
   <p>
     <a href="https://music.wawa-app.me/tunedrop/">公開サイトを見る</a>
