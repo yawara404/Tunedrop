@@ -503,7 +503,8 @@
         </div>
 
         <div id="view-manager" class="view-section active">
-            <aside class="sidebar">
+            <aside class="sidebar" id="manager-sidebar">
+                <div class="sidebar-resizer" title="ドラッグして幅を調整 (ダブルクリックでリセット)"></div>
                 <button class="add-btn" onclick="openCreatePlaylistModal()"><span
                         class="material-symbols-rounded">add</span> 新規リスト作成</button>
                 <div class="sidebar-filters">
@@ -819,6 +820,7 @@
         <div id="view-share" class="view-section ytm-share-view">
             <!-- Left Sidebar (YouTube Music Style) -->
             <aside class="sidebar ytm-sidebar" id="share-sidebar">
+                <div class="sidebar-resizer" title="ドラッグして幅を調整 (ダブルクリックでリセット)"></div>
                 <ul class="ytm-side-nav">
                     <li onclick="goToShareHome()" class="ytm-side-item active" id="ytm-nav-home" title="ホーム"><span class="material-symbols-rounded">home</span>ホーム</li>
                     <li onclick="goToShareExplore()" class="ytm-side-item" id="ytm-nav-explore" title="探索"><span class="material-symbols-rounded">explore</span>探索</li>
@@ -1385,8 +1387,14 @@
     </main>
 
     <div class="youtube-popup" id="youtube-popup">
-        <button class="player-bar-toggle" id="player-close-btn" type="button" onclick="closeYoutubePlayer()"
-            title="プレイヤーを閉じる" aria-label="プレイヤーを閉じる">×</button>
+        <div class="player-popup-drag-bar" id="player-drag-bar" title="ドラッグして上下に移動">
+            <span class="player-drag-handle">
+                <span class="material-symbols-rounded">drag_indicator</span>
+                <span class="player-drag-text">移動</span>
+            </span>
+            <button class="player-bar-toggle" id="player-close-btn" type="button" onclick="closeYoutubePlayer()"
+                title="プレイヤーを閉じる" aria-label="プレイヤーを閉じる">×</button>
+        </div>
         <div id="youtube-player"></div>
     </div>
 

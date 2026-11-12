@@ -1424,7 +1424,7 @@ export function parseLocationPath() {
     const segments = rest.split('/').filter(Boolean);
     const route = segments[0] && ROUTE_VIEW[segments[0]] ? segments[0] : 'manager';
     const rawId = segments[1];
-    const id = rawId && /^\d+$/.test(rawId) ? rawId : null;
+    const id = rawId && (/^\d+$/.test(rawId) || /^mix-[a-z0-9_-]+$/i.test(rawId)) ? rawId : null;
     const normalizedPath = basePath + (route === 'manager' ? '' : route + (id ? '/' + id : ''));
     return { basePath, route, view: ROUTE_VIEW[route], id, normalizedPath };
 }
@@ -1588,7 +1588,8 @@ export function applyPathView() {
     // 表示名は pendingDetail / pendingUserProfile が同じIDのときだけ使う
     // (renderPlaylistDetail / renderUserProfile 側で判定するため、ここでは消さない)
     if (view === 'playlist-detail' && id) {
-        renderPlaylistDetail(parseInt(id, 10));
+        const detailId = String(id).startsWith('mix-') ? id : parseInt(id, 10);
+        renderPlaylistDetail(detailId);
     } else if (view === 'user-profile' && id) {
         renderUserProfile(parseInt(id, 10));
     } else if (view === 'playlist-detail' || view === 'user-profile') {
@@ -7287,7 +7288,7 @@ export function goBackFromDetail() {
 }
 
 export function openPlaylistDetail(playlistId, playlistName, coverId, options = {}) {
-    pendingDetail = { id: Number(playlistId), name: playlistName || '', cover: coverId || '' };
+    pendingDetail = { id: playlistId, name: playlistName || '', cover: coverId || '' };
     detailReturnView = options.from === 'manager' ? 'manager' : 'share';
     renderDetailBackLabel();
     // クリック直後に前のリスト名が見えないよう、名前だけ先に反映しておく
@@ -7368,7 +7369,7 @@ export function playlistShareUrl(playlistId) {
 export async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     switchView('playlist-detail');
     // 直前に開いた別リストの名前を持ち越さない (IDが一致するときだけ使う)
-    const pending = pendingDetail.id === Number(playlistId) ? pendingDetail : { name: '', cover: '' };
+    const pending = String(pendingDetail.id) === String(playlistId) ? pendingDetail : { name: '', cover: '' };
     const effName = playlistName || pending.name;
     const effCover = coverId || pending.cover;
     const detailTitleEl = document.getElementById('detail-title');
@@ -7379,54 +7380,79 @@ export async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     else coverEl.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:40px;">🎵</div>`;
 
     let tracks;
-    try {
-        const response = await tunedropFetch(`api.php?action=get_my_bookmarks&playlist_id=${playlistId}`);
-        tracks = await response.json();
-    } catch (error) {
-        // 直リンクやオフラインでも画面を壊さない (履歴復元で例外を投げない)
-        tracks = [];
-        const meta = document.getElementById('detail-meta');
-        if (meta) meta.textContent = 'リストを読み込めませんでした。';
-    }
-    if (!Array.isArray(tracks)) tracks = [];
-    currentDetailTracks = tracks;
-    if (!effName) {
-        const titleFromList = allPlaylists.find(p => p.id == playlistId)
-            || allRadarPlaylists.find(p => p.id == playlistId)
-            || allRadarRecentPlaylists.find(p => p.id == playlistId)
-            || sharePlaylists.find(p => p.id == playlistId);
-        if (titleFromList) {
-            document.getElementById('detail-title').innerText = titleFromList.name;
-            if (titleFromList.cover_id) {
-                document.getElementById('detail-cover').innerHTML = `<img src="https://img.youtube.com/vi/${titleFromList.cover_id}/hqdefault.jpg">`;
-            }
-        }
-    }
-    // 詳細の元データ (タイトル・カバー・作成者・お気に入り) を1か所で解決する。
-    // 一覧で見つからない場合 (直リンク等) は公開リストから探す。
-    let listData = allPlaylists.find(p => p.id === playlistId)
-        || allRadarPlaylists.find(p => p.id === playlistId)
-        || allRadarRecentPlaylists.find(p => p.id === playlistId)
-        || sharePlaylists.find(p => p.id === playlistId);
-    if (!listData) {
-        try {
-            const listsResponse = await tunedropFetch('api.php?action=get_public_playlists');
-            const lists = await listsResponse.json();
-            listData = Array.isArray(lists) ? lists.find(p => p.id === playlistId) : null;
-        } catch (_) {
-            // 取得できないときは作成者名を出さずに曲数だけ表示する
-        }
-    }
-    if (listData) {
-        document.getElementById('detail-title').textContent = listData.name;
+    let listData = null;
+    const isMix = String(playlistId).startsWith('mix-');
+
+    if (isMix) {
+        const mixId = String(playlistId).replace(/^mix-/, '');
+        const mix = YTM_MIXES.find(m => m.id === mixId);
+        tracks = getMixTracks(mixId);
+        listData = {
+            id: playlistId,
+            name: mix ? mix.title : (effName || 'おすすめミックス'),
+            cover_id: tracks[0]?.youtube_id || effCover || '',
+            author: 'Tune drop',
+            author_name: 'Tune drop',
+            user_id: 0,
+            is_favorite: 0,
+            favorite_count: 0
+        };
+        if (detailTitleEl) detailTitleEl.textContent = listData.name;
         if (listData.cover_id) {
             coverEl.innerHTML = `<img src="https://img.youtube.com/vi/${encodeURIComponent(listData.cover_id)}/hqdefault.jpg" alt="プレイリストのカバー">`;
+        }
+    } else {
+        try {
+            const response = await tunedropFetch(`api.php?action=get_my_bookmarks&playlist_id=${playlistId}`);
+            tracks = await response.json();
+        } catch (error) {
+            // 直リンクやオフラインでも画面を壊さない (履歴復元で例外を投げない)
+            tracks = [];
+            const meta = document.getElementById('detail-meta');
+            if (meta) meta.textContent = 'リストを読み込めませんでした。';
+        }
+        if (!Array.isArray(tracks)) tracks = [];
+    }
+    currentDetailTracks = tracks;
+    if (!isMix) {
+        if (!effName) {
+            const titleFromList = allPlaylists.find(p => p.id == playlistId)
+                || allRadarPlaylists.find(p => p.id == playlistId)
+                || allRadarRecentPlaylists.find(p => p.id == playlistId)
+                || sharePlaylists.find(p => p.id == playlistId);
+            if (titleFromList) {
+                document.getElementById('detail-title').innerText = titleFromList.name;
+                if (titleFromList.cover_id) {
+                    document.getElementById('detail-cover').innerHTML = `<img src="https://img.youtube.com/vi/${titleFromList.cover_id}/hqdefault.jpg">`;
+                }
+            }
+        }
+        // 詳細の元データ (タイトル・カバー・作成者・お気に入り) を1か所で解決する。
+        // 一覧で見つからない場合 (直リンク等) は公開リストから探す。
+        listData = allPlaylists.find(p => p.id === playlistId)
+            || allRadarPlaylists.find(p => p.id === playlistId)
+            || allRadarRecentPlaylists.find(p => p.id === playlistId)
+            || sharePlaylists.find(p => p.id === playlistId);
+        if (!listData) {
+            try {
+                const listsResponse = await tunedropFetch('api.php?action=get_public_playlists');
+                const lists = await listsResponse.json();
+                listData = Array.isArray(lists) ? lists.find(p => p.id === playlistId) : null;
+            } catch (_) {
+                // 取得できないときは作成者名を出さずに曲数だけ表示する
+            }
+        }
+        if (listData) {
+            document.getElementById('detail-title').textContent = listData.name;
+            if (listData.cover_id) {
+                coverEl.innerHTML = `<img src="https://img.youtube.com/vi/${encodeURIComponent(listData.cover_id)}/hqdefault.jpg" alt="プレイリストのカバー">`;
+            }
         }
     }
     renderDetailMeta(tracks.length, listData);
     // 自分のリストかどうか (移動・削除を出すか) と、戻り先のラベルを反映する
     const myId = currentUserId();
-    currentDetailIsMine = Boolean(listData && myId && Number(listData.user_id) === myId);
+    currentDetailIsMine = Boolean(!isMix && listData && myId && Number(listData.user_id) === myId);
     renderDetailBackLabel();
     updatePlaylistViewSwitch();
     // 存在しないリスト (直リンク・古い履歴) は「読み込み中…」のままにしない
@@ -7435,31 +7461,36 @@ export async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     }
 
     const favBtn = document.getElementById('btn-fav-playlist');
-    if (favBtn && listData) {
-        const favIcon = document.getElementById('btn-fav-playlist-icon');
-        const favCount = document.getElementById('playlist-favorite-count');
-        const setFav = (isFav, count) => {
-            if (favIcon) { favIcon.textContent = 'favorite'; favIcon.classList.toggle('is-filled', isFav); favIcon.style.color = isFav ? 'var(--accent-color)' : '#fff'; }
-            favBtn.classList.toggle('is-fav', isFav);
-            const label = isFav ? 'お気に入り解除' : 'お気に入り追加';
-            favBtn.title = label;
-            favBtn.setAttribute('aria-label', label);
-            favBtn.setAttribute('aria-pressed', String(isFav));
-            // Shareカードのお気に入りボタンと同じく件数を併記する
-            if (favCount) favCount.textContent = shareFavCount({ favorite_count: count });
-        };
-        setFav(listData.is_favorite == 1, listData.favorite_count);
-        favBtn.onclick = async (e) => {
-            favBtn.disabled = true;
-            const result = await togglePlaylistFavorite(playlistId, e);
-            if (result?.success) {
-                listData.is_favorite = result.is_favorite;
-                listData.favorite_count = result.favorite_count;
-                setFav(listData.is_favorite == 1, listData.favorite_count);
-            }
-            favBtn.disabled = false;
-            closeTrackMenus();
-        };
+    if (favBtn) {
+        if (isMix) {
+            favBtn.style.display = 'none';
+        } else if (listData) {
+            favBtn.style.display = '';
+            const favIcon = document.getElementById('btn-fav-playlist-icon');
+            const favCount = document.getElementById('playlist-favorite-count');
+            const setFav = (isFav, count) => {
+                if (favIcon) { favIcon.textContent = 'favorite'; favIcon.classList.toggle('is-filled', isFav); favIcon.style.color = isFav ? 'var(--accent-color)' : '#fff'; }
+                favBtn.classList.toggle('is-fav', isFav);
+                const label = isFav ? 'お気に入り解除' : 'お気に入り追加';
+                favBtn.title = label;
+                favBtn.setAttribute('aria-label', label);
+                favBtn.setAttribute('aria-pressed', String(isFav));
+                // Shareカードのお気に入りボタンと同じく件数を併記する
+                if (favCount) favCount.textContent = shareFavCount({ favorite_count: count });
+            };
+            setFav(listData.is_favorite == 1, listData.favorite_count);
+            favBtn.onclick = async (e) => {
+                favBtn.disabled = true;
+                const result = await togglePlaylistFavorite(playlistId, e);
+                if (result?.success) {
+                    listData.is_favorite = result.is_favorite;
+                    listData.favorite_count = result.favorite_count;
+                    setFav(listData.is_favorite == 1, listData.favorite_count);
+                }
+                favBtn.disabled = false;
+                closeTrackMenus();
+            };
+        }
     }
 
     const shareBtn = document.getElementById('btn-share');
@@ -8114,7 +8145,7 @@ export function renderShareMixes() {
         card.dataset.mixId = mix.id;
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
-        card.title = `${mix.title} を再生`;
+        card.title = `${mix.title} を開く`;
 
         // 2x2 collage artwork from real track thumbnails
         let collageHtml = '';
@@ -8146,11 +8177,12 @@ export function renderShareMixes() {
                 <div class="ytm-card-artist">${escapeHtml(mix.subtitle)} • ${tracks.length}曲</div>
             </div>
         `;
-        card.onclick = () => playMix(mix.id);
+        const firstCover = tracks[0]?.youtube_id || '';
+        card.onclick = () => openPlaylistDetail(`mix-${mix.id}`, mix.title, firstCover);
         card.onkeydown = (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                playMix(mix.id);
+                openPlaylistDetail(`mix-${mix.id}`, mix.title, firstCover);
             }
         };
         container.appendChild(card);
@@ -9373,6 +9405,7 @@ export function playTrackFromQueue(index, queue) {
     document.getElementById('player-title').innerText = track.title;
     document.getElementById('player-artist').innerText = track.channel || 'Unknown Artist';
     document.getElementById('youtube-popup').classList.add('is-active');
+    applyPlayerSavedPosition();
 
     updatePlayerFavButton(track.is_favorite);
     syncPlayerFavorite(track);
@@ -9685,6 +9718,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // pushState では popstate が発火しないため、履歴移動のときだけここで復元する。
     window.addEventListener('popstate', applyPathView);
 
+    initSidebarResizer();
+    initPlayerDrag();
+
     // 旧ハッシュ (#/manager など) はパスへ移行してから表示する。
     // 初期表示はパス (/ なら Manager ホーム) に一本化し、URLを勝手に書き換えない。
     migrateLegacyHash();
@@ -9788,3 +9824,177 @@ document.addEventListener("DOMContentLoaded", () => {
     const input = document.getElementById('radar-title-search');
     if (input) input.placeholder = '🔍 曲名・アーティストで絞り込み...';
 })();
+
+// ==========================================================
+// サイト全体のサイドバー幅調整 (リサイズスプリッター)
+// 最小 150px まで縮められ、Manager でカードが 4 列並ぶように調整可能
+// ==========================================================
+export function initSidebarResizer() {
+    const applySavedWidth = () => {
+        try {
+            const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('tunedrop_sidebar_width') : null;
+            if (saved && typeof document !== 'undefined') {
+                const parsed = parseInt(saved, 10);
+                if (!isNaN(parsed) && parsed >= 150 && parsed <= 480) {
+                    document.documentElement.style.setProperty('--sidebar-width', `${parsed}px`);
+                }
+            }
+        } catch (_) {}
+    };
+
+    applySavedWidth();
+
+    if (typeof document === 'undefined') return;
+    const resizers = document.querySelectorAll('.sidebar-resizer');
+    resizers.forEach(resizer => {
+        let startX = 0;
+        let startWidth = 250;
+
+        const onMouseDown = (e) => {
+            if (e.button !== 0) return;
+            if (typeof window !== 'undefined' && window.innerWidth <= 768) return;
+            e.preventDefault();
+            startX = e.clientX;
+            const currentStyle = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width');
+            startWidth = parseInt(currentStyle, 10) || 250;
+
+            document.body.classList.add('is-sidebar-resizing');
+
+            const onMouseMove = (moveEvent) => {
+                const delta = moveEvent.clientX - startX;
+                const newWidth = Math.min(480, Math.max(150, startWidth + delta));
+                document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+            };
+
+            const onMouseUp = (upEvent) => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                document.body.classList.remove('is-sidebar-resizing');
+                const finalWidth = Math.min(480, Math.max(150, startWidth + (upEvent.clientX - startX)));
+                try {
+                    localStorage.setItem('tunedrop_sidebar_width', `${finalWidth}px`);
+                } catch (_) {}
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        };
+
+        const onDblClick = () => {
+            document.documentElement.style.setProperty('--sidebar-width', '250px');
+            try {
+                localStorage.setItem('tunedrop_sidebar_width', '250px');
+            } catch (_) {}
+            if (typeof showToast === 'function') {
+                showToast('サイドバー幅をデフォルト (250px) にリセットしました', 'info');
+            }
+        };
+
+        resizer.addEventListener('mousedown', onMouseDown);
+        resizer.addEventListener('dblclick', onDblClick);
+    });
+}
+if (typeof window !== 'undefined') window.initSidebarResizer = initSidebarResizer;
+
+// 即時反映 (初期化タイミングの差によるちらつき防止)
+try { initSidebarResizer(); } catch (_) {}
+
+// ==========================================================
+// デスクトップ版: 動画プレイヤーの上下ドラッグ移動
+// メインコンテンツ内の右側 (right: 20px) に張り付きつつ、ヘッダー〜再生バー間を上下移動
+// ==========================================================
+export function applyPlayerSavedPosition() {
+    if (typeof document === 'undefined') return;
+    const popup = document.getElementById('youtube-popup');
+    if (!popup) return;
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        popup.style.top = '';
+        popup.style.bottom = '';
+        return;
+    }
+    if (document.body.classList.contains('player-in-sidebar')) {
+        popup.style.top = '';
+        popup.style.bottom = '';
+        return;
+    }
+    try {
+        const saved = localStorage.getItem('tunedrop_player_top');
+        if (saved !== null) {
+            const parsed = parseInt(saved, 10);
+            if (!isNaN(parsed)) {
+                const popupHeight = popup.offsetHeight || 200;
+                const minY = 65;
+                const maxY = Math.max(minY, window.innerHeight - 90 - popupHeight - 12);
+                const clamped = Math.min(maxY, Math.max(minY, parsed));
+                popup.style.top = `${clamped}px`;
+                popup.style.bottom = 'auto';
+            }
+        }
+    } catch (_) {}
+}
+if (typeof window !== 'undefined') window.applyPlayerSavedPosition = applyPlayerSavedPosition;
+
+export function initPlayerDrag() {
+    if (typeof document === 'undefined') return;
+    const popup = document.getElementById('youtube-popup');
+    const dragBar = document.getElementById('player-drag-bar');
+    if (!popup || !dragBar) return;
+
+    applyPlayerSavedPosition();
+    if (typeof window !== 'undefined') {
+        window.addEventListener('resize', applyPlayerSavedPosition);
+    }
+
+    let isDragging = false;
+    let startMouseY = 0;
+    let startPopupTop = 0;
+
+    const onMouseDown = (e) => {
+        if (e.target.closest('#player-close-btn')) return;
+        if (e.button !== 0) return;
+        if (typeof window !== 'undefined' && window.innerWidth <= 768) return;
+        if (document.body.classList.contains('player-in-sidebar')) return;
+
+        e.preventDefault();
+        isDragging = true;
+        startMouseY = e.clientY;
+        const rect = popup.getBoundingClientRect();
+        startPopupTop = rect.top;
+
+        popup.classList.add('is-dragging');
+        document.body.style.userSelect = 'none';
+
+        const onMouseMove = (moveEvent) => {
+            if (!isDragging) return;
+            const deltaY = moveEvent.clientY - startMouseY;
+            const newTop = startPopupTop + deltaY;
+            const popupHeight = popup.offsetHeight || 200;
+            const minY = 65;
+            const maxY = Math.max(minY, window.innerHeight - 90 - popupHeight - 12);
+            const clamped = Math.min(maxY, Math.max(minY, newTop));
+
+            popup.style.top = `${clamped}px`;
+            popup.style.bottom = 'auto';
+        };
+
+        const onMouseUp = () => {
+            if (!isDragging) return;
+            isDragging = false;
+            popup.classList.remove('is-dragging');
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+
+            const rect = popup.getBoundingClientRect();
+            try {
+                localStorage.setItem('tunedrop_player_top', String(Math.round(rect.top)));
+            } catch (_) {}
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    };
+
+    dragBar.addEventListener('mousedown', onMouseDown);
+}
+if (typeof window !== 'undefined') window.initPlayerDrag = initPlayerDrag;
