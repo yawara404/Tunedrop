@@ -6775,43 +6775,20 @@ export function drawRadarMap(tracks) {
     }
 }
 
-// 4軸ガイド（energy × bright）を画面の上下左右端に4ラベルで示す。
+// 4軸ガイド（energy × bright）を画面の上下左右端に4ラベルで固定表示する。
 // kiite radar に倣った白黒のシンプルな見た目にする（色・枠・矢印は使わない）。
-// orientation は radarAxisOrientation の戻り（null なら既定の向き）。
-// エネルギー軸の両端（energy/calm）と明るさ軸の両端（bright/dark）を、
-// それぞれ向きが最も近い画面端（上/下/左/右）に割り当てて表示する。
+// 四軸の位置は常に固定（上=energy, 下=calm, 右=bright, 左=dark）。
 // 軸線・象限ラベルは描かない（マップの点を邪魔しないため）。
 export function drawRadarAxes(ctx, W, H, orientation) {
     if (!(W > 100 && H > 100)) return;
-    // 既定の向き（相関が取れないとき）: 上=energy、下=calm、右=bright、左=dark
-    const e = orientation?.energy || { dx: 0, dy: -1, strength: 0 };
-    const v = orientation?.valence || { dx: 1, dy: 0, strength: 0 };
-    const ends = [
-        { dx: e.dx, dy: e.dy, label: 'energy' },
-        { dx: -e.dx, dy: -e.dy, label: 'calm' },
-        { dx: v.dx, dy: v.dy, label: 'bright' },
-        { dx: -v.dx, dy: -v.dy, label: 'dark' },
-    ];
-    // 画面端の内側位置。上下は中央、左右は端に寄せる（x は描画時にテキスト幅で詰める）。
+    // 四軸の位置は常に固定: 上=energy, 下=calm, 右=bright, 左=dark (Kiite Radar準拠)
     const MARGIN = 10;
-    const edges = [
-        { dx: 0, dy: -1, x: W / 2, y: 16 },
-        { dx: 0, dy: 1, x: W / 2, y: H - 16 },
-        { dx: -1, dy: 0, x: MARGIN, y: H / 2 },
-        { dx: 1, dy: 0, x: W - MARGIN, y: H / 2 },
+    const placed = [
+        { edge: { x: W / 2, y: 16 }, end: { label: 'energy' } },
+        { edge: { x: W / 2, y: H - 16 }, end: { label: 'calm' } },
+        { edge: { x: W - MARGIN, y: H / 2 }, end: { label: 'bright' } },
+        { edge: { x: MARGIN, y: H / 2 }, end: { label: 'dark' } },
     ];
-    // 各端に最も向きが近いラベル端を貪欲に割り当てる（1端1ラベル）
-    const used = new Set();
-    const placed = [];
-    edges.forEach(edge => {
-        let best = -1, bestScore = -Infinity;
-        ends.forEach((end, i) => {
-            if (used.has(i)) return;
-            const score = end.dx * edge.dx + end.dy * edge.dy;
-            if (score > bestScore) { bestScore = score; best = i; }
-        });
-        if (best >= 0) { used.add(best); placed.push({ edge, end: ends[best] }); }
-    });
     const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
     ctx.save();
     ctx.font = 'bold 12px sans-serif';
