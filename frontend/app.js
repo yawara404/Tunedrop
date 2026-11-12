@@ -7704,68 +7704,81 @@ if (typeof window !== 'undefined') window.scrollShelf = scrollShelf;
 
 export const YTM_WEEKEND_STAGES = [
     {
-        id: 'main',
-        title: 'STAGE 1: メガヒット・メインステージ',
-        subtitle: 'YOASOBI、米津玄師、Vaundy、LiSA',
-        badge: 'MAIN STAGE',
-        description: 'YouTube Music Weekend 特集！スタジアムを沸かせた熱狂のアンセム＆ライブステージ',
-        coverGradient: 'linear-gradient(135deg, rgba(229, 9, 20, 0.45) 0%, rgba(32, 12, 16, 0.95) 100%)',
-        accentColor: '#ff4d4d',
+        id: 442,
+        badge: 'DAY 1 · DECO*27',
+        title: 'Day 1: ボカロ＆ネットカルチャー',
+        subtitle: 'PLAVE、DECO*27、いよわ、花譜、柊マグネタイト、すりぃ',
+        playlistId: 442,
+        cover_id: 'm2O_b7qS0Gg',
+        trackCount: 6,
+        thumbs: ['m2O_b7qS0Gg', '2b1IexhKPz4', '243pG7v8Q4w', 'c3t_465i74I'],
         tracks: [
-            { youtube_id: 'IvMFMA89Yi8', title: 'YOASOBI「アイドル」(Live from 『YOASOBI ARENA TOUR "電光石火"』)', channel: 'Ayase / YOASOBI', category: 'J-POP' },
-            { youtube_id: 'M2cckDmNLMI', title: '米津玄師 - KICK BACK', channel: 'Kenshi Yonezu 米津玄師', category: 'J-POP' },
-            { youtube_id: 'ci2lGX16f7Y', title: 'Vaundy - 怪獣の花唄 (Live)', channel: 'Vaundy', category: 'J-POP' },
-            { youtube_id: 'MpYy6wwqxoo', title: 'LiSA - 紅蓮華 / THE FIRST TAKE', channel: 'THE FIRST TAKE', category: 'J-POP' },
-            { youtube_id: 'j1hFt9WjqRE', title: 'YOASOBI「夜に駆ける」/ THE HOME TAKE', channel: 'THE FIRST TAKE', category: 'J-POP' },
-        ]
-    },
-    {
-        id: 'vocaloid_net',
-        title: 'STAGE 2: インターネット・ネクスト',
-        subtitle: '初音ミク、DECO*27、ピノキオピー、まふまふ、Kanaria',
-        badge: 'NET POP',
-        description: 'YouTube Music Weekend 8.0 ヘッドライナー！初音ミク×マジカルミライ＆ネット発トップクリエイター',
-        coverGradient: 'linear-gradient(135deg, rgba(0, 198, 255, 0.35) 0%, rgba(10, 24, 38, 0.95) 100%)',
-        accentColor: '#00d2ff',
-        tracks: [
-            { youtube_id: 'b4D1zG4-Q78', title: '初音ミク「マジカルミライ 2023」 Ayase feat. 初音ミク「HERO」', channel: 'HatsuneMiku', category: 'Vocaloid' },
+            { youtube_id: 'm2O_b7qS0Gg', title: 'DECO*27 - モニタリング', channel: 'DECO*27', category: 'Vocaloid' },
+            { youtube_id: '2b1IexhKPz4', title: 'いよわ - きゅうくらりん feat.可不', channel: 'いよわ/iyowa', category: 'Vocaloid' },
+            { youtube_id: '243pG7v8Q4w', title: '柊マグネタイト - マーシャル・マキシマイザー', channel: '柊マグネタイト', category: 'Vocaloid' },
+            { youtube_id: 'i-DZukWFR64', title: 'すりぃ - テレキャスタービーボーイ', channel: 'すりぃ', category: 'Vocaloid' },
+            { youtube_id: 'c3t_465i74I', title: '花譜 - 過去を喰らう', channel: '花譜 -KAF-', category: 'J-POP' },
             { youtube_id: 'e1xCOsgWG0M', title: 'DECO*27 - ヴァンパイア feat. 初音ミク', channel: 'DECO*27', category: 'Vocaloid' },
-            { youtube_id: 'EHBFKhLUVig', title: 'ピノキオピー - 神っぽいな', channel: 'ピノキオピー PINOCCHIOP OFFICIAL CHANNEL', category: 'Vocaloid' },
-            { youtube_id: 'eq8r1ZTma08', title: 'まふまふ - 命に嫌われている。[Cover] Live at 東京ドーム', channel: 'まふまふちゃんねる', category: 'Vocaloid' },
-            { youtube_id: 'vB8cxY3KGRY', title: 'Kanaria - 酔いどれ知らず', channel: 'Kanaria', category: 'Vocaloid' },
-            { youtube_id: 'ecU_uJRzhfk', title: 'sasakure.UK x DECO*27 - 39 feat. 初音ミク', channel: 'U/M/A/A Inc.', category: 'Vocaloid' },
         ]
     },
     {
-        id: 'midnight_chill',
-        title: 'STAGE 3: ミッドナイト・チル＆メロウ',
-        subtitle: 'ずっと真夜中でいいのに。、Eve、キタニタツヤ、笹川真生',
-        badge: 'CHILL & NIGHT',
-        description: 'YouTube Music Weekend 8.0 "JAPANIQUE" ステージ！深夜の静寂と心揺さぶるグルーヴ',
-        coverGradient: 'linear-gradient(135deg, rgba(138, 35, 135, 0.4) 0%, rgba(28, 14, 36, 0.95) 100%)',
-        accentColor: '#e94057',
+        id: 443,
+        badge: 'DAY 2 · Ado / ポケモンミク',
+        title: 'Day 2: ポケモン×ミク & Ado',
+        subtitle: 'ポケモン feat. 初音ミク、Ado、ずっと真夜中でいいのに。、Aiobahn',
+        playlistId: 443,
+        cover_id: 'C-7TIDIKB2M',
+        trackCount: 7,
+        thumbs: ['C-7TIDIKB2M', 'pgXpM4l_MwI', '0ad7f0H5wmY', 'vQ_NFqtGDgo'],
         tracks: [
-            { youtube_id: '0ad7f0H5wmY', title: 'ずっと真夜中でいいのに。『秒針を噛む』(Live from ROAD GAME『テクノプア』)', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
-            { youtube_id: '1tk1pqWROys', title: 'Eve - 廻廻奇譚 (Live Film / Official MV)', channel: 'Eve', category: 'J-POP' },
-            { youtube_id: 'sY7l26F_6dM', title: 'キタニタツヤ - 青のすみか / THE FIRST TAKE', channel: 'THE FIRST TAKE', category: 'J-POP' },
-            { youtube_id: '258qUAI7rL4', title: 'ずっと真夜中でいいのに。『正しくなれない』MV', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
-            { youtube_id: '4cArp-fgrOU', title: '笹川真生 - サニーサイドへようこそ', channel: '笹川真生 - Mao Sasagawa', category: 'Lo-Fi' },
-        ]
-    },
-    {
-        id: 'rock_alt',
-        title: 'STAGE 4: 爆音オルタナティブ・ロック',
-        subtitle: 'Ado、King Gnu、LiSA',
-        badge: 'ROCK STAGE',
-        description: 'スタジアムを圧倒するボーカルと爆音アンセム！YouTube Music Weekend 屈指のハイエナジーステージ',
-        coverGradient: 'linear-gradient(135deg, rgba(241, 39, 17, 0.4) 0%, rgba(36, 16, 12, 0.95) 100%)',
-        accentColor: '#f5af19',
-        tracks: [
+            { youtube_id: 'C-7TIDIKB2M', title: 'DECO*27 - ボルテッカー feat. 初音ミク (Project VOLTAGE)', channel: 'DECO*27', category: 'Vocaloid' },
             { youtube_id: 'pgXpM4l_MwI', title: 'Ado - 唱 (Live at 国立競技場 2024「心臓」)', channel: 'Ado', category: 'J-POP' },
-            { youtube_id: 'icc8LOwp_Y0', title: 'King Gnu - SPECIALZ (Dome Tour THE GREATEST UNKNOWN at TOKYO DOME)', channel: 'King Gnu official', category: 'J-POP' },
-            { youtube_id: 'Qp3b-RXtz4w', title: 'Ado - うっせぇわ (Live Special)', channel: 'Ado', category: 'J-POP' },
-            { youtube_id: 'ony539T074w', title: 'King Gnu - 白日', channel: 'King Gnu official', category: 'J-POP' },
-            { youtube_id: '4Q9DWZHepAA', title: 'LiSA - 炎 / THE FIRST TAKE', channel: 'THE FIRST TAKE', category: 'Anime' },
+            { youtube_id: '0ad7f0H5wmY', title: 'ずっと真夜中でいいのに。『秒針を噛む』(Live from テクノプア)', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
+            { youtube_id: 'vQ_NFqtGDgo', title: 'Aiobahn & TAK feat. 初音ミク - DIVA', channel: 'Aiobahn', category: 'Vocaloid' },
+            { youtube_id: 'T0k5_4h8QZs', title: 'Mitchie M - ミライどんなだろう (Project VOLTAGE)', channel: 'Mitchie M', category: 'Vocaloid' },
+            { youtube_id: '4bpcpeq3k8E', title: 'Reol - 第六感', channel: 'Reol Official', category: 'J-POP' },
+            { youtube_id: 'Y4nEQlwt618', title: 'Ado - クラクラ (TVアニメ『SPY×FAMILY』OP)', channel: 'Ado', category: 'Anime' },
+        ]
+    },
+    {
+        id: 444,
+        badge: 'DAY 3 · BLEACH / レジェンド',
+        title: 'Day 3: BLEACH & レジェンド',
+        subtitle: 'BLEACH×jo0ji×9Lana、細野晴臣、キタニタツヤ、tuki.、Eve',
+        playlistId: 444,
+        cover_id: '5fW0bO4mSlo',
+        trackCount: 5,
+        thumbs: ['5fW0bO4mSlo', 'oxb48kR3U0M', '94lW2nKq7qE', '1tk1pqWROys'],
+        tracks: [
+            { youtube_id: '5fW0bO4mSlo', title: 'キタニタツヤ - 永遠 (TVアニメ『BLEACH 千年血戦篇』挿入歌)', channel: 'キタニタツヤ / Tatsuya Kitani', category: 'Anime' },
+            { youtube_id: 'oxb48kR3U0M', title: 'tuki. - 晩餐歌', channel: 'tuki.', category: 'J-POP' },
+            { youtube_id: '94lW2nKq7qE', title: 'SawanoHiroyuki[nZk] - Avid (TVアニメ『86―エイティシックス―』ED)', channel: 'SawanoHiroyuki[nZk]', category: 'Anime' },
+            { youtube_id: 'd9g3-nK1Y38', title: '長瀬有花 - 近くて、遠くて', channel: '長瀬有花 / YUKA NAGASE', category: 'J-POP' },
+            { youtube_id: '1tk1pqWROys', title: 'Eve - 廻廻奇譚 (Live Film / Official MV)', channel: 'Eve', category: 'Anime' },
+        ]
+    },
+    {
+        id: 445,
+        badge: 'ALL-STARS',
+        title: 'YouTube Music Weekend 12.0 オールスターズ',
+        subtitle: '参加全113組から凝縮した公式ベストセレクション',
+        playlistId: 445,
+        cover_id: 'C-7TIDIKB2M',
+        trackCount: 12,
+        thumbs: ['C-7TIDIKB2M', 'pgXpM4l_MwI', 'm2O_b7qS0Gg', '0ad7f0H5wmY'],
+        tracks: [
+            { youtube_id: 'C-7TIDIKB2M', title: 'DECO*27 - ボルテッカー feat. 初音ミク (Project VOLTAGE)', channel: 'DECO*27', category: 'Vocaloid' },
+            { youtube_id: 'pgXpM4l_MwI', title: 'Ado - 唱 (Live at 国立競技場 2024「心臓」)', channel: 'Ado', category: 'J-POP' },
+            { youtube_id: 'm2O_b7qS0Gg', title: 'DECO*27 - モニタリング', channel: 'DECO*27', category: 'Vocaloid' },
+            { youtube_id: '0ad7f0H5wmY', title: 'ずっと真夜中でいいのに。『秒針を噛む』(Live from テクノプア)', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
+            { youtube_id: '2b1IexhKPz4', title: 'いよわ - きゅうくらりん feat.可不', channel: 'いよわ/iyowa', category: 'Vocaloid' },
+            { youtube_id: '243pG7v8Q4w', title: '柊マグネタイト - マーシャル・マキシマイザー', channel: '柊マグネタイト', category: 'Vocaloid' },
+            { youtube_id: 'vQ_NFqtGDgo', title: 'Aiobahn & TAK feat. 初音ミク - DIVA', channel: 'Aiobahn', category: 'Vocaloid' },
+            { youtube_id: 'oxb48kR3U0M', title: 'tuki. - 晩餐歌', channel: 'tuki.', category: 'J-POP' },
+            { youtube_id: '5fW0bO4mSlo', title: 'キタニタツヤ - 永遠 (TVアニメ『BLEACH 千年血戦篇』挿入歌)', channel: 'キタニタツヤ / Tatsuya Kitani', category: 'Anime' },
+            { youtube_id: 'c3t_465i74I', title: '花譜 - 過去を喰らう', channel: '花譜 -KAF-', category: 'J-POP' },
+            { youtube_id: 'i-DZukWFR64', title: 'すりぃ - テレキャスタービーボーイ', channel: 'すりぃ', category: 'Vocaloid' },
+            { youtube_id: '1tk1pqWROys', title: 'Eve - 廻廻奇譚 (Live Film / Official MV)', channel: 'Eve', category: 'Anime' },
         ]
     }
 ];
@@ -7821,35 +7834,14 @@ export const YTM_MIXES = [
     }
 ];
 
-let selectedWeekendStage = 0;
-let selectedMixId = null;
-
 export function playYTMStage(stageIndex, shuffle = false) {
-    let queue = [];
-    let name = '';
     if (stageIndex === -1) {
-        name = 'YouTube Music Weekend 全ステージ';
-        const seen = new Set();
-        YTM_WEEKEND_STAGES.forEach(st => {
-            st.tracks.forEach(t => {
-                if (t.youtube_id && !seen.has(t.youtube_id)) {
-                    seen.add(t.youtube_id);
-                    queue.push(t);
-                }
-            });
-        });
-    } else {
-        const stage = YTM_WEEKEND_STAGES[stageIndex];
-        if (!stage) return;
-        name = stage.title;
-        queue = [...stage.tracks];
+        playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 オールスターズ', shuffle);
+        return;
     }
-    if (shuffle) {
-        queue = [...queue].sort(() => Math.random() - 0.5);
-    }
-    if (!queue.length) return;
-    playTrackFromQueue(0, queue);
-    showToast(`「${name}」を再生開始しました（${queue.length}曲）`);
+    const stage = YTM_WEEKEND_STAGES[stageIndex];
+    if (!stage) return;
+    playUserPlaylistDirect(stage.playlistId, stage.title, shuffle);
 }
 if (typeof window !== 'undefined') window.playYTMStage = playYTMStage;
 
@@ -7863,25 +7855,15 @@ export function playTrackFromStage(stageIndex, trackIndex) {
 if (typeof window !== 'undefined') window.playTrackFromStage = playTrackFromStage;
 
 export function selectYTMStage(stageIndex) {
-    if (selectedWeekendStage === stageIndex) {
-        selectedWeekendStage = null;
-    } else {
-        selectedWeekendStage = stageIndex;
+    const stage = YTM_WEEKEND_STAGES[stageIndex];
+    if (stage) {
+        openPlaylistDetail(stage.playlistId, stage.title, stage.cover_id);
     }
-    const cards = document.querySelectorAll('.ytm-stage-card');
-    cards.forEach((c, idx) => c.classList.toggle('selected', idx === selectedWeekendStage));
-    renderYTMStageDetail(selectedWeekendStage);
 }
 if (typeof window !== 'undefined') window.selectYTMStage = selectYTMStage;
 
 export function openWeekendFeaturePlaylist() {
-    const pl = (sharePlaylists || []).find(p => p.name.includes('Weekend'))
-        || (allPlaylists || []).find(p => p.name.includes('Weekend'));
-    if (pl) {
-        openPlaylistDetail(pl.id, pl.name, pl.cover_id);
-    } else {
-        openPlaylistDetail(441, 'YouTube Music Weekend 8.0 特集', 'IvMFMA89Yi8');
-    }
+    openPlaylistDetail(445, 'YouTube Music Weekend 12.0 オールスターズ', 'C-7TIDIKB2M');
 }
 if (typeof window !== 'undefined') window.openWeekendFeaturePlaylist = openWeekendFeaturePlaylist;
 
@@ -7898,7 +7880,7 @@ export async function saveYTMStageToMyPlaylists(stageIndex) {
         showToast('プレイリストを保存するにはログインが必要です', 'info');
         return;
     }
-    const playlistName = `YTM Weekend: ${stage.badge}`;
+    const playlistName = `YTM Weekend 12.0: ${stage.badge}`;
     showToast(`「${playlistName}」を作成して楽曲を保存中…`, 'info');
 
     try {
@@ -7943,78 +7925,8 @@ export async function saveYTMStageToMyPlaylists(stageIndex) {
 }
 if (typeof window !== 'undefined') window.saveYTMStageToMyPlaylists = saveYTMStageToMyPlaylists;
 
-export function renderYTMStageDetail(stageIndex) {
-    const container = document.getElementById('ytm-stage-detail-area');
-    if (!container) return;
-    const stage = YTM_WEEKEND_STAGES[stageIndex];
-    if (!stage) {
-        container.style.display = 'none';
-        container.innerHTML = '';
-        return;
-    }
-    container.style.display = 'block';
-
-    const trackRowsHtml = stage.tracks.map((t, tIdx) => `
-        <div class="ytm-stage-track-row" onclick="playTrackFromStage(${stageIndex}, ${tIdx})" role="button" tabindex="0" title="${escapeHtml(t.title)} を再生">
-            <div class="ytm-track-col-index">${tIdx + 1}</div>
-            <div class="ytm-track-col-thumb">
-                <img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="" loading="lazy">
-                <div class="ytm-track-thumb-play"><span class="material-symbols-rounded">play_arrow</span></div>
-            </div>
-            <div class="ytm-track-col-info">
-                <div class="ytm-track-row-title">${escapeHtml(t.title)}</div>
-                <div class="ytm-track-row-channel">${escapeHtml(t.channel || '')}</div>
-            </div>
-            <div class="ytm-track-col-cat">
-                <span class="ytm-track-cat-pill">${escapeHtml(t.category || 'Other')}</span>
-            </div>
-            <div class="ytm-track-col-actions" onclick="event.stopPropagation()">
-                <button type="button" class="ytm-track-action-btn" title="マイブックマークに保存" onclick="saveTrackFromShare('${t.youtube_id}', '${escapeHtml(t.title)}', '${escapeHtml(t.channel || '')}')">
-                    <span class="material-symbols-rounded">bookmark_add</span>
-                </button>
-                <a href="https://www.youtube.com/watch?v=${t.youtube_id}" target="_blank" rel="noopener noreferrer" class="ytm-track-action-btn" title="YouTubeで動画を開く">
-                    <span class="material-symbols-rounded">open_in_new</span>
-                </a>
-            </div>
-        </div>
-    `).join('');
-
-    container.innerHTML = `
-        <div class="ytm-stage-detail-box" style="border-left: 3px solid ${stage.accentColor || 'var(--accent-color)'};">
-            <div class="ytm-stage-detail-header">
-                <div class="ytm-stage-detail-info">
-                    <div class="ytm-stage-detail-badges">
-                        <span class="ytm-stage-badge-lg" style="background:${stage.accentColor || 'var(--accent-color)'}; color:#0f0f0f;">${escapeHtml(stage.badge)}</span>
-                        <span class="ytm-stage-vol-pill">YouTube Music Weekend 8</span>
-                        <span class="ytm-stage-count-pill">${stage.tracks.length}曲 · 厳選セットリスト</span>
-                    </div>
-                    <h3 class="ytm-stage-detail-title">${escapeHtml(stage.title)}</h3>
-                    <p class="ytm-stage-detail-desc">${escapeHtml(stage.description)}</p>
-                    <div class="ytm-stage-detail-artists"><span class="material-symbols-rounded">person</span>出演: ${escapeHtml(stage.subtitle)}</div>
-                </div>
-                <div class="ytm-stage-detail-actions">
-                    <button type="button" class="ytm-action-btn ytm-action-primary" onclick="playYTMStage(${stageIndex}, false)" title="このステージを最初から再生">
-                        <span class="material-symbols-rounded">play_arrow</span> このステージを再生
-                    </button>
-                    <button type="button" class="ytm-action-btn ytm-action-secondary" onclick="playYTMStage(${stageIndex}, true)" title="シャッフル再生">
-                        <span class="material-symbols-rounded">shuffle</span> シャッフル
-                    </button>
-                    <button type="button" class="ytm-action-btn ytm-action-save" onclick="saveYTMStageToMyPlaylists(${stageIndex})" title="このステージの全曲をマイリストに保存">
-                        <span class="material-symbols-rounded">playlist_add</span> マイリストに保存
-                    </button>
-                    <a href="https://music.youtube.com/search?q=${encodeURIComponent(stage.subtitle)}" target="_blank" rel="noopener noreferrer" class="ytm-action-btn ytm-action-link" title="YouTube Music でアーティストを検索">
-                        <span class="material-symbols-rounded">open_in_new</span> YouTube Music
-                    </a>
-                    <button type="button" class="ytm-action-btn ytm-action-secondary" onclick="selectYTMStage(${stageIndex})" title="閉じる">
-                        <span class="material-symbols-rounded">close</span> 閉じる
-                    </button>
-                </div>
-            </div>
-            <div class="ytm-stage-tracklist">
-                ${trackRowsHtml}
-            </div>
-        </div>
-    `;
+export function renderYTMStageDetail() {
+    // 展開式専用枠は廃止：クリック時は直接ネイティブのプレイリスト詳細を表示
 }
 if (typeof window !== 'undefined') window.renderYTMStageDetail = renderYTMStageDetail;
 
@@ -8022,46 +7934,54 @@ export function renderYTMWeekend() {
     const container = document.getElementById('ytm-stages-shelf');
     if (!container) return;
     container.innerHTML = '';
-    YTM_WEEKEND_STAGES.forEach((stage, idx) => {
+    YTM_WEEKEND_STAGES.forEach((stage) => {
         const card = document.createElement('div');
-        card.className = 'ytm-stage-card' + (idx === selectedWeekendStage ? ' selected' : '');
+        card.className = 'ytm-square-card';
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
-        card.title = `${stage.title} のセットリストを表示`;
+        card.title = `${stage.title} を開く`;
+
+        let collageHtml = '';
+        if (stage.thumbs && stage.thumbs.length >= 4) {
+            collageHtml = `
+                <div class="ytm-card-collage">
+                    <img src="https://img.youtube.com/vi/${stage.thumbs[0]}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${stage.thumbs[1]}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${stage.thumbs[2]}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${stage.thumbs[3]}/mqdefault.jpg" alt="" loading="lazy">
+                </div>
+            `;
+        } else if (stage.cover_id) {
+            collageHtml = `<img src="https://img.youtube.com/vi/${stage.cover_id}/mqdefault.jpg" alt="" loading="lazy">`;
+        }
+
         card.innerHTML = `
-            <div class="ytm-stage-art" style="background: ${stage.coverGradient};">
-                <span class="ytm-stage-badge">${escapeHtml(stage.badge)}</span>
-                <div class="ytm-stage-play-btn" title="今すぐ再生"><span class="material-symbols-rounded">play_arrow</span></div>
+            <div class="ytm-card-cover-wrap">
+                ${collageHtml}
+                <span class="ytm-card-badge">${escapeHtml(stage.badge)}</span>
+                <div class="ytm-card-center-play" onclick="event.stopPropagation(); playUserPlaylistDirect(${stage.playlistId}, '${escapeHtml(stage.title)}')">
+                    <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                </div>
             </div>
-            <div class="ytm-stage-info">
-                <h4 class="ytm-stage-title">${escapeHtml(stage.title)}</h4>
-                <div class="ytm-stage-artists">${escapeHtml(stage.subtitle)}</div>
-                <div class="ytm-stage-meta">${stage.tracks.length}曲 · YouTube Music Weekend</div>
+            <div class="ytm-card-text">
+                <h4 class="ytm-card-title">${escapeHtml(stage.title)}</h4>
+                <div class="ytm-card-artist">${escapeHtml(stage.subtitle)}</div>
             </div>
         `;
-        const playBtn = card.querySelector('.ytm-stage-play-btn');
-        if (playBtn) {
-            playBtn.onclick = (e) => {
-                e.stopPropagation();
-                playYTMStage(idx);
-            };
-        }
-        card.onclick = () => selectYTMStage(idx);
+        card.onclick = () => openPlaylistDetail(stage.playlistId, stage.title, stage.cover_id);
         card.onkeydown = (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                selectYTMStage(idx);
+                openPlaylistDetail(stage.playlistId, stage.title, stage.cover_id);
             }
         };
         container.appendChild(card);
     });
 
     const playAllBtn = document.getElementById('btn-ytm-weekend-play');
-    if (playAllBtn) playAllBtn.onclick = () => playYTMStage(-1, false);
+    if (playAllBtn) playAllBtn.onclick = () => playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 オールスターズ', false);
     const shuffleBtn = document.getElementById('btn-ytm-weekend-shuffle');
-    if (shuffleBtn) shuffleBtn.onclick = () => playYTMStage(-1, true);
-
-    renderYTMStageDetail(selectedWeekendStage);
+    if (shuffleBtn) shuffleBtn.onclick = () => playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 オールスターズ', true);
 }
 
 export function getMixTracks(mixId) {
@@ -8121,19 +8041,7 @@ export function playTrackFromMix(mixId, trackIndex) {
 if (typeof window !== 'undefined') window.playTrackFromMix = playTrackFromMix;
 
 export function selectYTMMix(mixId) {
-    if (selectedMixId === mixId) {
-        selectedMixId = null;
-        const container = document.getElementById('ytm-mix-detail-area');
-        if (container) {
-            container.style.display = 'none';
-            container.innerHTML = '';
-        }
-        document.querySelectorAll('.ytm-mix-card').forEach(c => c.classList.remove('selected'));
-        return;
-    }
-    selectedMixId = mixId;
-    document.querySelectorAll('.ytm-mix-card').forEach(c => c.classList.toggle('selected', c.dataset.mixId === mixId));
-    renderYTMMixDetail(mixId);
+    playMix(mixId);
 }
 if (typeof window !== 'undefined') window.selectYTMMix = selectYTMMix;
 
@@ -8190,73 +8098,8 @@ export async function saveMixToMyPlaylists(mixId) {
 }
 if (typeof window !== 'undefined') window.saveMixToMyPlaylists = saveMixToMyPlaylists;
 
-export function renderYTMMixDetail(mixId) {
-    const container = document.getElementById('ytm-mix-detail-area');
-    if (!container) return;
-    const mix = YTM_MIXES.find(m => m.id === mixId);
-    const tracks = getMixTracks(mixId);
-    if (!mix || !tracks.length) {
-        container.style.display = 'none';
-        container.innerHTML = '';
-        return;
-    }
-    container.style.display = 'block';
-
-    const trackRowsHtml = tracks.map((t, tIdx) => `
-        <div class="ytm-stage-track-row" onclick="playTrackFromMix('${mixId}', ${tIdx})" role="button" tabindex="0" title="${escapeHtml(t.title)} を再生">
-            <div class="ytm-track-col-index">${tIdx + 1}</div>
-            <div class="ytm-track-col-thumb">
-                <img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="" loading="lazy">
-                <div class="ytm-track-thumb-play"><span class="material-symbols-rounded">play_arrow</span></div>
-            </div>
-            <div class="ytm-track-col-info">
-                <div class="ytm-track-row-title">${escapeHtml(t.title)}</div>
-                <div class="ytm-track-row-channel">${escapeHtml(t.channel || '')}</div>
-            </div>
-            <div class="ytm-track-col-cat">
-                <span class="ytm-track-cat-pill">${escapeHtml(t.category || 'Other')}</span>
-            </div>
-            <div class="ytm-track-col-actions" onclick="event.stopPropagation()">
-                <button type="button" class="ytm-track-action-btn" title="マイブックマークに保存" onclick="saveTrackFromShare('${t.youtube_id}', '${escapeHtml(t.title)}', '${escapeHtml(t.channel || '')}')">
-                    <span class="material-symbols-rounded">bookmark_add</span>
-                </button>
-                <a href="https://www.youtube.com/watch?v=${t.youtube_id}" target="_blank" rel="noopener noreferrer" class="ytm-track-action-btn" title="YouTubeで動画を開く">
-                    <span class="material-symbols-rounded">open_in_new</span>
-                </a>
-            </div>
-        </div>
-    `).join('');
-
-    container.innerHTML = `
-        <div class="ytm-mix-detail-box">
-            <div class="ytm-stage-detail-header">
-                <div class="ytm-stage-detail-info">
-                    <div class="ytm-stage-detail-badges">
-                        <span class="ytm-stage-badge-lg" style="background:var(--accent-color); color:#0f0f0f;">${escapeHtml(mix.badge)}</span>
-                        <span class="ytm-stage-vol-pill">Tunedrop ミックス</span>
-                        <span class="ytm-stage-count-pill">${tracks.length}曲 · 自動生成</span>
-                    </div>
-                    <h3 class="ytm-stage-detail-title">${escapeHtml(mix.title)}</h3>
-                    <p class="ytm-stage-detail-desc">${escapeHtml(mix.subtitle)}</p>
-                </div>
-                <div class="ytm-stage-detail-actions">
-                    <button type="button" class="ytm-action-btn ytm-action-primary" onclick="playMix('${mixId}')" title="このミックスを再生">
-                        <span class="material-symbols-rounded">play_arrow</span> このミックスを再生
-                    </button>
-                    <button type="button" class="ytm-action-btn ytm-action-save" onclick="saveMixToMyPlaylists('${mixId}')" title="このミックスをマイリストに保存">
-                        <span class="material-symbols-rounded">playlist_add</span> マイリストに保存
-                    </button>
-                    <button type="button" class="ytm-action-btn ytm-action-secondary" onclick="selectYTMMix('${mixId}')" title="閉じる">
-                        <span class="material-symbols-rounded">close</span> 閉じる
-                    </button>
-                </div>
-            </div>
-            <div class="ytm-stage-tracklist">
-                ${trackRowsHtml}
-            </div>
-        </div>
-    `;
-    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+export function renderYTMMixDetail() {
+    // 展開式専用枠は廃止：ミックスカードクリックで直接再生
 }
 if (typeof window !== 'undefined') window.renderYTMMixDetail = renderYTMMixDetail;
 
@@ -8267,17 +8110,17 @@ export function renderShareMixes() {
     YTM_MIXES.forEach(mix => {
         const tracks = getMixTracks(mix.id);
         const card = document.createElement('div');
-        card.className = 'ytm-mix-card' + (mix.id === selectedMixId ? ' selected' : '');
+        card.className = 'ytm-square-card ytm-mix-card';
         card.dataset.mixId = mix.id;
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
-        card.title = `${mix.title} の曲を見る / 再生`;
+        card.title = `${mix.title} を再生`;
 
         // 2x2 collage artwork from real track thumbnails
         let collageHtml = '';
         if (tracks.length >= 4) {
             collageHtml = `
-                <div class="ytm-mix-collage">
+                <div class="ytm-card-collage">
                     <img src="https://img.youtube.com/vi/${tracks[0].youtube_id}/mqdefault.jpg" alt="" loading="lazy">
                     <img src="https://img.youtube.com/vi/${tracks[1].youtube_id}/mqdefault.jpg" alt="" loading="lazy">
                     <img src="https://img.youtube.com/vi/${tracks[2].youtube_id}/mqdefault.jpg" alt="" loading="lazy">
@@ -8291,29 +8134,23 @@ export function renderShareMixes() {
         }
 
         card.innerHTML = `
-            <div class="ytm-mix-art">
+            <div class="ytm-card-cover-wrap">
                 ${collageHtml}
-                <div class="ytm-mix-overlay-gradient"></div>
-                <span class="ytm-mix-badge">${escapeHtml(mix.badge)}</span>
-                <div class="ytm-mix-play-overlay" title="今すぐ再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                <span class="ytm-card-badge">${escapeHtml(mix.badge)}</span>
+                <div class="ytm-card-center-play" onclick="event.stopPropagation(); playMix('${mix.id}')">
+                    <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                </div>
             </div>
-            <div class="ytm-mix-info">
-                <h4 class="ytm-mix-title">${escapeHtml(mix.title)}</h4>
-                <div class="ytm-mix-sub">${tracks.length}曲 · ${escapeHtml(mix.subtitle)}</div>
+            <div class="ytm-card-text">
+                <h4 class="ytm-card-title">${escapeHtml(mix.title)}</h4>
+                <div class="ytm-card-artist">${escapeHtml(mix.subtitle)} • ${tracks.length}曲</div>
             </div>
         `;
-        const playBtn = card.querySelector('.ytm-mix-play-overlay');
-        if (playBtn) {
-            playBtn.onclick = (e) => {
-                e.stopPropagation();
-                playMix(mix.id);
-            };
-        }
-        card.onclick = () => selectYTMMix(mix.id);
+        card.onclick = () => playMix(mix.id);
         card.onkeydown = (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                selectYTMMix(mix.id);
+                playMix(mix.id);
             }
         };
         container.appendChild(card);
@@ -8359,6 +8196,9 @@ export const YTM_REPLAY_PICKS = [
         artist: 'Wawa404 • 358トラック',
         thumbnail: '',
         is_playlist: true,
+        playlist_id: 206,
+        cover_id: 'pxbDd8GA7GA',
+        thumbs: ['4cArp-fgrOU', '_UyCmkC64zk', 'u_n-k1L_0Lg', 'bPI0_YzOiEw'],
         type: 'playlist'
     },
     {
@@ -8464,14 +8304,17 @@ export function filterShareLibrary(tab = 'all') {
 }
 if (typeof window !== 'undefined') window.filterShareLibrary = filterShareLibrary;
 
-export async function playUserPlaylistDirect(playlistId, playlistName) {
+export async function playUserPlaylistDirect(playlistId, playlistName, shuffle = false) {
     try {
         const res = await tunedropFetch(`api.php?action=get_playlist_tracks&playlist_id=${playlistId}`);
         if (!res.ok) throw new Error('楽曲を取得できませんでした');
-        const tracks = await res.json();
+        let tracks = await res.json();
         if (!Array.isArray(tracks) || !tracks.length) {
             showToast('このプレイリストには曲がありません', 'info');
             return;
+        }
+        if (shuffle) {
+            tracks = [...tracks].sort(() => Math.random() - 0.5);
         }
         playTrackFromQueue(0, tracks);
         showToast(`「${playlistName || 'プレイリスト'}」の再生を開始しました（${tracks.length}曲）`);
@@ -8745,8 +8588,7 @@ export function renderYTMReplayShelf() {
     if (handleEl) handleEl.textContent = currentUser?.display_name || 'WAWA404';
     const avatarEl = document.getElementById('ytm-user-avatar');
     if (avatarEl) {
-        const dname = currentUser?.display_name || 'WAWA404';
-        avatarEl.textContent = dname.slice(0, 3).toUpperCase();
+        avatarEl.textContent = 'ZZZ';
     }
 
     const playAllBtn = document.getElementById('btn-ytm-replay-all');
@@ -8754,15 +8596,15 @@ export function renderYTMReplayShelf() {
         playAllBtn.onclick = () => playAllReplayTracks();
     }
 
-    const items = [];
-    const seen = new Set();
+    // ユーザー指定の YTM ホーム画面 (media_1794480426037_da5a3521.jpg) を厳密に再現
+    const items = [...YTM_REPLAY_PICKS];
+    const seen = new Set(items.map(it => it.youtube_id).filter(Boolean));
 
-    // 1. ユーザーのお気に入り曲・保存曲を優先表示
+    // 追加でユーザーのお気に入り曲をマージ
     if (allBookmarks && allBookmarks.length) {
         const userFavs = allBookmarks.filter(b => b.is_favorite == 1);
-        const source = userFavs.length >= 3 ? userFavs : allBookmarks;
-        source.slice(0, 5).forEach((b, idx) => {
-            if (b.youtube_id && !seen.has(b.youtube_id)) {
+        userFavs.forEach((b, idx) => {
+            if (items.length < 10 && b.youtube_id && !seen.has(b.youtube_id)) {
                 seen.add(b.youtube_id);
                 items.push({
                     id: `user-fav-${idx}`,
@@ -8776,48 +8618,21 @@ export function renderYTMReplayShelf() {
         });
     }
 
-    // 2. YTM_REPLAY_PICKS をマージ
-    YTM_REPLAY_PICKS.forEach(item => {
-        if (items.length < 8) {
-            if (item.is_playlist || (item.youtube_id && !seen.has(item.youtube_id))) {
-                if (item.youtube_id) seen.add(item.youtube_id);
-                items.push(item);
-            }
-        }
-    });
-
-    // 3. shareQuickPicks をマージ
-    if (shareQuickPicks && shareQuickPicks.length) {
-        shareQuickPicks.forEach((qp, idx) => {
-            if (items.length < 10 && qp.youtube_id && !seen.has(qp.youtube_id)) {
-                seen.add(qp.youtube_id);
-                items.push({
-                    id: `qp-${idx}`,
-                    youtube_id: qp.youtube_id,
-                    title: qp.title || 'Unknown',
-                    artist: `曲 • ${qp.channel || 'Artist'}`,
-                    thumbnail: `https://img.youtube.com/vi/${qp.youtube_id}/mqdefault.jpg`,
-                    type: 'track'
-                });
-            }
-        });
-    }
-
     items.forEach((item) => {
         const card = document.createElement('div');
         card.className = 'ytm-square-card';
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
-        card.title = `${item.title} を再生`;
+        card.title = `${item.title} を${item.is_playlist ? '開く' : '再生'}`;
 
         let coverContent = '';
-        if (item.is_playlist) {
+        if (item.is_playlist && item.thumbs && item.thumbs.length >= 4) {
             coverContent = `
-                <div style="width:100%; height:100%; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; background:#222;">
-                    <div style="background:#e50914; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">music_note</span></div>
-                    <div style="background:#00c6ff; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">explore</span></div>
-                    <div style="background:#8a2387; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">favorite</span></div>
-                    <div style="background:#11998e; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">queue_music</span></div>
+                <div class="ytm-card-collage">
+                    <img src="https://img.youtube.com/vi/${item.thumbs[0]}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${item.thumbs[1]}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${item.thumbs[2]}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${item.thumbs[3]}/mqdefault.jpg" alt="" loading="lazy">
                 </div>
             `;
         } else if (item.thumbnail) {
@@ -8826,10 +8641,14 @@ export function renderYTMReplayShelf() {
             coverContent = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#18181b;"><span class="material-symbols-rounded" style="font-size:48px; color:#555;">music_note</span></div>`;
         }
 
+        const centerPlayAction = item.is_playlist
+            ? `playUserPlaylistDirect(${item.playlist_id || 206}, '${escapeHtml(item.title)}')`
+            : '';
+
         card.innerHTML = `
             <div class="ytm-card-cover-wrap">
                 ${coverContent}
-                <div class="ytm-card-center-play">
+                <div class="ytm-card-center-play"${centerPlayAction ? ` onclick="event.stopPropagation(); ${centerPlayAction}"` : ''}>
                     <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
                 </div>
             </div>
@@ -8841,12 +8660,7 @@ export function renderYTMReplayShelf() {
 
         card.onclick = () => {
             if (item.is_playlist) {
-                const targetPl = (allPlaylists || []).find(p => p.name === item.title) || (allPlaylists || [])[0];
-                if (targetPl) {
-                    openPlaylistDetail(targetPl.id, targetPl.name, targetPl.cover_id);
-                } else {
-                    navigateView('manager');
-                }
+                openPlaylistDetail(item.playlist_id || 206, item.title, item.cover_id || 'pxbDd8GA7GA');
             } else if (item.youtube_id) {
                 const queue = items.filter(it => it.youtube_id).map(it => ({
                     youtube_id: it.youtube_id,

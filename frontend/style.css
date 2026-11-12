@@ -10465,13 +10465,13 @@ button:disabled { cursor: not-allowed; }
     width: 44px;
     height: 44px;
     border-radius: 50%;
-    background: rgba(212, 225, 87, 0.1);
-    border: 2px solid var(--accent-color);
-    color: var(--accent-color);
+    background: #000;
+    border: 2px solid #fff;
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 900;
     letter-spacing: 0.5px;
     flex-shrink: 0;
@@ -10647,6 +10647,40 @@ button:disabled { cursor: not-allowed; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.ytm-card-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: rgba(0, 0, 0, 0.78);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    z-index: 2;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+}
+
+.ytm-card-collage {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 1px;
+    background: #000;
+}
+
+.ytm-card-collage img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
 }
 
 /* YouTube Music Weekend Banner (Harmonized Dark Aesthetic) */
