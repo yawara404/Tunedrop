@@ -8668,9 +8668,103 @@ export function renderShareSidebarPlaylists() {
     }
 }
 
+export const PLAYBACK_HISTORY_STORAGE_KEY = 'tunedrop_playback_history';
+export const MAX_PLAYBACK_HISTORY = 30;
+
+export function getPlaybackHistory() {
+    try {
+        const raw = localStorage.getItem(PLAYBACK_HISTORY_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+        return [];
+    }
+}
+if (typeof window !== 'undefined') window.getPlaybackHistory = getPlaybackHistory;
+
+export function recordTrackPlayback(track) {
+    if (!track || !track.youtube_id) return;
+    try {
+        const history = getPlaybackHistory();
+        const yid = String(track.youtube_id).trim();
+        const filtered = history.filter(item => item && item.youtube_id !== yid);
+        filtered.unshift({
+            youtube_id: yid,
+            title: track.title || 'Untitled',
+            channel: track.channel || track.artist || 'Unknown Artist',
+            category: track.category || 'Other',
+            played_at: Date.now()
+        });
+        const truncated = filtered.slice(0, MAX_PLAYBACK_HISTORY);
+        localStorage.setItem(PLAYBACK_HISTORY_STORAGE_KEY, JSON.stringify(truncated));
+
+        // Share画面の「もう一度聴く」が表示中ならリアルタイム再描画
+        if (document.getElementById('ytm-replay-shelf')) {
+            renderYTMReplayShelf();
+        }
+    } catch (e) {
+        console.warn('recordTrackPlayback error:', e);
+    }
+}
+if (typeof window !== 'undefined') window.recordTrackPlayback = recordTrackPlayback;
+
+export function getReplayShelfItems() {
+    const history = getPlaybackHistory();
+    const items = [];
+    const seen = new Set();
+
+    // 1. ユーザーの実際の視聴履歴を最新順で最優先に追加
+    history.forEach((h, idx) => {
+        if (!h.youtube_id || seen.has(h.youtube_id)) return;
+        seen.add(h.youtube_id);
+        items.push({
+            id: `history-${idx}`,
+            youtube_id: h.youtube_id,
+            title: h.title,
+            artist: `曲 • ${h.channel || 'You'}`,
+            thumbnail: `https://img.youtube.com/vi/${h.youtube_id}/mqdefault.jpg`,
+            type: 'track'
+        });
+    });
+
+    // 2. 履歴が少なければ、ユーザーのお気に入り曲（is_favorite == 1）を補完
+    if (allBookmarks && allBookmarks.length) {
+        const userFavs = allBookmarks.filter(b => b.is_favorite == 1);
+        userFavs.forEach((b, idx) => {
+            if (items.length < 12 && b.youtube_id && !seen.has(b.youtube_id)) {
+                seen.add(b.youtube_id);
+                items.push({
+                    id: `fav-${idx}`,
+                    youtube_id: b.youtube_id,
+                    title: b.title || 'Untitled',
+                    artist: `曲 • ${b.channel || currentUsername() || 'You'}`,
+                    thumbnail: `https://img.youtube.com/vi/${b.youtube_id}/mqdefault.jpg`,
+                    type: 'track'
+                });
+            }
+        });
+    }
+
+    // 3. それでも少なければ YTM_REPLAY_PICKS を補完
+    YTM_REPLAY_PICKS.forEach(p => {
+        if (items.length < 10) {
+            const idKey = p.youtube_id || p.playlist_id;
+            if (idKey && !seen.has(idKey)) {
+                seen.add(idKey);
+                items.push(p);
+            }
+        }
+    });
+
+    return items;
+}
+if (typeof window !== 'undefined') window.getReplayShelfItems = getReplayShelfItems;
+
 export function playAllReplayTracks() {
+    const items = getReplayShelfItems();
     const queue = [];
-    YTM_REPLAY_PICKS.forEach(item => {
+    items.forEach(item => {
         if (item.youtube_id) {
             queue.push({
                 youtube_id: item.youtube_id,
@@ -8685,23 +8779,7 @@ export function playAllReplayTracks() {
 }
 
 export function playReplayTrack(idx) {
-    const items = [...YTM_REPLAY_PICKS];
-    if (allBookmarks && allBookmarks.length) {
-        const seen = new Set(items.map(it => it.youtube_id).filter(Boolean));
-        allBookmarks.filter(b => b.is_favorite == 1).forEach((b, i) => {
-            if (items.length < 10 && b.youtube_id && !seen.has(b.youtube_id)) {
-                seen.add(b.youtube_id);
-                items.push({
-                    id: `user-fav-${i}`,
-                    youtube_id: b.youtube_id,
-                    title: b.title || 'Untitled',
-                    artist: `曲 • ${b.channel || currentUsername() || currentUser?.display_name || 'You'}`,
-                    thumbnail: `https://img.youtube.com/vi/${b.youtube_id}/mqdefault.jpg`,
-                    type: 'track'
-                });
-            }
-        });
-    }
+    const items = getReplayShelfItems();
     const target = items[idx];
     if (!target) return;
     if (target.is_playlist) {
@@ -8725,11 +8803,11 @@ export function renderYTMReplayShelf() {
     container.innerHTML = '';
 
     const handleEl = document.getElementById('ytm-user-handle');
-    const username = currentUsername() || currentUser?.display_name || 'WAWA404';
+    const username = currentUsername() || currentUser?.display_name || 'wawa404';
     if (handleEl) handleEl.textContent = username;
     const avatarEl = document.getElementById('ytm-user-avatar');
     if (avatarEl) {
-        avatarEl.innerHTML = '<span class="material-symbols-rounded">person</span>';
+        avatarEl.textContent = username.charAt(0).toUpperCase() || 'W';
     }
 
     const playAllBtn = document.getElementById('btn-ytm-replay-all');
@@ -8737,27 +8815,7 @@ export function renderYTMReplayShelf() {
         playAllBtn.onclick = () => playAllReplayTracks();
     }
 
-    // ユーザー指定の YTM ホーム画面 (media_1794480426037_da5a3521.jpg) を厳密に再現
-    const items = [...YTM_REPLAY_PICKS];
-    const seen = new Set(items.map(it => it.youtube_id).filter(Boolean));
-
-    // 追加でユーザーのお気に入り曲をマージ
-    if (allBookmarks && allBookmarks.length) {
-        const userFavs = allBookmarks.filter(b => b.is_favorite == 1);
-        userFavs.forEach((b, idx) => {
-            if (items.length < 10 && b.youtube_id && !seen.has(b.youtube_id)) {
-                seen.add(b.youtube_id);
-                items.push({
-                    id: `user-fav-${idx}`,
-                    youtube_id: b.youtube_id,
-                    title: b.title || 'Untitled',
-                    artist: `曲 • ${b.channel || currentUsername() || currentUser?.display_name || 'You'}`,
-                    thumbnail: `https://img.youtube.com/vi/${b.youtube_id}/mqdefault.jpg`,
-                    type: 'track'
-                });
-            }
-        });
-    }
+    const items = getReplayShelfItems();
 
     items.forEach((item, idx) => {
         const card = document.createElement('div');
@@ -9286,6 +9344,9 @@ export function playTrackFromQueue(index, queue) {
     currentQueue = queue;
     currentTrackIndex = index;
     const track = currentQueue[index];
+    if (track) {
+        try { recordTrackPlayback(track); } catch (_) {}
+    }
     if (track.fromRadar) {
         radarSelectedId = track.youtube_id;
         if (document.getElementById('view-radar').classList.contains('active')) {
