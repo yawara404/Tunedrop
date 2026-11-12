@@ -38,6 +38,7 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -437,6 +438,16 @@ def auth_server_running() -> bool:
     return payload.get('service') == 'Tune drop Auth Server'
 
 
+def _port_available(port: int) -> bool:
+    """127.0.0.1 の指定ポートへ bind できるか。"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(('127.0.0.1', port))
+        return True
+    except OSError:
+        return False
+
+
 def pick_web_port() -> int | None:
     """安全に bind できるポートを探す (8888 を第一候補に、使用中なら順に切り替え)。"""
     candidates = []
@@ -444,17 +455,28 @@ def pick_web_port() -> int | None:
     if preferred.isdigit():
         candidates.append(int(preferred))
     candidates += [8888, 8000, 8001, 8002, 8003, 8010, 8080]
+
+    # 直前のスタック停止直後は、古い PHP ワーカーが 8888 をまだ掴んでいることがある。
+    # 公開トンネルは 8888 固定なので、別ポートへ逃げる前に少しだけ解放を待つ
+    # (待たずに 8002 等へ切り替えると、公開URLだけが 502 のまま残る)。
+    try:
+        wait_seconds = float(os.environ.get('TUNEDROP_PORT_WAIT', '15') or '0')
+    except ValueError:
+        wait_seconds = 15.0
+    if 8888 in candidates and wait_seconds > 0:
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            if _port_available(8888):
+                break
+            time.sleep(0.5)
+
     tried = set()
     for port in candidates:
         if port in tried:
             continue
         tried.add(port)
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.bind(('127.0.0.1', port))
-        except OSError:
-            continue
-        return port
+        if _port_available(port):
+            return port
     return None
 
 

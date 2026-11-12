@@ -29,7 +29,8 @@ js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
 for fn in ("radarAxisOrientation", "drawRadarAxes"):
     check(f"{fn}が定義される", re.search(rf"export function {fn}\(", js) is not None)
 check("drawRadarMapがガイドを描く",
-      "drawRadarAxes(ctx, W, H, radarAxisOrientation(vibeMapData))" in js)
+      "drawRadarAxes(ctx, W, H, radarAxisCache.value)" in js
+      and "radarAxisOrientation(vibeMapData)" in js)
 
 # Node が無くても論理だけ検証できるよう、相関計算を Python で再現する
 tracks = []

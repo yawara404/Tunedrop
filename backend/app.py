@@ -25,6 +25,7 @@ import urllib.parse
 import secrets
 import hashlib
 import hmac
+import random
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -875,18 +876,32 @@ def _db_bookmarks(include_cache=True):
     from ai_analyzer import explicit_metadata_category
     conn = get_db()
     try:
-        rows = conn.execute("""
-            SELECT b.youtube_id, b.title, b.channel, b.added_at,
-                   p.category, p.name AS playlist_name, p.is_public, p.user_id,
-                   COALESCE(u.display_name, u.username) AS author
-            FROM bookmarks b
-            JOIN playlists p ON p.id = b.playlist_id
-            JOIN users u ON u.id = p.user_id
-            ORDER BY b.added_at DESC, b.id DESC
-        """).fetchall()
+        if include_cache:
+            rows = conn.execute("""
+                SELECT b.youtube_id, b.title, b.channel, b.added_at,
+                       p.category, p.name AS playlist_name, p.is_public, p.user_id,
+                       COALESCE(u.display_name, u.username) AS author,
+                       a.data AS cache_data
+                FROM bookmarks b
+                JOIN playlists p ON p.id = b.playlist_id
+                JOIN users u ON u.id = p.user_id
+                LEFT JOIN analysis_cache a ON a.youtube_id = b.youtube_id
+                ORDER BY b.added_at DESC, b.id DESC
+            """).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT b.youtube_id, b.title, b.channel, b.added_at,
+                       p.category, p.name AS playlist_name, p.is_public, p.user_id,
+                       COALESCE(u.display_name, u.username) AS author
+                FROM bookmarks b
+                JOIN playlists p ON p.id = b.playlist_id
+                JOIN users u ON u.id = p.user_id
+                ORDER BY b.added_at DESC, b.id DESC
+            """).fetchall()
     finally:
         conn.close()
 
+    cache_by_vid = {}
     out = []
     for r in rows:
         item = {
@@ -916,7 +931,14 @@ def _db_bookmarks(include_cache=True):
         ai_category = None
         vocal_type = None
         if include_cache:
-            d = _analysis_cache_entry(r["youtube_id"])
+            vid = r["youtube_id"]
+            if vid not in cache_by_vid:
+                raw = r["cache_data"]
+                try:
+                    cache_by_vid[vid] = json.loads(raw) if raw else None
+                except (ValueError, TypeError):
+                    cache_by_vid[vid] = None
+            d = cache_by_vid[vid]
             if d:
                 item["feature_vector"] = d.get("feature_vector", []) or []
                 item["tempo"] = d.get("tempo", 0.0)
@@ -1052,6 +1074,18 @@ MAP_CACHE_TTL = float(os.environ.get('TUNEDROP_MAP_CACHE_TTL', '300') or '300')
 MAP_MIN_INTERVAL = float(os.environ.get('TUNEDROP_MAP_MIN_INTERVAL', '10') or '10')
 
 
+def _cache_key_value(value):
+    """キャッシュキーを JSON 化できる型へ揃える。
+
+    MySQL の MAX(updated_at) は Decimal / datetime を返すことがあり、
+    json.dumps で TypeError になっていた (radar_recommend が 500)。
+    int/float/str/bool/None 以外は文字列化して、比較用の値として使う。
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
 def _map_cache_key(public_only, user_id):
     """マップの見た目が変わる条件を表すキー (ブックマーク/プレイリスト/解析キャッシュの版)。"""
     conn = get_db()
@@ -1064,7 +1098,13 @@ def _map_cache_key(public_only, user_id):
             "SELECT COUNT(*), COALESCE(MAX(updated_at), 0) FROM analysis_cache").fetchone()
     finally:
         conn.close()
-    return (bool(public_only), int(user_id), tuple(bookmarks), tuple(playlists), tuple(cache))
+    return (
+        bool(public_only),
+        int(user_id),
+        tuple(_cache_key_value(value) for value in bookmarks),
+        tuple(_cache_key_value(value) for value in playlists),
+        tuple(_cache_key_value(value) for value in cache),
+    )
 
 
 
@@ -1226,6 +1266,105 @@ def radar_map():
     return jsonify(payload), 200
 
 
+# デモ用の公開曲プール。DB/解析キャッシュが変わらない間は使い回し、
+# リクエストごとの解析JSONパースとSQL発行を省く (抽選だけ毎回行う)。
+_DEMO_POOL_CACHE = {'key': None, 'points': [], 'at': 0.0}
+DEMO_POOL_CACHE_TTL = float(os.environ.get('TUNEDROP_DEMO_CACHE_TTL', '60') or '60')
+DEMO_PICK_COUNT = 5
+
+
+def _load_public_demo_pool():
+    """公開リストの解析済み曲を1回のSQLで読み、デモ用の点に変換する。"""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT b.youtube_id, b.title, b.channel, b.added_at,
+                   p.category, p.name AS playlist_name,
+                   a.data AS analysis_data
+            FROM bookmarks b
+            JOIN playlists p ON p.id = b.playlist_id
+            LEFT JOIN analysis_cache a ON a.youtube_id = b.youtube_id
+            WHERE p.is_public = 1
+            ORDER BY b.added_at DESC, b.id DESC
+        """).fetchall()
+    finally:
+        conn.close()
+
+    by_id = {}
+    for row in rows:
+        video_id = row["youtube_id"]
+        raw = row["analysis_data"]
+        if not video_id or not raw:
+            continue
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict) or not data.get("feature_vector"):
+            continue
+        category = data.get("ai_category") or row["category"] or "Other"
+        previous = by_id.get(video_id)
+        # 同じ曲が複数リストにある場合は、Other 以外のカテゴリを優先する。
+        if previous and previous["category"] != "Other" and category == "Other":
+            continue
+        try:
+            x = float(data.get("valence")) if data.get("valence") is not None else 0.5
+        except (TypeError, ValueError):
+            x = 0.5
+        try:
+            y = float(data.get("energy")) if data.get("energy") is not None else 0.5
+        except (TypeError, ValueError):
+            y = 0.5
+        by_id[video_id] = {
+            "youtube_id": video_id,
+            "title": row["title"],
+            "channel": row["channel"],
+            "category": category,
+            "playlist_name": row["playlist_name"],
+            "added_at": row["added_at"],
+            "features": {
+                "tempo": data.get("tempo"),
+                "mood": data.get("mood"),
+                "engine": data.get("engine") or "unavailable",
+                "energy": data.get("energy"),
+                "valence": data.get("valence"),
+                # 0..1 に収め、マップの端に張り付かないよう少し内側へ寄せる
+                "x": round(0.08 + min(1.0, max(0.0, x)) * 0.84, 4),
+                "y": round(0.08 + min(1.0, max(0.0, y)) * 0.84, 4),
+            },
+        }
+    return list(by_id.values())
+
+
+@app.route('/radar/demo', methods=['GET'])
+def radar_demo():
+    """未ログインのデモ用に、公開Radarからランダムな5曲を返す。
+
+    UMAP の再計算 (数十秒かかることがある) を待たず、解析済みの公開曲を
+    そのまま抽選する。座標は雰囲気の指標 (valence × energy) から作り、
+    デモのマップに表示する。認証は不要で、公開リストの曲だけを返す。
+
+    _db_bookmarks() は曲ごとに解析キャッシュを読むため、デモの初回表示には
+    向かない。ここでは bookmarks / playlists / analysis_cache を1回のクエリで
+    結合し、解析済みの公開曲だけを軽量に返す。
+    """
+    cache_key = _map_cache_key(True, 0)
+    now = time.time()
+    if _DEMO_POOL_CACHE['key'] == cache_key and now - _DEMO_POOL_CACHE['at'] < DEMO_POOL_CACHE_TTL:
+        points = _DEMO_POOL_CACHE['points']
+    else:
+        points = _load_public_demo_pool()
+        _DEMO_POOL_CACHE.update({'key': cache_key, 'points': points, 'at': now})
+
+    picks = random.sample(points, min(DEMO_PICK_COUNT, len(points)))
+    return jsonify({
+        "success": True,
+        "count": len(points),
+        "picks": picks,
+        "points": points,
+    }), 200
+
+
 # ---- おすすめ順 (Ollama による自動推薦) ----
 
 # 推薦レシピのキャッシュ。12時間ごとに再計算し、それまでは保存済みの結果を即返す
@@ -1266,7 +1405,7 @@ def _persist_recommend_cache():
 def _restore_recommend_cache():
     """起動時に保存済みのおすすめキャッシュを復元する。"""
     saved = _load_recommend_cache()
-    if saved and saved.get('key') is not None:
+    if saved and saved.get('key') is not None and saved.get('payload') is not None:
         _RECOMMEND_CACHE.update(saved)
 
 
@@ -1357,7 +1496,13 @@ def radar_recommend():
         lines.append('Energy: 平均 %.2f (0〜1)' % (sum(energies) / len(energies)))
     profile_text = '\n'.join(lines) or 'No analyzed tracks yet.'
 
-    recipe = recommend_recipe(profile_text) or {}
+    # 12時間以内に生成済みレシピがあれば再利用し、曲追加のたびに Ollama 待ちで表示が詰まるのを防ぐ
+    cached_recipe = _RECOMMEND_CACHE.get('recipe')
+    if (not refresh and isinstance(cached_recipe, dict) and cached_recipe
+            and time.time() - (_RECOMMEND_CACHE.get('at') or 0) < RECOMMEND_CACHE_TTL):
+        recipe = cached_recipe
+    else:
+        recipe = recommend_recipe(profile_text) or {}
     fallback = not recipe
 
     # Ollama 失敗時は分布上位を既定の好みにする

@@ -104,6 +104,23 @@ async function cdpVersion() {
         return result.result.value;
     }
 
+    // ログイン専用化に伴い、E2E では API が発行するゲストトークンを
+    // アカウントトークンとして保存してから再読み込みする (画面操作の検証用)。
+    async function signInForTest() {
+        const token = await evaluate(`fetch('api.php?action=auth&endpoint=guest', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+        }).then(r => r.json()).then(d => d.token || '').catch(() => '')`);
+        if (!token) return false;
+        await evaluate(`localStorage.setItem('tunedrop_token', ${JSON.stringify(token)});
+            localStorage.setItem('tunedrop_username', 'e2e');`);
+        await call('Page.reload', { ignoreCache: true });
+        await sleep(1200);
+        return true;
+    }
+    if (!await signInForTest()) {
+        console.log('WARN: 認証トークンを取得できません (API未起動)。未ログインのデモ表示のまま検証します。');
+    }
+
     // アプリ (app.js) の初期化待ち
     let ready = false;
     for (let i = 0; i < 60 && !ready; i++) {

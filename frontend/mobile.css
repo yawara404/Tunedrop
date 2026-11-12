@@ -1,0 +1,171 @@
+/* Mobile refinements are loaded after the shared desktop styles. */
+@media (max-width: 600px) {
+    :root {
+        --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+        --mobile-safe-top: env(safe-area-inset-top, 0px);
+    }
+
+    /* Keep the existing 52px header and drawer offsets in sync. */
+    .top-nav {
+        height: calc(52px + var(--mobile-safe-top));
+        padding: calc(4px + var(--mobile-safe-top)) max(12px, env(safe-area-inset-right)) 4px max(12px, env(safe-area-inset-left));
+    }
+    .menu-toggle-btn { flex-shrink: 0; margin: 0 0 0 -8px; }
+    .top-nav .logo { font-size: 18px; letter-spacing: .03em; }
+    .top-nav #nav-help,
+    .top-nav #nav-login,
+    .top-nav #nav-profile { min-height: 44px; }
+    .top-nav #nav-help { min-width: 44px; margin: 0; padding: 0; }
+    .top-nav .user-menu { gap: 2px; }
+    .top-nav .user-menu button { font-size: 13px; }
+    .top-nav nav.show-mobile { top: calc(52px + var(--mobile-safe-top)); border-radius: 0 0 16px 16px; }
+
+    /* Lead with the product, followed by a compact record/queue illustration. */
+    .welcome-page {
+        padding: 16px max(16px, env(safe-area-inset-right)) calc(28px + var(--mobile-safe-bottom)) max(16px, env(safe-area-inset-left));
+        background-size: auto, auto, 28px 28px;
+    }
+    .welcome-stage { gap: 20px; }
+    .welcome-hero { padding: 26px 22px 20px; gap: 22px; border-radius: 20px; }
+    .welcome-hero h1 { margin-top: 16px; font-size: clamp(38px, 11vw, 48px); line-height: 1.23; }
+    .welcome-eyebrow { font-size: 9px; letter-spacing: .12em; }
+    .welcome-lead { margin-top: 16px; font-size: 14px; line-height: 1.85; }
+    .welcome-hero-actions { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 8px; margin-top: 22px; }
+    .welcome-hero-actions .welcome-btn { padding: 12px 8px; min-height: 48px; font-size: 13px; white-space: nowrap; }
+    .welcome-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 22px; padding-top: 16px; }
+    .welcome-metrics dt { font-size: 9px; }
+    .welcome-metrics dd { font-size: 11px; line-height: 1.6; }
+    .welcome-visual { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; padding-top: 16px; }
+    .welcome-visual-badge { display: none; }
+    .welcome-deck { width: 96px; }
+    .welcome-disc-label { font-size: 7px; }
+    .welcome-now-playing { padding: 12px; border-radius: 12px; }
+    .welcome-now-label { font-size: 8px; letter-spacing: .04em; gap: 4px; }
+    .welcome-now-title { font-size: 13px; }
+    .welcome-now-artist { font-size: 10px; }
+    .welcome-wave { height: 14px; margin-top: 6px; }
+
+    .welcome-demo { padding: 20px 14px 14px; border-radius: 18px; }
+    .welcome-section-head { gap: 10px; }
+    .welcome-section-head h3 { font-size: 19px; line-height: 1.5; text-wrap: balance; }
+    .welcome-chip { padding: 5px 8px; font-size: 10px; letter-spacing: 0; }
+    .welcome-demo-grid { gap: 14px; margin-top: 16px; }
+    .welcome-demo-panel { padding: 14px 12px; border-radius: 12px; }
+    .welcome-demo-list { min-height: 60px; padding: 10px 8px; }
+    .welcome-demo-list-name,
+    .welcome-demo-track-title { font-size: 13px; }
+    .welcome-demo-list-meta,
+    .welcome-demo-track-artist { font-size: 11px; }
+    .welcome-demo-track { min-height: 52px; }
+    .welcome-demo-track-cat { display: none; }
+    .welcome-features { gap: 12px; }
+    .welcome-feature { padding: 20px; border-radius: 14px; }
+    .welcome-feature h3 { font-size: 16px; line-height: 1.6; }
+    .welcome-feature > p:not(.welcome-feature-no):not(.welcome-feature-meta) { font-size: 13px; line-height: 1.85; }
+    .welcome-feature-meta { display: none; }
+    .welcome-finale { padding: 22px 20px; gap: 18px; }
+    .welcome-finale-actions { width: 100%; }
+    .welcome-finale-actions .welcome-btn { min-height: 48px; }
+    .welcome-footnote { gap: 8px; font-size: 9px; line-height: 1.7; }
+    .welcome-help-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 13px; }
+
+    /* Readable type and consistent spacing in the signed-in library. */
+    .content-area:not(.radar-content-area) { padding: 20px max(16px, env(safe-area-inset-right)) calc(120px + var(--mobile-safe-bottom)) max(16px, env(safe-area-inset-left)) !important; }
+    .grid-container { gap: 12px; }
+    .card { padding: 10px; border-radius: 12px; }
+    .card-img-wrapper { aspect-ratio: 1; border-radius: 8px; margin-bottom: 10px; }
+    .card .info .title { font-size: 14px; line-height: 1.5; margin-bottom: 4px; }
+    .card .info .artist { font-size: 12px; line-height: 1.5; }
+    .card .track-menu-container { top: 14px; left: 14px; }
+    .card .card-quick-fav { top: 14px; right: 14px; width: 44px; height: 44px; }
+    .track-menu-btn,
+    .sidebar-menu-btn { width: 44px; height: 44px; flex-shrink: 0; }
+    .track-dropdown-menu { top: 48px; max-width: calc(100vw - 48px); }
+    .track-dropdown-menu button,
+    .sidebar-dropdown-menu button { min-height: 44px; font-size: 13px; }
+    .card-hover-play { width: 40px; height: 40px; bottom: 8px; right: 8px; }
+    .action-bar input,
+    .ctrl-search,
+    .sidebar-filters input,
+    .sidebar-filters select,
+    .ctrl-select { min-height: 44px; border-radius: 10px; }
+    .action-bar button { min-height: 44px; border-radius: 10px; }
+    .search-clear-wrap input { padding-right: 48px; }
+    .search-clear-wrap .search-clear-btn { right: 2px; width: 40px; height: 40px; min-height: 40px; padding: 0; }
+    .section-title { font-size: 21px; line-height: 1.5; }
+    .dash-hero { padding: 20px; }
+    .dash-title { font-size: 23px; line-height: 1.5; overflow-wrap: anywhere; }
+    .dash-lead { font-size: 13px; line-height: 1.8; }
+    .dash-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .dash-action { min-height: 44px; padding: 10px 8px; font-size: 12px; }
+    .dash-action-primary { grid-column: 1 / -1; }
+    .dash-stat { min-width: 0; padding: 14px 12px; border-radius: 12px; }
+    .dash-stat-label { font-size: 12px; line-height: 1.5; }
+    .dash-stat-value { font-size: 24px; }
+    .dash-panel { padding: 14px; }
+    .dash-panel-head { gap: 8px; }
+    .dash-link { min-height: 44px; padding: 4px; font-size: 12px; white-space: nowrap; }
+    .dash-track { min-height: 60px; }
+    .view-switch button { min-height: 44px; }
+    .share-grid-header { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+    #share-category,
+    #share-sort,
+    #btn-share-random { min-height: 44px; }
+
+    /* Keep the map controls compact, with room to tap their full surfaces. */
+    .radar-content-area .radar-search-wrap .ctrl-search { min-height: 44px; padding-right: 44px; }
+    .radar-content-area .radar-search-clear { width: 40px; height: 40px; }
+    .radar-content-area .ctrl-select,
+    .radar-content-area .ctrl-chip { min-height: 40px; }
+    .radar-content-area .radar-selected-panel .radar-panel-btn { min-height: 44px; }
+    .radar-content-area .radar-filters-close { width: 44px; height: 44px; }
+    .radar-content-area .radar-map-subcontrols .radar-filters-body .ctrl-select,
+    .radar-content-area .radar-filters-body #btn-radar-clear { min-height: 44px; }
+
+    /* Reserve the right-hand save/favorite area even on a 320px screen. */
+    .bottom-player { height: calc(56px + var(--mobile-safe-bottom)) !important; padding-bottom: var(--mobile-safe-bottom) !important; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+    .bottom-player .player-controls { padding: 0 108px 0 12px !important; gap: 8px !important; }
+    .bottom-player .player-controls > .ctrl-btn,
+    .bottom-player .player-controls > .play-btn { width: 44px !important; height: 44px !important; min-width: 44px; }
+    .bottom-player .player-actions { bottom: calc(6px + var(--mobile-safe-bottom)); }
+    .progress-bar-container { bottom: calc(56px + var(--mobile-safe-bottom)) !important; }
+    .track-details { bottom: calc(56px + var(--mobile-safe-bottom)) !important; }
+    .youtube-popup { bottom: calc(60px + var(--mobile-safe-bottom)) !important; }
+    body.mobile-menu-open .sidebar.show-mobile,
+    body.mobile-menu-open .radar-sidebar.show-mobile { bottom: calc(59px + var(--mobile-safe-bottom)) !important; }
+    body:has(.youtube-popup.is-active) .content-area:not(.radar-content-area) { padding-bottom: calc(272px + var(--mobile-safe-bottom)) !important; }
+    .profile-container { padding-bottom: calc(98px + var(--mobile-safe-bottom)); }
+    body:has(.youtube-popup.is-active) .profile-container { padding-bottom: calc(272px + var(--mobile-safe-bottom)); }
+
+    body.player-in-sidebar .youtube-popup.is-active { top: calc(54px + var(--mobile-safe-top)) !important; }
+    .toast-host { top: calc(58px + var(--mobile-safe-top)); }
+
+    /* One outer gutter, rather than overlay padding plus dialog margins. */
+    [id$="-modal"] { padding: calc(16px + var(--mobile-safe-top)) max(16px, env(safe-area-inset-right)) calc(16px + var(--mobile-safe-bottom)) max(16px, env(safe-area-inset-left)); }
+    #create-playlist-modal > div,
+    #edit-playlist-modal > div,
+    #move-track-modal > div,
+    #export-preview-modal > div,
+    #login-modal > div { margin: 0 !important; max-height: calc(100dvh - 32px - var(--mobile-safe-top) - var(--mobile-safe-bottom)) !important; }
+    [id$="-modal"] > [role="dialog"],
+    [id$="-modal"] > [role="alertdialog"] { padding: 24px 20px !important; border-radius: 18px !important; }
+    .login-dialog .login-title { padding-right: 36px; }
+}
+
+@media (max-width: 380px) {
+    .guest-badge { display: none; }
+    .top-nav .logo { font-size: 17px; }
+    .welcome-page { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+    .welcome-hero { padding-left: 18px; padding-right: 18px; }
+    .welcome-hero-actions .welcome-btn { font-size: 12px; }
+    .welcome-visual { grid-template-columns: 80px minmax(0, 1fr); gap: 8px; }
+    .welcome-deck { width: 80px; }
+    .welcome-now-playing { padding: 10px; }
+    .welcome-now-label > span { display: none; }
+    .welcome-metrics dd { font-size: 10px; }
+    .grid-container { gap: 10px; }
+    .card { padding: 8px; }
+    .card .info .title { font-size: 13px; }
+    .card .info .artist { font-size: 11px; }
+    .dash-stat { gap: 8px; padding: 12px 10px; }
+}

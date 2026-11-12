@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """favicon-card.png (512x512) を生成する (このスクリプトは frontend/ にある)。
 
-なぜ必要か
-----------
-SNS (X / LINE / Discord など) や Google の検索結果に出す og:image には
-ラスタ画像 (PNG/JPG) が必要で、favicon.svg は OG 画像として扱われない。
-そこで「ファビコンと同じ意匠」を 512x512 の PNG にしたものを og:image に使う。
-文字入りの横長カード (1200x630) は使わない (Midair.io と同じ方式)。
+この画像の用途
+--------------
+favicon-card.png は apple-touch-icon (スマホのホーム画面) 用。
+SNS共有用の OGP カードは 1200x630 の ogp-card.png を使う
+(frontend/make_ogp_card.py で生成)。
 
 デザインは favicon.svg と対になっている (背景色・アクセント色・"T" の位置と大きさ)。
 favicon.svg を変えたときは、このスクリプトの数値も合わせて直して再実行し、

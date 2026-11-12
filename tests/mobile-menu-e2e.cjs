@@ -90,6 +90,23 @@ async function cdpVersion() {
         return result.result.value;
     }
 
+    // ログイン専用化に伴い、E2E では API が発行するゲストトークンを
+    // アカウントトークンとして保存してから再読み込みする (画面操作の検証用)。
+    async function signInForTest() {
+        const token = await evaluate(`fetch('api.php?action=auth&endpoint=guest', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+        }).then(r => r.json()).then(d => d.token || '').catch(() => '')`);
+        if (!token) return false;
+        await evaluate(`localStorage.setItem('tunedrop_token', ${JSON.stringify(token)});
+            localStorage.setItem('tunedrop_username', 'e2e');`);
+        await call('Page.reload', { ignoreCache: true });
+        await sleep(1200);
+        return true;
+    }
+    if (!await signInForTest()) {
+        console.log('WARN: 認証トークンを取得できません (API未起動)。未ログインのデモ表示のまま検証します。');
+    }
+
     // アプリ (app.js) の初期化待ち
     let ready = false;
     for (let i = 0; i < 60 && !ready; i++) {
@@ -133,6 +150,22 @@ async function cdpVersion() {
     // 1) ハンバーガーで開く
     const hamburgerDisplay = await evaluate("getComputedStyle(document.getElementById('menu-toggle-btn')).display");
     check('モバイル幅 (390px) でハンバーガーが表示される', hamburgerDisplay !== 'none', hamburgerDisplay);
+
+    // 1-2) 指で押しやすい大きさか (Apple HIG / WCAG 2.5.5 の最小 44x44px)。
+    //      ヘッダーの高さ (52px) からはみ出していないことも併せて確認する。
+    const hamburgerBox = JSON.parse(await evaluate(`(() => {
+        const btn = document.getElementById('menu-toggle-btn').getBoundingClientRect();
+        const header = document.querySelector('.top-nav').getBoundingClientRect();
+        return JSON.stringify({
+            w: Math.round(btn.width), h: Math.round(btn.height),
+            top: +btn.top.toFixed(1), bottom: +btn.bottom.toFixed(1),
+            headerTop: +header.top.toFixed(1), headerBottom: +header.bottom.toFixed(1),
+        });
+    })()`));
+    check('ハンバーガーのタップ領域が 44x44 以上', hamburgerBox.w >= 44 && hamburgerBox.h >= 44, JSON.stringify(hamburgerBox));
+    check('ハンバーガーがヘッダー内に収まる',
+        hamburgerBox.top >= hamburgerBox.headerTop - 0.5 && hamburgerBox.bottom <= hamburgerBox.headerBottom + 0.5,
+        JSON.stringify(hamburgerBox));
 
     await evaluate("document.getElementById('menu-toggle-btn').click()");
     let s = await state();

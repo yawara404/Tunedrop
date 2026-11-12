@@ -159,7 +159,20 @@ const context = vm.createContext({
     document: documentStub,
     Element: FakeElement,
     URL, URLSearchParams, Headers, AbortController,
-    fetch: async () => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({}) }),
+    fetch: async (url) => {
+        const text = String(url);
+        const payload = text.includes('action=health')
+            ? { status: 'ok', service: 'TuneDrop PHP API', features: ['auth_guest'] }
+            : text.includes('action=demo_tracks')
+                ? {
+                    success: true,
+                    count: 1,
+                    picks: [{ youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'livetune', category: 'J-POP', features: { x: 0.3, y: 0.4, tempo: 127 } }],
+                    points: [{ youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'livetune', category: 'J-POP', features: { x: 0.3, y: 0.4, tempo: 127 } }],
+                }
+                : {};
+        return { ok: true, headers: { get: () => 'application/json' }, json: async () => payload };
+    },
     // トーストの中身を検証したいだけなので、自動削除のタイマーは動かさない
     requestAnimationFrame: handler => { handler(); return 0; },
     localStorage: {
@@ -181,7 +194,7 @@ const run = code => vm.runInContext(code, context);
 
 // index.html のモーダルは初期状態が display:none (JSが flex にして表示する)
 // スタブは HTML を読まないため、同じ初期状態をここで作っておく。
-const MODAL_IDS = ['create-playlist-modal', 'edit-playlist-modal', 'move-track-modal', 'export-preview-modal', 'login-modal'];
+const MODAL_IDS = ['create-playlist-modal', 'edit-playlist-modal', 'move-track-modal', 'radar-save-modal', 'export-preview-modal', 'login-modal'];
 MODAL_IDS.forEach(id => { getElementById(id).style.display = 'none'; });
 
 // ----------------------------------------------------------
@@ -228,6 +241,40 @@ test('空メッセージではトーストを積まない', () => {
     run("showToast('')");
     run('showToast(null)');
     assert.equal(toasts().length, before);
+});
+
+test('同じ通知は重ねず、最大3件に抑える', () => {
+    const host = elementById('toast-host');
+    host.children.length = 0;
+    run("showToast('同じ通知')");
+    run("showToast('同じ通知')");
+    assert.equal(toasts().length, 1, '同じ内容は積まない');
+    for (const text of ['通知A', '通知B', '通知C', '通知D']) run(`showToast('${text}')`);
+    assert.equal(toasts().length, 3, '画面を覆わないよう最大3件');
+    assert.equal(lastToast().textContent, '通知D');
+});
+
+test('確認ダイアログは Promise で結果を返し、Escape はキャンセル扱い', async () => {
+    run("window.__confirmResult = 'pending'");
+    run("showConfirm({title:'削除', message:'本当に削除しますか？', confirmLabel:'削除する', danger:true})"
+        + '.then(result => { window.__confirmResult = result; })');
+    const modal = elementById('confirm-modal');
+    assert.equal(modal.style.display, 'flex', 'ダイアログを表示する');
+    assert.equal(elementById('confirm-modal-title').textContent, '削除');
+    assert.equal(elementById('confirm-modal-message').textContent, '本当に削除しますか？');
+    assert.equal(elementById('confirm-modal-ok').textContent, '削除する');
+    assert.equal(elementById('confirm-modal-ok').classList.contains('danger'), true);
+
+    run('closeConfirmModal(true)');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(vmValue('window.__confirmResult'), true, 'OK は true');
+    assert.equal(modal.style.display, 'none');
+
+    run("showConfirm({message:'キャンセルします'}).then(result => { window.__confirmResult = result; })");
+    assert.equal(run('closeTopmostModal()'), true, 'Escape/背景クリックは最前面のダイアログを閉じる');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(vmValue('window.__confirmResult'), false, 'キャンセルは false');
+    assert.equal(modal.style.display, 'none');
 });
 
 // ----------------------------------------------------------
@@ -693,6 +740,407 @@ test('メンテナンス画面のメッセージは再表示で勝手に戻ら�
     run('showMaintenanceScreen()');
     assert.equal(elementById('maintenance-message').textContent, 'DBメンテナンス中');
     run('hideMaintenanceScreen()');
+});
+
+// ----------------------------------------------------------
+// プレイリスト内の表示切替 (ブックマーク / プレイリスト)
+// ----------------------------------------------------------
+test('プレイリスト: ブックマーク表示とプレイリスト表示を切り替えられる', () => {
+    run(`
+        currentDetailIsMine = true;
+        document.getElementById('view-playlist-detail').classList.remove('active');
+        updatePlaylistViewSwitch();
+    `);
+    assert.equal(elementById('btn-playlist-view-bookmarks').classList.contains('is-active'), true, 'Manager側はブックマークが点灯');
+    assert.equal(elementById('btn-playlist-view-detail').classList.contains('is-active'), false);
+    assert.equal(elementById('detail-view-switch').style.display, 'inline-flex', '自分のリストなら詳細側にもスイッチを出す');
+
+    // 詳細画面を開いた状態を再現する
+    run(`
+        document.getElementById('view-playlist-detail').classList.add('active');
+        updatePlaylistViewSwitch();
+    `);
+    assert.equal(elementById('btn-playlist-view-detail').classList.contains('is-active'), true, '詳細画面はプレイリストが点灯');
+    assert.equal(elementById('btn-playlist-view-bookmarks').getAttribute('aria-pressed'), 'false');
+
+    // 後続のテストに影響させない
+    run(`
+        document.getElementById('view-playlist-detail').classList.remove('active');
+        updatePlaylistViewSwitch();
+    `);
+});
+
+test('他の人の公開リストでは詳細画面の切替スイッチを出さない', () => {
+    run('currentDetailIsMine = false; updatePlaylistViewSwitch();');
+    assert.equal(elementById('detail-view-switch').style.display, 'none', 'Manager側のカード表示が無いため出さない');
+});
+
+// ----------------------------------------------------------
+// 再生ショートカット (Kiite 風)
+// ----------------------------------------------------------
+test('Space / N / P で再生・曲送りができる', () => {
+    run(`
+        window.__calls = [];
+        window.__realTogglePlay = togglePlay;
+        togglePlay = () => window.__calls.push('play');
+        skipTrack = (d) => window.__calls.push('skip' + d);
+        currentQueue = [{ youtube_id: 'aaaaaaaaaaa' }, { youtube_id: 'bbbbbbbbbbb' }];
+        currentTrackIndex = 0;
+    `);
+    dispatch('keydown', body, { key: ' ' });
+    dispatch('keydown', body, { key: 'n' });
+    dispatch('keydown', body, { key: 'p' });
+    assert.deepEqual(vmValue('window.__calls'), ['play', 'skip1', 'skip-1']);
+    run('togglePlay = window.__realTogglePlay');
+});
+
+test('入力欄では再生ショートカットを奪わない', () => {
+    run(`
+        window.__calls = [];
+        currentQueue = [{ youtube_id: 'aaaaaaaaaaa' }];
+        currentTrackIndex = 0;
+    `);
+    const input = elementById('track-search');
+    input.tagName = 'INPUT';
+    dispatch('keydown', input, { key: ' ' });
+    assert.deepEqual(vmValue('window.__calls'), [], 'Space は入力欄側の操作を優先する');
+});
+
+test('モーダル表示中は再生ショートカットを動かさない', () => {
+    run(`
+        window.__calls = [];
+        currentQueue = [{ youtube_id: 'aaaaaaaaaaa' }, { youtube_id: 'bbbbbbbbbbb' }];
+        currentTrackIndex = 0;
+        openCreatePlaylistModal();
+    `);
+    dispatch('keydown', body, { key: ' ' });
+    assert.deepEqual(vmValue('window.__calls'), [], 'ダイアログ操作中の誤再生を防ぐ');
+    run('closeCreatePlaylistModal()');
+});
+
+// ----------------------------------------------------------
+// Radar → ブックマーク保存
+// ----------------------------------------------------------
+test('Radar: 選んだ曲を保存先リストへ追加できる', async () => {
+    run(`
+        if (!window.__realTunedropFetch) window.__realTunedropFetch = tunedropFetch;
+        allPlaylists = [
+            { id: 21, name: 'お気に入り', category: 'J-POP', sort_order: 1, track_count: 3 },
+            { id: 20, name: '未整理', category: 'Other', system_key: 'inbox', sort_order: 0, track_count: 0 }
+        ];
+        vibeMapData = [{ youtube_id: 'aaaaaaaaaaa', title: 'テスト曲', channel: 'テスト歌手', category: 'J-POP', features: {} }];
+        vibeFiltered = vibeMapData;
+        loadPlaylists = async () => {};
+        window.__savedPayload = null;
+        tunedropFetch = async (path, options) => {
+            window.__savedPayload = { path, body: JSON.parse(options.body) };
+            return { ok: true, json: async () => ({ success: true, title: 'テスト曲' }) };
+        };
+    `);
+
+    await run("openRadarSaveModal('aaaaaaaaaaa')");
+    assert.equal(elementById('radar-save-modal').style.display, 'flex', '保存先モーダルが開く');
+    assert.equal(elementById('radar-save-track').textContent, 'テスト曲', '曲名を表示する');
+
+    const choices = elementById('radar-save-playlists').children;
+    assert.equal(choices.length, 2, '自分のリストを並べる');
+    assert.equal(choices[0].dataset.playlistId, '20', '未整理を先頭にする');
+    assert.equal(choices[1].dataset.playlistId, '21', 'ユーザー作成リストが続く');
+
+    await run("saveRadarTrackTo(20, document.getElementById('radar-save-playlists').children[0])");
+
+    const payload = vmValue('window.__savedPayload');
+    assert.equal(payload.path, 'api.php?action=add_bookmark');
+    assert.deepEqual(payload.body, {
+        youtube_id: 'aaaaaaaaaaa', playlist_id: 20, title: 'テスト曲', channel: 'テスト歌手',
+    }, '曲名・チャンネルも一緒に送って再取得を省く');
+    assert.equal(elementById('radar-save-modal').style.display, 'none', '保存したら閉じる');
+    assert.equal(lastToast().textContent, '「未整理」に保存しました。');
+    assert.equal(run("radarTrackSaved('aaaaaaaaaaa')"), true, '保存済みとして扱う');
+
+    run('tunedropFetch = window.__realTunedropFetch');
+});
+
+test('Radar: 曲を選ぶまで保存ボタンは押せない', () => {
+    run('vibeMapData = []; vibeFiltered = []; radarSelectedId = null; updateRadarSaveButton();');
+    assert.equal(elementById('btn-radar-save').disabled, true);
+    assert.equal(elementById('btn-radar-save').textContent, '🔖 曲を選んで保存');
+});
+
+test('プロフィール: 統計カードのクリックで簡易ログを切り替える', async () => {
+    const panel = elementById('profile-panel');
+    const panelBody = elementById('profile-panel-body');
+    const title = elementById('profile-panel-title');
+    const note = elementById('profile-panel-note');
+    // 実HTMLでは <button data-profile-panel="..."> が5枚並ぶ
+    const cards = {};
+    for (const type of ['tracks', 'playlists', 'favorites', 'following', 'followers']) {
+        cards[type] = element({ selectors: ['[data-profile-panel]', `[data-profile-panel="${type}"]`] });
+        cards[type].dataset.profilePanel = type;
+    }
+    run('window.__realTunedropFetch = tunedropFetch');
+    run(`tunedropFetch = async () => ({ ok: true, status: 200, json: async () => ({
+        type: 'tracks', tracks: [
+            { youtube_id: 'aaaaaaaaaaa', title: 'ログの曲', channel: 'ログの歌手', added_at: '2026-01-01 00:00:00' },
+        ],
+    }) })`);
+
+    run("selectProfilePanel('tracks')");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.hidden, false, 'パネルが開く');
+    assert.equal(title.textContent, '保存曲の簡易ログ');
+    assert.ok(note.textContent.includes('最近保存した曲'));
+    assert.equal(cards.tracks.classList.contains('is-active'), true, '選択中のカードを強調する');
+    assert.equal(cards.tracks.getAttribute('aria-expanded'), 'true');
+    assert.ok(panelBody.innerHTML.includes('ログの曲'), panelBody.innerHTML);
+
+    // 同じカードをもう一度押すと閉じる
+    run("selectProfilePanel('tracks')");
+    assert.equal(panel.hidden, true, '再クリックで閉じる');
+    assert.equal(cards.tracks.classList.contains('is-active'), false);
+    assert.equal(cards.tracks.getAttribute('aria-expanded'), 'false');
+
+    // フォロー中一覧 (件数だけの取得ではなく一覧を表示する)
+    run(`tunedropFetch = async () => ({ ok: true, status: 200, json: async () => ({
+        counts: { following: 1, followers: 0 },
+        following: [{ id: 42, name: 'フォロー先', followed_at: '2026-01-01 00:00:00', is_following: 1 }],
+        followers: [],
+    }) })`);
+    run("selectProfilePanel('following')");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.hidden, false);
+    assert.equal(title.textContent, 'フォロー中のユーザー');
+    assert.ok(panelBody.innerHTML.includes('フォロー先'), panelBody.innerHTML);
+    assert.ok(panelBody.innerHTML.includes('フォロー中'), panelBody.innerHTML);
+    run("closeProfilePanel()");
+    run('tunedropFetch = window.__realTunedropFetch');
+});
+
+// ----------------------------------------------------------
+// ログイン / 新規登録モーダルの使い勝手
+// ----------------------------------------------------------
+test('ログインモーダルはログイン / 新規登録をタブで切り替えられる', () => {
+    run("setAuthMode('register')");
+    assert.equal(elementById('login-submit').hidden, true, 'ログインボタンを隠す');
+    assert.equal(elementById('register-submit').hidden, false, '登録ボタンを表示する');
+    assert.equal(elementById('auth-password').getAttribute('autocomplete'), 'new-password');
+    assert.match(elementById('login-id-hint').textContent, /4文字以上/);
+    assert.equal(elementById('auth-mode-register').getAttribute('aria-pressed'), 'true');
+
+    run("setAuthMode('login')");
+    assert.equal(elementById('login-submit').hidden, false);
+    assert.equal(elementById('register-submit').hidden, true);
+    assert.equal(elementById('auth-password').getAttribute('autocomplete'), 'current-password');
+    assert.equal(elementById('auth-mode-login').getAttribute('aria-pressed'), 'true');
+});
+
+test('パスワードの表示切り替えと、閉じたときの破棄', () => {
+    run(`
+        const input = document.getElementById('auth-password');
+        input.type = 'password';
+        input.value = 'secret';
+        toggleAuthPassword();
+    `);
+    assert.equal(run("document.getElementById('auth-password').type"), 'text');
+    assert.equal(elementById('auth-password-toggle').textContent, '隠す');
+    assert.equal(elementById('auth-password-toggle').getAttribute('aria-pressed'), 'true');
+
+    run("document.getElementById('login-modal').style.display = 'flex'; closeLoginModal()");
+    assert.equal(elementById('auth-password').value, '', 'パスワードを残さない');
+    assert.equal(run("document.getElementById('auth-password').type"), 'password');
+    assert.equal(elementById('auth-password-toggle').textContent, '表示');
+});
+
+test('ログインの入力エラーはモーダル内に表示する', async () => {
+    run(`
+        authRequestInFlight = false;
+        setAuthMode('login');
+        document.getElementById('login-modal').style.display = 'flex';
+        document.getElementById('auth-username').value = '';
+        document.getElementById('auth-password').value = '';
+        clearAuthError();
+    `);
+    await run("loginWithEmail({ preventDefault() {} })");
+    const error = elementById('auth-error');
+    assert.equal(error.hidden, false, 'インラインでエラーを表示する');
+    assert.match(error.textContent, /入力してください/);
+    assert.equal(elementById('auth-username').getAttribute('aria-invalid'), 'true');
+    run("closeLoginModal()");
+});
+
+test('新規登録はサーバーへ送る前にIDとパスワードの条件を確認する', async () => {
+    run(`
+        authRequestInFlight = false;
+        document.getElementById('login-modal').style.display = 'flex';
+        setAuthMode('register');
+        document.getElementById('auth-username').value = 'ab';
+        document.getElementById('auth-password').value = '1234';
+    `);
+    await run("registerWithEmail({ preventDefault() {} })");
+    assert.match(elementById('auth-error').textContent, /3〜30文字/);
+
+    run(`
+        document.getElementById('auth-username').value = 'tester';
+        document.getElementById('auth-password').value = '123';
+    `);
+    await run("registerWithEmail({ preventDefault() {} })");
+    assert.match(elementById('auth-error').textContent, /4文字以上/);
+    run("closeLoginModal(); setAuthMode('login')");
+});
+
+test('最後に使ったログインIDをログインモーダルへ復元する', () => {
+    run(`
+        localStorage.setItem('tunedrop_last_login_id', 'user@example.com');
+        document.getElementById('auth-username').value = '';
+        showLoginModal('login');
+    `);
+    assert.equal(elementById('auth-username').value, 'user@example.com');
+    run("closeLoginModal(); localStorage.removeItem('tunedrop_last_login_id')");
+});
+
+test('Managerのリスト検索はEscapeでクリアできる', () => {
+    run(`
+        window.__managerFiltered = false;
+        window.__realFilterManagerPlaylists = filterManagerPlaylists;
+        filterManagerPlaylists = () => { window.__managerFiltered = true; };
+        document.getElementById('manager-search').value = 'lofi';
+        onManagerSearchKey({ key: 'Escape', preventDefault() {} });
+    `);
+    assert.equal(elementById('manager-search').value, '');
+    assert.equal(run('window.__managerFiltered'), true, '絞り込みを再適用する');
+    run('filterManagerPlaylists = window.__realFilterManagerPlaylists');
+});
+
+test('検索欄の×ボタンは入力中だけ表示され、押すとクリアできる', () => {
+    run(`
+        window.__filteredTracks = false;
+        window.__realFilterTracks = filterTracks;
+        filterTracks = () => { window.__filteredTracks = true; syncTrackSearchClear(); };
+        document.getElementById('track-search').value = 'beta';
+        syncTrackSearchClear();
+    `);
+    assert.equal(elementById('btn-track-search-clear').classList.contains('is-visible'), true);
+    run('clearTrackSearch()');
+    assert.equal(elementById('track-search').value, '');
+    assert.equal(run('window.__filteredTracks'), true, 'クリア後に一覧を再描画する');
+    assert.equal(elementById('btn-track-search-clear').classList.contains('is-visible'), false);
+    run('filterTracks = window.__realFilterTracks');
+});
+
+test('確認ダイアログがログイン画面より手前ならTabを確認内に留める', () => {
+    run(`
+        for (const item of MODAL_CLOSERS) document.getElementById(item.id).style.display = 'none';
+        const modal = document.getElementById('confirm-modal');
+        const first = document.getElementById('confirm-modal-cancel');
+        const last = document.getElementById('confirm-modal-ok');
+        modal.querySelectorAll = () => [first, last];
+        modal.contains = el => el === first || el === last;
+        modal.style.display = 'flex';
+        document.getElementById('login-modal').style.display = 'flex';
+        document.activeElement = last;
+        window.__prevented = false;
+        trapModalFocus({key:'Tab', preventDefault() {window.__prevented = true;}});
+    `);
+    assert.equal(run('window.__prevented'), true);
+    assert.equal(elementById('confirm-modal-cancel').focused, true);
+    run(`
+        document.activeElement = document.getElementById('confirm-modal-cancel');
+        document.getElementById('confirm-modal-ok').focused = false;
+        trapModalFocus({key:'Tab', shiftKey:true, preventDefault() {}});
+    `);
+    assert.equal(elementById('confirm-modal-ok').focused, true);
+    run("document.getElementById('confirm-modal').style.display = 'none'; closeLoginModal()");
+});
+
+test('お気に入り取得失敗は空のコレクションと区別し、再試行で復帰する', async () => {
+    run(`
+        window.__savedFetchForFavorites = tunedropFetch;
+        tunedropFetch = async () => ({ok:false, json:async () => ({error:'unavailable'})});
+        favoriteTrackSummary = null;
+        favoriteTrackSummaryRequest = null;
+    `);
+    await run('loadFavoriteTrackSummary()');
+    assert.equal(run('favoriteTrackSummary'), null);
+    assert.match(elementById('fav-recent-tracks').innerHTML, /読み込めませんでした/);
+    assert.match(elementById('fav-recent-tracks').innerHTML, /retryFavoriteTrackSummary/);
+    run('tunedropFetch = async () => ({ok:true, json:async () => []})');
+    await run('retryFavoriteTrackSummary()');
+    assert.equal(run('favoriteTrackSummaryError'), false);
+    assert.match(elementById('fav-recent-tracks').innerHTML, /お気に入りの曲がまだありません/);
+    run('tunedropFetch = window.__savedFetchForFavorites');
+});
+
+test('公開リストの不正なAPI応答で再試行を案内し、成功時に一覧へ戻る', async () => {
+    run(`
+        window.__savedShareFetch = tunedropFetch;
+        window.__savedShareRender = renderSharePlaylists;
+        window.__savedConsoleError = console.error;
+        console.error = () => {};
+        localStorage.setItem('tunedrop_token', 'test');
+        renderSharePlaylists = () => { document.getElementById('share-playlists-grid').innerHTML = 'recovered'; };
+        tunedropFetch = async () => ({ok:true, json:async () => ({error:'invalid response'})});
+    `);
+    try {
+        await run('loadSharePlaylists()');
+        assert.match(elementById('share-playlists-grid').innerHTML, /再試行/);
+        run('tunedropFetch = async () => ({ok:true, json:async () => []})');
+        await run('loadSharePlaylists()');
+        assert.equal(elementById('share-playlists-grid').innerHTML, 'recovered');
+    } finally {
+        run(`tunedropFetch = window.__savedShareFetch; renderSharePlaylists = window.__savedShareRender;
+            console.error = window.__savedConsoleError; localStorage.removeItem('tunedrop_token');`);
+    }
+});
+
+test('プレイヤーを閉じたときに次の曲へ進まない', () => {
+    run(`
+        globalThis.YT = { PlayerState: { PLAYING: 1, PAUSED: 2, ENDED: 0 } };
+        globalThis.clearInterval = () => {};
+        window.__realSkipTrack = skipTrack;
+        window.__skips = 0;
+        window.__paused = false;
+        window.__played = false;
+        window.__stopped = false;
+        skipTrack = () => { window.__skips += 1; };
+        player = {
+            pauseVideo() { window.__paused = true; },
+            stopVideo() { window.__stopped = true; },
+            playVideo() { window.__played = true; },
+        };
+        isPlaying = true;
+        ignorePlayerEndedUntil = 0;
+        document.getElementById('youtube-popup').classList.add('is-active');
+    `);
+
+    // 通常の再生終了は次の曲へ進む
+    run("onPlayerStateChange({ data: YT.PlayerState.ENDED })");
+    assert.equal(run('window.__skips'), 1, '通常のENDEDは次曲へ');
+
+    // 閉じるボタンの処理後は、YouTube が ENDED を返しても進まない
+    run('closeYoutubePlayer()');
+    assert.equal(elementById('youtube-popup').classList.contains('is-active'), false, 'プレイヤーが閉じる');
+    assert.equal(run('window.__paused'), true, '閉じるときは pause で止める');
+    run("onYouTubePlayerError({ data: 150 })");
+    assert.equal(run('window.__skips'), 1, '閉じた直後のエラーでも次曲へ進まない');
+    run("onPlayerStateChange({ data: YT.PlayerState.ENDED })");
+    assert.equal(run('window.__skips'), 1, '閉じた直後のENDEDでは次曲へ進まない');
+
+    // 次の通常再生は自動送りが戻る
+    run("onPlayerStateChange({ data: YT.PlayerState.ENDED })");
+    assert.equal(run('window.__skips'), 2, '抑止は1回だけ');
+
+    // 下部プレイヤーから再生したら動画も再表示する
+    run('togglePlay()');
+    assert.equal(elementById('youtube-popup').classList.contains('is-active'), true, '再生でプレイヤーを再表示する');
+    assert.equal(run('window.__played'), true);
+
+    run(`
+        skipTrack = window.__realSkipTrack;
+        player = null;
+        isPlaying = false;
+        ignorePlayerEndedUntil = 0;
+        document.getElementById('youtube-popup').classList.remove('is-active');
+    `);
 });
 
 // ----------------------------------------------------------

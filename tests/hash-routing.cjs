@@ -66,6 +66,7 @@ function element(options) {
 }
 
 const body = new FakeElement({ selectors: ['body'] });
+const viewWelcome = element({ id: 'view-welcome', selectors: ['#view-welcome', '.view-section'] });
 const viewManager = element({ id: 'view-manager', selectors: ['#view-manager', '.view-section'] });
 const viewRadar = element({ id: 'view-radar', selectors: ['#view-radar', '.view-section'] });
 const viewShare = element({ id: 'view-share', selectors: ['#view-share', '.view-section'] });
@@ -78,6 +79,7 @@ const navProfileBtn = element({ id: 'nav-profile', selectors: ['#nav-profile', '
 const navHelpBtn = element({ id: 'nav-help', selectors: ['#nav-help', '.top-nav button'] });
 
 const elementsById = new Map([
+    ['view-welcome', viewWelcome],
     ['view-manager', viewManager],
     ['view-radar', viewRadar],
     ['view-share', viewShare],
@@ -116,6 +118,7 @@ const locationStub = {
         (windowHandlers.get('hashchange') || []).forEach(handler => handler({ type: 'hashchange' }));
     },
     origin: 'http://localhost',
+    href: 'http://localhost/',
 };
 
 // History API スタブ (pushState / replaceState で pathname を更新する)
@@ -133,6 +136,10 @@ const historyStub = {
 };
 
 const windowHandlers = new Map();
+const storage = new Map([
+    ['tunedrop_token', 'test-token'],
+    ['tunedrop_username', 'tester'],
+]);
 const context = vm.createContext({
     window: {
         location: locationStub,
@@ -148,9 +155,37 @@ const context = vm.createContext({
     document: documentStub,
     Element: FakeElement,
     URL, URLSearchParams, Headers, AbortController,
-    fetch: async () => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({}) }),
+    fetch: async (url) => {
+        const text = String(url);
+        const payload = text.includes('action=health')
+            ? { status: 'ok', service: 'TuneDrop PHP API', features: ['auth_guest'] }
+            : text.includes('action=demo_tracks')
+                ? {
+                    success: true,
+                    count: 2,
+                    picks: [
+                        { youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'livetune', category: 'J-POP', features: { x: 0.3, y: 0.4, mood: 'calm', tempo: 127 } },
+                        { youtube_id: 'bPI0_YzOiEw', title: 'i wanna be your world', channel: 'kz', category: 'J-POP', features: { x: 0.7, y: 0.6, mood: 'dreamy', tempo: 150 } },
+                    ],
+                    points: [
+                        { youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'livetune', category: 'J-POP', features: { x: 0.3, y: 0.4, mood: 'calm', tempo: 127 } },
+                        { youtube_id: 'bPI0_YzOiEw', title: 'i wanna be your world', channel: 'kz', category: 'J-POP', features: { x: 0.7, y: 0.6, mood: 'dreamy', tempo: 150 } },
+                    ],
+                }
+                : {};
+        return {
+            ok: true,
+            status: 200,
+            headers: { get: () => 'application/json' },
+            json: async () => payload,
+        };
+    },
     requestAnimationFrame: () => 0,
-    localStorage: { getItem: () => null, setItem() { }, removeItem() { } },
+    localStorage: {
+        getItem: key => (storage.has(key) ? storage.get(key) : null),
+        setItem: (key, value) => { storage.set(String(key), String(value)); },
+        removeItem: key => { storage.delete(String(key)); },
+    },
     alert() { },
     console,
     setTimeout,
@@ -175,7 +210,7 @@ const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 
 function activeViewId() {
-    const active = [viewManager, viewRadar, viewShare, viewProfile, viewPlaylistDetail, viewHelp]
+    const active = [viewWelcome, viewManager, viewRadar, viewShare, viewProfile, viewPlaylistDetail, viewHelp]
         .find(view => view.classList.contains('active'));
     return active ? active.id : null;
 }
@@ -264,6 +299,90 @@ test('ロゴ (goToHome) で Radar から Manager + ホーム選択に戻る', as
     assert.equal(locationStub.pathname, '/');
     assert.equal(activeViewId(), 'view-manager');
     assert.equal(context.window.__selectedPlaylist, 'home');
+});
+
+// ----------------------------------------------------------
+// 未ログイン (デモ) のログイン専用ガード
+// ----------------------------------------------------------
+function setGuestSession() {
+    storage.delete('tunedrop_token');
+    storage.delete('tunedrop_username');
+}
+
+function setAccountSession() {
+    storage.set('tunedrop_token', 'test-token');
+    storage.set('tunedrop_username', 'tester');
+}
+
+test('未ログインではデモの初期ビューだけを表示する', () => {
+    setGuestSession();
+    locationStub._pathname = '/';
+    run('applyPathView()');
+    assert.equal(activeViewId(), 'view-welcome', 'Managerではなくデモを表示する');
+    assert.equal(locationStub.pathname, '/', 'URLは勝手に変えない');
+    setAccountSession();
+});
+
+test('未ログインでアプリ画面を開こうとするとログインを促す', () => {
+    setGuestSession();
+    locationStub._pathname = '/';
+    run('applyPathView()');
+    run("navigateView('radar')");
+    assert.equal(activeViewId(), 'view-welcome', 'Radarへは遷移しない');
+    assert.equal(locationStub.pathname, '/', 'URLも変えない');
+    assert.equal(getElementById('login-modal').style.display, 'flex', 'ログインモーダルを開く');
+    setAccountSession();
+});
+
+test('ログイン後は開こうとしたURLの画面へ復帰する', () => {
+    setGuestSession();
+    locationStub._pathname = '/radar';
+    run('applyPathView()');
+    assert.equal(activeViewId(), 'view-welcome', '未ログインではデモ');
+
+    setAccountSession();
+    run('applyPathView()');
+    assert.equal(activeViewId(), 'view-radar', 'ログイン後は元の画面を表示する');
+    locationStub._pathname = '/';
+});
+
+test('ヘルプは未ログインでも閲覧できる', () => {
+    setGuestSession();
+    locationStub._pathname = '/help';
+    run('applyPathView()');
+    assert.equal(activeViewId(), 'view-help');
+    locationStub._pathname = '/';
+    setAccountSession();
+});
+
+test('デモ初期ビューはRadarの5曲を再生キューとして描画する', () => {
+    setGuestSession();
+    locationStub._pathname = '/';
+    run('applyPathView(); renderWelcomeDemo(true)');
+    const queue = getElementById('demo-queue').innerHTML;
+    const radarDots = getElementById('demo-radar-dots').innerHTML;
+    assert.equal((queue.match(/data-demo-track=/g) || []).length, 5, '再生キューは5曲');
+    assert.equal((radarDots.match(/data-demo-point=/g) || []).length, 5, 'Radarに5曲を表示');
+    assert.match(queue, /demo-queue-thumb/, 'サムネイル付きのキュー');
+    assert.match(queue, /playWelcomeTrack\(/, '曲を選ぶと再生できる');
+    assert.match(queue, /BPM|—/, '曲の特徴を表示');
+    assert.equal(getElementById('demo-play-icon').textContent, 'play_arrow', '初期状態は再生アイコン');
+    run('welcomeDemo.playing = true; welcomeDemo.updateUI()');
+    assert.equal(getElementById('demo-play-icon').textContent, 'pause', '再生中は一時停止アイコンへ切り替わる');
+    assert.equal(getElementById('demo-play-btn').classList.contains('is-playing'), true);
+    run('welcomeDemo.pause()');
+    assert.equal(getElementById('demo-play-icon').textContent, 'play_arrow', '一時停止後は再生アイコンへ戻る');
+    assert.equal(getElementById('demo-play-btn').classList.contains('is-playing'), false);
+    locationStub._pathname = '/';
+    setAccountSession();
+});
+
+test('プレイリスト共有URLは/playlist配下でも正しいogp.phpを指す', () => {
+    locationStub._pathname = '/tunedrop/playlist/12';
+    assert.equal(run('playlistShareUrl(12)'), 'http://localhost/tunedrop/ogp.php?playlist=12');
+    locationStub._pathname = '/playlist/12';
+    assert.equal(run('playlistShareUrl(12)'), 'http://localhost/ogp.php?playlist=12');
+    locationStub._pathname = '/';
 });
 
 (async () => {

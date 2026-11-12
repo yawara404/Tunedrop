@@ -9,6 +9,11 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PHP = os.environ.get('PHP_BIN', 'php')
 
+from PIL import Image
+card_image = Image.open(ROOT / 'frontend' / 'ogp-card.png')
+assert card_image.size == (1200, 630), card_image.size
+assert card_image.mode == 'RGB', card_image.mode
+
 with tempfile.TemporaryDirectory() as directory:
     database = Path(directory) / 'ogp.sqlite'
     with sqlite3.connect(database) as db:
@@ -29,7 +34,7 @@ with tempfile.TemporaryDirectory() as directory:
                 '$_SERVER["HTTPS"]="on";require $argv[1];')
         return subprocess.check_output(
             [PHP, '-r', code, str(ROOT / 'backend' / 'ogp.php')],
-            env={**os.environ, 'TUNEDROP_DB': str(database)}, text=True,
+            env={**os.environ, 'TUNEDROP_DB': str(database), 'TUNEDROP_MYSQL_HOST': ''}, text=True,
         )
 
     card = render(30)
@@ -37,13 +42,18 @@ with tempfile.TemporaryDirectory() as directory:
     assert '<meta property="og:type" content="website">' in card
     assert 'test_user さんの公開プレイリスト / 全3曲' in card
     assert '<meta property="og:image" content="https://i.ytimg.com/vi/drive-2/hqdefault.jpg">' in card, card
+    assert '<meta property="og:image:secure_url" content="https://i.ytimg.com/vi/drive-2/hqdefault.jpg">' in card
+    assert '<meta property="og:image:type" content="image/jpeg">' in card
+    assert '<meta property="og:image:width" content="480">' in card
+    assert '<meta property="og:image:height" content="360">' in card
     assert '<meta name="twitter:card" content="summary_large_image">' in card
     assert 'https://example.test/tunedrop/ogp.php?playlist=30' in card
     assert 'location.replace("index.html#/playlist/30")' in card
 
     generic = render(31)
     assert '秘密のリスト' not in generic
-    assert '<meta name="twitter:card" content="summary">' in generic
+    assert '<meta name="twitter:card" content="summary_large_image">' in generic
+    assert 'https://example.test/tunedrop/frontend/ogp-card.png?v=' in generic, generic
     assert 'location.replace("index.html")' in generic
 
     escaped = render(32)
@@ -52,6 +62,10 @@ with tempfile.TemporaryDirectory() as directory:
 
     # IDなし (トップページ共有) もサイト共通カードを返す
     top = render(None)
-    assert '<meta property="og:title" content="Tune drop - Music Bookmark &amp; Radar">' in top
+    assert '<meta property="og:title" content="Tune drop — 音楽で触れ合うブックマーク">' in top
+    assert '雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有' in top
+    assert '<meta property="og:image:width" content="1200">' in top
+    assert '<meta property="og:image:height" content="630">' in top
+    assert '<meta property="og:image:secure_url" content="https://example.test/tunedrop/frontend/ogp-card.png?v=' in top
 
 print('PASS: 公開リストは画像付きカード、非公開・不正名はエスケープ/フォールバックされた。')

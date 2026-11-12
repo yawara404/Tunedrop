@@ -55,7 +55,8 @@ foreach (['/playlist/assets/', '/user/assets/'] as $deep_asset_prefix) {
 //   /assets/<hash>.<ext>        → frontend/dist/assets/<hash>.<ext>
 //   /api.php, /ogp.php          → backend/api.php, backend/ogp.php (実行)
 //   /robots.txt, /sitemap.xml   → プロジェクト直下
-//   /frontend/favicon-card.png  → frontend/favicon-card.png (OGPカード画像)
+//   /frontend/favicon-card.png  → frontend/favicon-card.png (apple-touch-icon)
+//   /frontend/ogp-card.png      → frontend/ogp-card.png (SNS共有カード 1200x630)
 //   /admin/admin.{js,css}       → admin/ (ローカル専用)
 $projectRoot = dirname(__DIR__);
 $static_map = [
@@ -65,6 +66,7 @@ $static_map = [
     '/robots.txt' => $projectRoot . '/robots.txt',
     '/sitemap.xml' => $projectRoot . '/sitemap.xml',
     '/frontend/favicon-card.png' => $projectRoot . '/frontend/favicon-card.png',
+    '/frontend/ogp-card.png' => $projectRoot . '/frontend/ogp-card.png',
     '/admin/admin.js' => $projectRoot . '/admin/admin.js',
     '/admin/admin.css' => $projectRoot . '/admin/admin.css',
 ];
@@ -159,6 +161,22 @@ if (!preg_match($asset_pattern, $path)
     && !preg_match('#^/google[a-z0-9]+\.html$#i', $path)) {
     http_response_code(403);
     exit('Forbidden');
+}
+
+// SNSクローラーが公開リストの直URL (/playlist/12) を開いた場合も、
+// ogp.php?playlist=12 と同じ OGP カードを返す。人間のブラウザには
+// これまで通り SPA (index.html) を返す。
+$social_crawler = preg_match(
+    '/facebookexternalhit|twitterbot|slackbot|discordbot|linkedinbot|pinterestbot|telegrambot|whatsapp|line\/|embedly/i',
+    (string)($_SERVER['HTTP_USER_AGENT'] ?? '')
+) === 1;
+if ($social_crawler && preg_match('#^/playlist/([0-9]+)/?$#', $path, $crawler_match)) {
+    $_GET['playlist'] = (int)$crawler_match[1];
+    $_SERVER['SCRIPT_NAME'] = $prefix . '/ogp.php';
+    $_SERVER['PHP_SELF'] = $_SERVER['SCRIPT_NAME'];
+    $_SERVER['SCRIPT_FILENAME'] = __DIR__ . '/ogp.php';
+    require __DIR__ . '/ogp.php';
+    return true;
 }
 
 // ここから Apache の Alias + FastCGI 相当を自前で行う (プレフィックスの有無で

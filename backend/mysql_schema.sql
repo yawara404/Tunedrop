@@ -49,6 +49,16 @@ CREATE TABLE IF NOT EXISTS public_favorites (
   CONSTRAINT favorites_user_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS user_follows (
+  follower_id BIGINT UNSIGNED NOT NULL,
+  followee_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (follower_id, followee_id),
+  KEY user_follows_followee_idx (followee_id),
+  CONSTRAINT user_follows_follower_fk FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT user_follows_followee_fk FOREIGN KEY (followee_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS analysis_cache (
   youtube_id VARCHAR(255) NOT NULL PRIMARY KEY,
   data LONGTEXT NOT NULL,

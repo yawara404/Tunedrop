@@ -104,6 +104,18 @@ VALUES (1, 2, 'uSijY6BEMRE', 'Yellow', 'kz (livetune)');
 INSERT OR IGNORE INTO bookmarks (id, playlist_id, youtube_id, title, channel)
 VALUES (2, 2, 'bPI0_YzOiEw', 'i wanna be your world', 'kz (livetune)');
 
+-- フォロー (フォロー中 / フォロワー)。プロフィールの統計カード切替で使う。
+CREATE TABLE IF NOT EXISTS user_follows (
+    follower_id INTEGER NOT NULL,
+    followee_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(follower_id, followee_id),
+    FOREIGN KEY(follower_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(followee_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS user_follows_followee_idx ON user_follows(followee_id);
+
 -- サイト設定 (推薦の重みなど)。admin/admin.php から編集する。
 CREATE TABLE IF NOT EXISTS site_settings (
     key TEXT PRIMARY KEY,

@@ -114,11 +114,22 @@ $base = ogp_base_url();
 $playlist_id = (int)($_GET['playlist'] ?? 0);
 $playlist = ogp_load_playlist($db_path, $playlist_id);
 
+// トップページ共通カード (floppy.io と同じ 1200x630)。
+// ?v= は画像の中身のハッシュ。差し替え時にSNS/Cloudflareの古いキャッシュを引かない。
+$default_image = '';
+$card_path = dirname(__DIR__) . '/frontend/ogp-card.png';
+if (is_file($card_path)) {
+    $default_image = $base . '/frontend/ogp-card.png?v=' . substr(hash_file('sha256', $card_path), 0, 10);
+}
+
 // 既定はサイト共通カード。公開リストが見つかったときだけ上書きする。
-$title = 'Tune drop - Music Bookmark & Radar';
-$description = 'YouTubeの音楽を自分好みにコレクション・整理し、みんなの公開プレイリストを発掘・共有できる音楽アプリ。';
-$image = '';
-$canonical = $base . '/index.html';
+$title = 'Tune drop — 音楽で触れ合うブックマーク';
+$description = 'YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。';
+$image = $default_image;
+$image_type = 'image/png';
+$image_width = 1200;
+$image_height = 630;
+$canonical = $base . '/';
 $redirect = 'index.html';
 
 if ($playlist !== null) {
@@ -143,6 +154,9 @@ if ($playlist !== null) {
         . 'Tune drop - YouTubeの音楽をコレクション＆発掘できる音楽アプリ。';
     if ($cover !== '') {
         $image = 'https://i.ytimg.com/vi/' . rawurlencode($cover) . '/hqdefault.jpg';
+        $image_type = 'image/jpeg';
+        $image_width = 480;
+        $image_height = 360;
     }
     $canonical = $base . '/ogp.php?playlist=' . $playlist_id;
     $redirect = 'index.html#/playlist/' . $playlist_id;
@@ -169,10 +183,13 @@ $card = $image !== '' ? 'summary_large_image' : 'summary';
     <meta property="og:title" content="<?= $title_esc ?>">
     <meta property="og:description" content="<?= $description_esc ?>">
     <meta property="og:url" content="<?= $canonical_esc ?>">
+    <meta property="og:locale" content="ja_JP">
     <?php if ($image !== ''): ?>
     <meta property="og:image" content="<?= $image_esc ?>">
-    <meta property="og:image:width" content="480">
-    <meta property="og:image:height" content="360">
+    <meta property="og:image:secure_url" content="<?= $image_esc ?>">
+    <meta property="og:image:type" content="<?= $image_type ?>">
+    <meta property="og:image:width" content="<?= $image_width ?>">
+    <meta property="og:image:height" content="<?= $image_height ?>">
     <meta property="og:image:alt" content="<?= $title_esc ?>">
     <?php endif; ?>
     <meta name="twitter:card" content="<?= $card ?>">
@@ -180,6 +197,7 @@ $card = $image !== '' ? 'summary_large_image' : 'summary';
     <meta name="twitter:description" content="<?= $description_esc ?>">
     <?php if ($image !== ''): ?>
     <meta name="twitter:image" content="<?= $image_esc ?>">
+    <meta name="twitter:image:alt" content="<?= $title_esc ?>">
     <?php endif; ?>
     <meta http-equiv="refresh" content="0; url=<?= $redirect_esc ?>">
     <script>location.replace(<?= json_encode($redirect, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>);</script>

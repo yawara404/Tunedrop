@@ -128,7 +128,7 @@ function dispatch(type, target, extra = {}, capture = false) {
 }
 
 const windowHandlers = new Map();   // `type` -> [handler]
-const locationStub = { hash: '', origin: 'http://localhost' };
+const locationStub = { hash: '', origin: 'http://localhost', href: 'http://localhost/' };
 const context = vm.createContext({
     location: locationStub,
     window: {
@@ -145,7 +145,20 @@ const context = vm.createContext({
     document: documentStub,
     Element: FakeElement,
     URL, URLSearchParams, Headers, AbortController,
-    fetch: async () => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({}) }),
+    fetch: async (url) => {
+        const text = String(url);
+        const payload = text.includes('action=health')
+            ? { status: 'ok', service: 'TuneDrop PHP API', features: ['auth_guest'] }
+            : text.includes('action=demo_tracks')
+                ? {
+                    success: true,
+                    count: 1,
+                    picks: [{ youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'livetune', category: 'J-POP', features: { x: 0.3, y: 0.4, tempo: 127 } }],
+                    points: [{ youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'livetune', category: 'J-POP', features: { x: 0.3, y: 0.4, tempo: 127 } }],
+                }
+                : {};
+        return { ok: true, headers: { get: () => 'application/json' }, json: async () => payload };
+    },
     requestAnimationFrame: (fn) => 0,
     localStorage: { getItem: () => null, setItem() { }, removeItem() { } },
     alert() { },

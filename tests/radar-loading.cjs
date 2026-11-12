@@ -9,6 +9,8 @@ let requests=[], recommend=[], painted=[], orders=[];
 const defer=()=>{let resolve; const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 const ctx=vm.createContext({
  document:{getElementById:()=>hud},console,
+ // ログイン中の取得処理を検証する (未ログイン時はデモ表示のため loadRadarData は即 return する)
+ hasAccountSession:()=>true,
  tunedropFetch:()=>{const d=defer();requests.push(d);return d.promise;},
  fetchRadarRecommend:()=>{const d=defer();recommend.push(d);return d.promise;},
  spreadLegacyRadarMap:d=>d,

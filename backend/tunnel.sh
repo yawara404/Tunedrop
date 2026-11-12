@@ -25,17 +25,37 @@ STATE_DIR="${TUNEDROP_TUNNEL_DIR:-$HOME/.cloudflared}"
 TOKEN_FILE="${TUNEDROP_TUNNEL_TOKEN_FILE:-$STATE_DIR/tunedrop.token}"
 LOG_FILE="${TUNEDROP_TUNNEL_LOG:-$STATE_DIR/tunedrop-tunnel.log}"
 PID_FILE="${TUNEDROP_TUNNEL_PID:-$STATE_DIR/tunedrop-tunnel.pid}"
-PUBLIC_URL="https://music.wawa-app.me/tunedrop/"
-HEALTH_URL="https://music.wawa-app.me/tunedrop/api.php?action=health"
+PUBLIC_URL="${TUNEDROP_PUBLIC_URL:-https://music.wawa-app.me/tunedrop/}"
+HEALTH_URL="${PUBLIC_URL%/}/api.php?action=health"
+# 不安定な Wi-Fi / NAT では QUIC が idle timeout で切れることがある。
+# TUNEDROP_TUNNEL_PROTOCOL=http2 にすると TCP (7844) で接続する。既定は cloudflared 任せ (auto)。
+TUNNEL_PROTOCOL="${TUNEDROP_TUNNEL_PROTOCOL:-}"
 
-# 稼働中のトンネル PID を返す（無ければ終了コード1）
+# ログが無制限に育たないように、5MB を超えたら .1 へ退避する。
+rotate_log() {
+    [ -f "$LOG_FILE" ] || return 0
+    local size
+    size="$(wc -c < "$LOG_FILE" 2>/dev/null | tr -d ' ')"
+    case "$size" in ''|*[!0-9]*) return 0 ;; esac
+    if [ "$size" -gt 5242880 ]; then
+        mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null || true
+    fi
+}
+
+# 稼働中のトンネル PID を返す（無ければ終了コード1）。
+# PID は再起動後に別プロセスへ再利用されることがあるため、コマンドラインも確認する。
 pid_of() {
     if [ -f "$PID_FILE" ]; then
-        local pid
+        local pid cmd
         pid="$(cat "$PID_FILE" 2>/dev/null)"
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            echo "$pid"
-            return 0
+            cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+            case "$cmd" in
+                *cloudflared*"$TOKEN_FILE"*)
+                    echo "$pid"
+                    return 0
+                    ;;
+            esac
         fi
     fi
     return 1
@@ -57,13 +77,21 @@ start_tunnel() {
         return 1
     fi
 
-    nohup cloudflared tunnel run --token-file "$TOKEN_FILE" >> "$LOG_FILE" 2>&1 &
+    rotate_log
+    if [ -n "$TUNNEL_PROTOCOL" ]; then
+        nohup cloudflared tunnel run --token-file "$TOKEN_FILE" --protocol "$TUNNEL_PROTOCOL" >> "$LOG_FILE" 2>&1 &
+    else
+        nohup cloudflared tunnel run --token-file "$TOKEN_FILE" >> "$LOG_FILE" 2>&1 &
+    fi
     echo $! > "$PID_FILE"
     sleep 3
 
     if pid="$(pid_of)"; then
         echo "公開トンネルを起動しました (PID $pid)"
         echo "公開URL: $PUBLIC_URL"
+        if [ -n "$TUNNEL_PROTOCOL" ]; then
+            echo "プロトコル: $TUNNEL_PROTOCOL"
+        fi
         echo "ログ   : $LOG_FILE"
         return 0
     fi
@@ -89,17 +117,36 @@ stop_tunnel() {
 }
 
 show_status() {
+    local local_port
     if pid="$(pid_of)"; then
         echo "公開トンネル: 稼働中 (PID $pid)"
     else
         echo "公開トンネル: 停止中"
     fi
+    local_port="$(tr -dc '0-9' < "$DIR/../.web_port" 2>/dev/null)"
+    [ -n "$local_port" ] || local_port=8888
     echo -n "ローカル: "
-    curl -s -m 3 "http://127.0.0.1:8888/api.php?action=health" || echo -n "PHP(8888) に接続できません（./start.sh で起動してください）"
+    curl -s -m 3 "http://127.0.0.1:${local_port}/api.php?action=health" || echo -n "PHP(${local_port}) に接続できません（./start.sh で起動してください）"
     echo
     echo -n "公開URL : "
     curl -s -m 8 -o /dev/null -w '%{http_code}' "$HEALTH_URL" 2>/dev/null || echo -n "（未接続）"
     echo " $HEALTH_URL"
+}
+
+# 公開URLが 200 なら終了コード0。watchdog や cron から使える。
+check_tunnel() {
+    local code
+    if ! pid="$(pid_of)"; then
+        echo "tunnel: 停止中"
+        return 1
+    fi
+    code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' "$HEALTH_URL" 2>/dev/null || true)"
+    if [ "$code" = "200" ]; then
+        echo "tunnel: OK (PID $pid / HTTP 200)"
+        return 0
+    fi
+    echo "tunnel: NG (PID $pid / HTTP ${code:-000}) $HEALTH_URL"
+    return 1
 }
 
 case "${1:-status}" in
@@ -107,8 +154,9 @@ case "${1:-status}" in
     stop)    stop_tunnel ;;
     restart) stop_tunnel && start_tunnel ;;
     status)  show_status ;;
+    check)   check_tunnel ;;
     *)
-        echo "使い方: ./tunnel.sh start | stop | restart | status" >&2
+        echo "使い方: ./tunnel.sh start | stop | restart | status | check" >&2
         exit 1
         ;;
 esac

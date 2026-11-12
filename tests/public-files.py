@@ -29,6 +29,7 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
                    '/assets/favicon-Ab12Cd.svg',
                    '/api.php?action=health',
                    '/frontend/favicon-card.png',
+                   '/frontend/ogp-card.png',
                    '/robots.txt', '/sitemap.xml', '/google9f8e7d6c5b4a.html',
                    '/admin/admin.php', '/admin/admin.js', '/admin/admin.css'] + list(extra_allowed)
         for path in allowed + [
@@ -60,6 +61,18 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
                 status = error.code
             expected = 200 if path in allowed else 403
             assert status == expected, (command[0], path, status, expected)
+        # SNSクローラーが /playlist/<id> を直接開いた場合は OGP カード、
+        # 人間のブラウザには従来どおり SPA (index.html) を返す。
+        crawler_request = urllib.request.Request(
+            base + '/playlist/30',
+            headers={'User-Agent': 'Twitterbot/1.0'},
+        )
+        with urllib.request.urlopen(crawler_request) as response:
+            crawler_body = response.read().decode('utf-8')
+        assert 'ogp-card.png' in crawler_body, crawler_body[:500]
+        with urllib.request.urlopen(base + '/playlist/30') as response:
+            human_body = response.read().decode('utf-8')
+        assert human_body == 'test fixture', human_body[:100]
         # 公開URL (https://<host>/tunedrop/...) のプレフィックス付きでも同じ許可判定か。
         # 配信は PHPビルトインサーバー (router.php) が Alias 相当を行うため、
         # 配信と同じ経路 (router.php) だけで検証する。
@@ -106,6 +119,7 @@ def public_prefix_expectations(referenced):
         '/tunedrop/robots.txt': 200,
         '/tunedrop/sitemap.xml': 200,
         '/tunedrop/frontend/favicon-card.png': 200,
+        '/tunedrop/frontend/ogp-card.png': 200,
         '/tunedrop/assets/index-Ab12Cd.js': 200,
         # 配信してはいけないものはプレフィックス付きでも403のまま
         '/tunedrop/database.sqlite': 403,
@@ -139,6 +153,7 @@ with tempfile.TemporaryDirectory() as temporary:
     #   /assets/<hash>.<ext> → frontend/dist/assets/<hash>.<ext>
     #   /api.php, /ogp.php   → backend/*.php (実行)
     for name in ['frontend/dist/index.html','frontend/dist/maintenance.html','frontend/favicon-card.png',
+                 'frontend/ogp-card.png',
                  'frontend/dist/assets/index-Ab12Cd.js','frontend/dist/assets/index-Ab12Cd.css',
                  'frontend/dist/assets/favicon-Ab12Cd.svg',
                  # 配信してはいけないもの (存在していても403になること)

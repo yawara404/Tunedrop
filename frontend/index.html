@@ -3,10 +3,10 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tune drop - Music Bookmark & Radar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Tune drop — 音楽で触れ合うブックマーク</title>
     <meta name="description"
-        content="YouTubeの音楽を自分好みにコレクション・整理し、みんなの公開プレイリストを発掘・共有できる音楽アプリ。">
+        content="YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。">
     <!-- ========== 検索エンジン向け (Google Search Console) ==========
          画面は History API の標準パス (/, /radar, /share など) で、どのパスでも
          同じこの index.html 1枚を配信する。正規URLはトップに集約する。
@@ -23,24 +23,24 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://music.wawa-app.me/tunedrop/">
     <meta property="og:locale" content="ja_JP">
-    <meta property="og:title" content="Tune drop - Music Bookmark & Radar">
+    <meta property="og:title" content="Tune drop — 音楽で触れ合うブックマーク">
     <meta property="og:description"
-        content="YouTubeの音楽を自分好みにコレクション・整理し、みんなの公開プレイリストを発掘・共有できる音楽アプリ。">
-    <!-- SNS/検索結果のプレビュー画像は favicon と同じ意匠の 512x512 PNG (favicon-card.png)。
-         favicon.svg は OG 画像として使えない (SVGは未対応のSNSが多い) ため、
-         同じ絵をラスタ化したものを frontend/ から直接配信している (?v= は
-         vite.config.mjs がビルド時に中身のハッシュへ更新する)。 -->
-    <meta property="og:image" content="https://music.wawa-app.me/tunedrop/frontend/favicon-card.png?v=ab4ac5b1c5">
+        content="YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。">
+    <!-- SNS/検索結果のプレビュー画像は 1200x630 の専用OGPカード。
+         画像は frontend/ogp-card.png (?v= は vite.config.mjs がビルド時に
+         中身のハッシュへ更新する)。 -->
+    <meta property="og:image" content="https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4">
+    <meta property="og:image:secure_url" content="https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4">
     <meta property="og:image:type" content="image/png">
-    <meta property="og:image:width" content="512">
-    <meta property="og:image:height" content="512">
-    <meta property="og:image:alt" content="Tune dropのTアイコン">
-    <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" content="Tune drop - Music Bookmark & Radar">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Tune drop — 音楽で触れ合うブックマーク（Manager・Radar・Shareの使い方）">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Tune drop — 音楽で触れ合うブックマーク">
     <meta name="twitter:description"
-        content="YouTubeの音楽を自分好みにコレクション・整理し、みんなの公開プレイリストを発掘・共有できる音楽アプリ。">
-    <meta name="twitter:image" content="https://music.wawa-app.me/tunedrop/frontend/favicon-card.png?v=ab4ac5b1c5">
-    <meta name="twitter:image:alt" content="Tune dropのTアイコン">
+        content="YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。">
+    <meta name="twitter:image" content="https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4">
+    <meta name="twitter:image:alt" content="Tune drop — 音楽で触れ合うブックマーク（Manager・Radar・Shareの使い方）">
     <!-- 構造化データ (検索結果でのアプリ情報。WebApplication は SoftwareApplication の一種) -->
     <script type="application/ld+json">
         {
@@ -48,12 +48,12 @@
             "@type": "WebApplication",
             "name": "Tune drop",
             "url": "https://music.wawa-app.me/tunedrop/",
-            "description": "YouTubeの音楽を自分好みにコレクション・整理し、みんなの公開プレイリストを発掘・共有できる音楽アプリ。AI×音源解析の雰囲気マップ(Radar)つき。",
+            "description": "YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": "Web",
             "inLanguage": "ja",
             "isAccessibleForFree": true,
-            "image": "https://music.wawa-app.me/tunedrop/frontend/favicon-card.png?v=ab4ac5b1c5",
+            "image": "https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4",
             "offers": {
                 "@type": "Offer",
                 "price": "0",
@@ -61,31 +61,47 @@
             }
         }
     </script>
-    <!-- ファビコン。タブ用は軽いSVG、スマホのホーム画面 (apple-touch-icon) と
-         SNS/検索結果のプレビュー (og:image) は 512x512 の PNG (favicon-card.png) を使う。 -->
+    <!-- ファビコン。タブ用は軽いSVG、スマホのホーム画面 (apple-touch-icon) は
+         512x512 の PNG (favicon-card.png) を使う。
+         SNS/検索結果のプレビューは別途 1200x630 の ogp-card.png を使う。 -->
     <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <link rel="apple-touch-icon" href="./favicon-card.png">
     <!-- モバイルのブラウザUI (アドレスバー) を配色に合わせる -->
     <meta name="theme-color" content="#121212">
+    <meta name="color-scheme" content="dark">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Material Symbols は全アイコン収録版だと約3.1MBあるため、icon_names で使用中の
-         アイコンだけをサブセット配信する（26アイコンで数十KB）。アイコンを追加したら、
+         アイコンだけをサブセット配信する（数十KB）。アイコンを追加したら、
          下の icon_names にアルファベット順で追加すること（未知の名前があると全収録版の
          約3.1MBにフォールバックする）。 -->
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=account_circle,add,arrow_back,auto_awesome,chevron_right,close,delete,description,donut_small,drag_indicator,drive_file_move,edit,favorite,heart_broken,help,history,home,insights,keyboard,library_music,lock,menu,more_vert,music_note,person,play_arrow,playlist_add,public,queue_music,radar,share,skip_next,skip_previous&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=account_circle,add,arrow_back,auto_awesome,bookmark,bookmark_add,check,checklist,chevron_right,close,delete,description,donut_small,drag_indicator,drive_file_move,edit,favorite,heart_broken,help,history,home,insights,keyboard,library_music,lock,menu,more_vert,music_note,open_in_new,pause,person,person_add,play_arrow,playlist_add,public,queue_music,radar,refresh,share,shuffle,skip_next,skip_previous,touch_app&display=swap"
         rel="stylesheet">
+    <!-- 未ログイン時の初期ビュー (デモ) を、JSの初期化を待たずに出す。
+         app.js 側の checkLoginStatus() がこのクラスを外して通常表示へ切り替える。
+         (ログイン専用画面が一瞬見えてしまうフラッシュを防ぐ) -->
+    <script>
+        (function () {
+            try {
+                if (!localStorage.getItem('tunedrop_token') || !localStorage.getItem('tunedrop_username')) {
+                    document.documentElement.classList.add('is-guest-boot');
+                }
+            } catch (_) { /* localStorage が使えない環境では通常表示のまま */ }
+        })();
+    </script>
     <link rel="stylesheet" href="./style.css">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
         window.initGoogleAuth = window.initGoogleAuth || function () { window.__gsiReadyQueued = true; };
     </script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://accounts.google.com/gsi/client" async defer
+        onload="if (window.isModalVisible && window.isModalVisible('login-modal')) window.initGoogleAuth()"></script>
 </head>
 
 <body>
+    <a class="skip-link" href="#main-content">メインコンテンツへ移動</a>
     <!-- サーバー停止中 / メンテナンス中に画面全体を覆う案内。
          API が 503 (maintenance: true) を返したときや接続できないときに表示する。 -->
     <div id="maintenance-overlay" class="maintenance-overlay" hidden role="alert" aria-live="assertive">
@@ -106,14 +122,15 @@
         <div class="nav-left" style="display: flex; align-items: center;">
             <button id="menu-toggle-btn" class="menu-toggle-btn" aria-expanded="false" aria-label="メニューを開く"
                 onclick="toggleSidebar()"><span class="material-symbols-rounded">menu</span></button>
-            <div class="logo" onclick="goToHome()" style="cursor: pointer;">Tune drop</div>
+            <a class="logo" href="./" onclick="event.preventDefault(); goToHome()" aria-label="Tune drop ホーム">Tune drop</a>
+            <span id="guest-badge" class="guest-badge" title="未ログインのデモ表示です" hidden>DEMO</span>
         </div>
-        <nav>
-            <button onclick="navigateView('manager')" id="nav-manager" class="active"><span
+        <nav aria-label="メインナビゲーション">
+            <button onclick="navigateView('manager')" id="nav-manager" class="active" aria-label="Manager — 音楽を整理"><span
                     class="nav-icon material-symbols-rounded">library_music</span>Manager</button>
-            <button onclick="navigateView('radar')" id="nav-radar"><span
+            <button onclick="navigateView('radar')" id="nav-radar" aria-label="Radar — 雰囲気で曲を発見"><span
                     class="nav-icon material-symbols-rounded">radar</span>Radar</button>
-            <button onclick="navigateView('share')" id="nav-share"><span
+            <button onclick="navigateView('share')" id="nav-share" aria-label="Share — 公開プレイリスト"><span
                     class="nav-icon material-symbols-rounded">public</span>Share</button>
         </nav>
         <div class="user-menu">
@@ -125,14 +142,378 @@
         </div>
     </header>
 
-    <main class="app-container">
+    <main class="app-container" id="main-content" tabindex="-1">
+        <!-- ==========================================================
+             未ログイン時のウェルカム画面 (サイトの使い方ガイド + Radarデモ)
+             ----------------------------------------------------------
+             Tune drop の概要・4ステップの使い方・3つの画面 (Manager /
+             Radar / Share) の役割を案内し、公開Radarからランダムに5曲を
+             その場で試聴できるデモプレイヤーを提供する。
+             ========================================================== -->
+        <div id="view-welcome" class="view-section welcome-view">
+            <div class="welcome-page demo-page">
+                <div class="demo-topbar">
+                    <div class="demo-brand">
+                        <span class="demo-brand-mark">TUNE DROP</span>
+                        <span class="demo-brand-sub">MUSIC BOOKMARK · MANAGER / RADAR / SHARE</span>
+                    </div>
+                    <div class="demo-top-actions">
+                        <button type="button" class="welcome-btn welcome-btn-ghost demo-top-guide"
+                            onclick="scrollToWelcomeGuide()">使い方</button>
+                        <button type="button" class="welcome-btn welcome-btn-ghost demo-top-demo"
+                            onclick="scrollToWelcomeDemo()">5曲デモ</button>
+                        <button type="button" class="welcome-btn welcome-btn-ghost demo-top-login"
+                            onclick="openAuthModal('login')">ログイン</button>
+                        <button type="button" class="welcome-btn welcome-btn-primary demo-top-register"
+                            onclick="openAuthModal('register')">新規登録</button>
+                    </div>
+                </div>
+
+                <header class="demo-intro">
+                    <div class="demo-intro-copy">
+                        <p class="welcome-eyebrow"><span class="welcome-dot"></span>音楽で触れ合うブックマーク</p>
+                        <h1>好きな曲を残して、<br><span class="demo-accent">音楽と人に出会う。</span></h1>
+                        <p class="welcome-lead">
+                            YouTubeで見つけた曲をURLひとつで保存し、自分らしいプレイリストに整理。
+                            AI×音源解析の2D雰囲気マップ（Radar）や公開リスト（Share）を通して、
+                            まだ知らない音楽や誰かの「好き」に触れられるWebアプリです。
+                        </p>
+                        <div class="demo-hero-actions">
+                            <button type="button" class="welcome-btn welcome-btn-primary"
+                                onclick="openAuthModal('register')">無料で始める（新規登録）</button>
+                            <button type="button" class="welcome-btn welcome-btn-ghost"
+                                onclick="openAuthModal('login')">ログイン</button>
+                            <button type="button" class="welcome-btn welcome-btn-subtle"
+                                onclick="scrollToWelcomeGuide()">サイトの使い方を見る ↓</button>
+                            <button type="button" class="welcome-btn welcome-btn-subtle"
+                                onclick="scrollToWelcomeDemo()"><span class="material-symbols-rounded">play_arrow</span>ログインなしで5曲試聴</button>
+                        </div>
+                    </div>
+                    <aside class="demo-flow-card" aria-label="3つの画面のつながり">
+                        <p class="demo-kicker">3 VIEWS WORKFLOW / サイトの全体像</p>
+                        <ol class="demo-flow-list">
+                            <li>
+                                <span class="demo-flow-icon tone-jpop"><span class="material-symbols-rounded">library_music</span></span>
+                                <div>
+                                    <strong>01 · Manager（集める）</strong>
+                                    <p>YouTubeのURLを貼って曲を保存。気分やシーン別のリストに整理。</p>
+                                </div>
+                            </li>
+                            <li>
+                                <span class="demo-flow-icon tone-lofi"><span class="material-symbols-rounded">radar</span></span>
+                                <div>
+                                    <strong>02 · Radar（見つける）</strong>
+                                    <p>曲の特徴を2Dマップに配置。近い雰囲気の曲をたどって連続再生。</p>
+                                </div>
+                            </li>
+                            <li>
+                                <span class="demo-flow-icon tone-anime"><span class="material-symbols-rounded">public</span></span>
+                                <div>
+                                    <strong>03 · Share（つながる）</strong>
+                                    <p>リストを公開・共有。誰かの選曲から新しいお気に入りを自分の棚へ。</p>
+                                </div>
+                            </li>
+                        </ol>
+                    </aside>
+                </header>
+
+                <section class="demo-howto" id="welcome-howto" aria-labelledby="demo-howto-title">
+                    <header class="demo-section-head">
+                        <div>
+                            <p class="demo-kicker">HOW TO USE / 4 STEPS</p>
+                            <h2 id="demo-howto-title">サイトの使い方 — 4つのステップ</h2>
+                        </div>
+                        <button type="button" class="welcome-help-link" onclick="navigateView('help')">
+                            <span class="material-symbols-rounded">help</span>詳しい操作ガイドを開く
+                        </button>
+                    </header>
+                    <div class="demo-steps-grid">
+                        <article class="demo-step-card">
+                            <div class="demo-step-top">
+                                <span class="demo-step-num">STEP 01</span>
+                                <span class="demo-step-badge tone-jpop"><span class="material-symbols-rounded">playlist_add</span>Manager</span>
+                            </div>
+                            <h3>YouTubeのURLを貼って保存</h3>
+                            <p>プレイリストを開き、上部の入力欄にYouTubeのURLを貼って「追加」を押すだけ。曲名・チャンネル・サムネイルを自動で取得します。</p>
+                            <div class="demo-step-mock" aria-hidden="true">
+                                <div class="demo-mock-bar">
+                                    <span class="demo-mock-url">https://youtu.be/...</span>
+                                    <span class="demo-mock-add"><span class="material-symbols-rounded">add</span>追加</span>
+                                </div>
+                                <small>複数URLのまとめ貼り付け・YouTube Music・Shortsにも対応</small>
+                            </div>
+                        </article>
+
+                        <article class="demo-step-card">
+                            <div class="demo-step-top">
+                                <span class="demo-step-num">STEP 02</span>
+                                <span class="demo-step-badge tone-jpop"><span class="material-symbols-rounded">library_music</span>Manager</span>
+                            </div>
+                            <h3>リストを作って自分の棚に整理</h3>
+                            <p>「作業用」「夜の散歩」「ドライブ」など自由なリストを作成。ドラッグで曲順を並び替え、カテゴリ分けやお気に入りで管理できます。</p>
+                            <div class="demo-step-mock" aria-hidden="true">
+                                <div class="demo-mock-chips">
+                                    <span class="demo-mock-chip">未整理</span>
+                                    <span class="demo-mock-chip is-active">夜のドライブ · J-POP</span>
+                                    <span class="demo-mock-chip">作業用 Lo-Fi</span>
+                                </div>
+                                <small>迷ったら「未整理」へ入れて、あとから別リストへ移動OK</small>
+                            </div>
+                        </article>
+
+                        <article class="demo-step-card">
+                            <div class="demo-step-top">
+                                <span class="demo-step-num">STEP 03</span>
+                                <span class="demo-step-badge tone-lofi"><span class="material-symbols-rounded">radar</span>Radar</span>
+                            </div>
+                            <h3>2D雰囲気マップで次の1曲を発掘</h3>
+                            <p>AI推定と音源解析からBPM・エネルギー・雰囲気を算出し、音の傾向が近い曲を近くに配置。点を選んで「周辺N曲」を連続再生できます。</p>
+                            <div class="demo-step-mock" aria-hidden="true">
+                                <div class="demo-mock-chips">
+                                    <span class="demo-mock-chip is-mint">▶ 周辺N曲を再生</span>
+                                    <span class="demo-mock-chip">📡 ランダム発掘</span>
+                                    <span class="demo-mock-chip"><span class="material-symbols-rounded">bookmark_add</span>棚へ保存</span>
+                                </div>
+                                <small>見つけた曲はその場で自分のリストへブックマーク</small>
+                            </div>
+                        </article>
+
+                        <article class="demo-step-card">
+                            <div class="demo-step-top">
+                                <span class="demo-step-num">STEP 04</span>
+                                <span class="demo-step-badge tone-anime"><span class="material-symbols-rounded">public</span>Share</span>
+                            </div>
+                            <h3>公開リストで誰かの「好き」に触れる</h3>
+                            <p>自分のリストを公開したり、他の人の公開リストを再生。気になった1曲だけを自分の棚へ保存したり、選曲者をフォローしてつながれます。</p>
+                            <div class="demo-step-mock" aria-hidden="true">
+                                <div class="demo-mock-chips">
+                                    <span class="demo-mock-chip is-coral"><span class="material-symbols-rounded">favorite</span>お気に入り</span>
+                                    <span class="demo-mock-chip">＋ 1曲だけ自分の棚へ</span>
+                                    <span class="demo-mock-chip"><span class="material-symbols-rounded">share</span>共有URL</span>
+                                </div>
+                                <small>おすすめ・ランキング・「おまかせ」からリストを探索</small>
+                            </div>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="demo-value" aria-label="上部ナビ3画面のガイド">
+                    <article>
+                        <div class="demo-value-head">
+                            <p class="demo-kicker">01 / MANAGER（マイコレクション）</p>
+                            <span class="material-symbols-rounded tone-jpop">library_music</span>
+                        </div>
+                        <h3>好きな曲を、自分の棚へ。</h3>
+                        <p>カードで整理する「ブックマーク表示」と、連続再生・URL一括書き出しができる「プレイリスト表示」をワンタップで切り替えられます。</p>
+                        <ul class="demo-value-points">
+                            <li>YouTube URLから曲名・サムネイルを自動取得</li>
+                            <li>ドラッグ＆ドロップで曲順・リスト順を並び替え</li>
+                            <li>全体の統計・最近追加した曲・ジャンル分布をひと目で確認</li>
+                        </ul>
+                    </article>
+                    <article>
+                        <div class="demo-value-head">
+                            <p class="demo-kicker">02 / RADAR（雰囲気マップ）</p>
+                            <span class="material-symbols-rounded tone-lofi">radar</span>
+                        </div>
+                        <h3>曲名を知らなくても、雰囲気から。</h3>
+                        <p>曲の特徴を地図のように並べ、近い雰囲気の曲へ。カテゴリ・ムード・BPM・おすすめ順での絞り込みにも対応しています。</p>
+                        <ul class="demo-value-points">
+                            <li>点を選んで試聴、「周辺N曲」で近い曲をまとめて再生</li>
+                            <li>「次の発掘（<kbd>N</kbd>キー）」でランダムに新しい曲へ</li>
+                            <li>しおりボタンから「未整理」や好きなリストへ即保存</li>
+                        </ul>
+                    </article>
+                    <article>
+                        <div class="demo-value-head">
+                            <p class="demo-kicker">03 / SHARE（公開プレイリスト）</p>
+                            <span class="material-symbols-rounded tone-anime">public</span>
+                        </div>
+                        <h3>選曲から、誰かとつながる。</h3>
+                        <p>プレイリストの「編集・公開」をONにするだけでShareに掲載。選曲のテーマや並び順から、人の好みに触れられます。</p>
+                        <ul class="demo-value-points">
+                            <li>好みから選ぶ「あなたへのおすすめ」と人気ランキング</li>
+                            <li>他の人のリストから気に入った曲だけを自分のリストへ追加</li>
+                            <li>ユーザープロフィール・フォロー・OGPカード付き共有リンク</li>
+                        </ul>
+                    </article>
+                </section>
+
+                <section class="demo-live-section" aria-labelledby="demo-live-heading">
+                    <header class="demo-section-head demo-live-head">
+                        <div>
+                            <p class="demo-kicker"><span class="welcome-dot"></span>LIVE DEMO / ログインなしで今すぐ体験</p>
+                            <h2 id="demo-live-heading">公開Radarからランダム5曲を試聴</h2>
+                            <p class="demo-live-sub">
+                                公開プレイリストの曲から5曲をピックアップしています。
+                                <strong>再生ボタン</strong>・<strong>右の曲リスト</strong>・<strong>下マップの番号（1〜5）</strong>を押すとその場で聴けます。
+                            </p>
+                        </div>
+                        <div class="demo-live-badges" aria-label="デモの操作ヒント">
+                            <span><i class="material-symbols-rounded">play_arrow</i>タップして再生</span>
+                            <span><i class="material-symbols-rounded">shuffle</i>別の5曲に引き直し</span>
+                            <span><i class="material-symbols-rounded">touch_app</i>マップの点から選曲</span>
+                        </div>
+                    </header>
+
+                <div class="demo-radio" id="welcome-demo">
+                    <section class="demo-player-card" aria-label="Radarデモプレイヤー">
+                        <div class="demo-screen" id="demo-screen">
+                            <div class="demo-player-mount" id="demo-player-mount"></div>
+                            <img class="demo-poster" id="demo-poster" src="" alt="">
+                            <div class="demo-screen-shade" aria-hidden="true"></div>
+                            <div class="demo-screen-top">
+                                <span class="demo-screen-live"><i></i>RADAR DEMO</span>
+                                <span class="demo-screen-index" id="demo-screen-index">01 / 05</span>
+                            </div>
+                            <button type="button" class="demo-big-play" id="demo-big-play"
+                                onclick="startWelcomeDemo()" aria-label="Radarデモを再生">
+                                <span class="material-symbols-rounded">play_arrow</span>
+                                <span><strong>Radar Demo を再生</strong><small>YouTube · 公開リストから5曲</small></span>
+                            </button>
+                            <div class="demo-screen-loading" id="demo-screen-loading" hidden>
+                                プレイヤーを準備しています…
+                            </div>
+                        </div>
+                        <div class="demo-now">
+                            <div class="demo-now-copy">
+                                <p class="demo-kicker">NOW PLAYING <span id="demo-now-index">01 / 05</span></p>
+                                <h2 id="demo-title">Radarから5曲を選んでいます…</h2>
+                                <p id="demo-artist">公開リストを読み込み中</p>
+                                <div class="demo-tags" id="demo-tags"></div>
+                            </div>
+                            <a class="demo-youtube-link" id="demo-youtube-link" href="#" target="_blank"
+                                rel="noopener noreferrer">
+                                <span class="material-symbols-rounded">open_in_new</span>YouTubeで開く
+                            </a>
+                        </div>
+
+                        <div class="demo-controls">
+                            <div class="demo-control-buttons">
+                                <button type="button" class="demo-control-btn" id="demo-prev-btn"
+                                    onclick="prevWelcomeTrack()" aria-label="前の曲">
+                                    <span class="material-symbols-rounded">skip_previous</span>
+                                </button>
+                                <button type="button" class="demo-control-btn demo-play-btn" id="demo-play-btn"
+                                    onclick="toggleWelcomeDemo()" aria-label="再生">
+                                    <span class="material-symbols-rounded" id="demo-play-icon">play_arrow</span>
+                                </button>
+                                <button type="button" class="demo-control-btn" id="demo-next-btn"
+                                    onclick="nextWelcomeTrack()" aria-label="次の曲">
+                                    <span class="material-symbols-rounded">skip_next</span>
+                                </button>
+                                <button type="button" class="demo-control-btn demo-shuffle-btn" id="demo-shuffle-btn"
+                                    onclick="rerollWelcomeDemo()" aria-label="別の5曲を選ぶ" title="別の5曲を選ぶ">
+                                    <span class="material-symbols-rounded">shuffle</span>
+                                </button>
+                            </div>
+                            <div class="demo-progress-wrap">
+                                <div class="demo-progress" id="demo-progress" role="slider" tabindex="0"
+                                    aria-label="再生位置" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+                                    onclick="seekWelcomeDemo(event)" onkeydown="onWelcomeDemoProgressKey(event)">
+                                    <span id="demo-progress-fill"></span>
+                                </div>
+                                <div class="demo-time-row">
+                                    <span id="demo-time">0:00 / 0:00</span>
+                                    <span id="demo-source">RADAR / PUBLIC</span>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    <aside class="demo-queue-card" aria-labelledby="demo-queue-title">
+                        <header class="demo-queue-head">
+                            <div>
+                                <p class="demo-kicker">RADAR QUEUE <span id="demo-queue-count">5</span> TRACKS</p>
+                                <h2 id="demo-queue-title">ランダム5曲</h2>
+                            </div>
+                            <button type="button" class="demo-icon-btn" id="demo-refresh-btn"
+                                onclick="rerollWelcomeDemo()" title="別の5曲を選ぶ" aria-label="別の5曲を選ぶ">
+                                <span class="material-symbols-rounded">refresh</span>
+                            </button>
+                        </header>
+                        <ol class="demo-queue" id="demo-queue" aria-live="polite">
+                            <li class="demo-queue-skeleton"></li>
+                            <li class="demo-queue-skeleton"></li>
+                            <li class="demo-queue-skeleton"></li>
+                            <li class="demo-queue-skeleton"></li>
+                            <li class="demo-queue-skeleton"></li>
+                        </ol>
+                        <p class="demo-queue-note" id="demo-queue-note">
+                            公開Radarから5曲を選んでいます…
+                        </p>
+                    </aside>
+                </div>
+
+                <section class="demo-radar-card" aria-labelledby="demo-radar-title">
+                    <header class="demo-radar-head">
+                        <div>
+                            <p class="demo-kicker">RADAR MAP</p>
+                            <h2 id="demo-radar-title">5曲の位置関係（雰囲気マップ）</h2>
+                        </div>
+                        <span class="demo-radar-caption" id="demo-radar-caption">公開リストから抽出</span>
+                    </header>
+                    <div class="demo-radar-body">
+                        <div class="demo-map">
+                            <svg id="demo-radar" viewBox="0 0 100 100" aria-hidden="true"></svg>
+                            <div class="demo-radar-dots" id="demo-radar-dots"></div>
+                            <span class="demo-map-axis demo-map-axis-x">ENERGY →</span>
+                            <span class="demo-map-axis demo-map-axis-y">CALM →</span>
+                        </div>
+                        <div class="demo-radar-side">
+                            <p>
+                                点は、テンポやエネルギーなどから見た曲の位置。
+                                番号を押すと、その曲からデモ再生できます。ログイン後は全曲マップの拡大・絞り込み・保存が使えます。
+                            </p>
+                            <ul class="demo-legend" aria-label="ジャンルの色">
+                                <li><i class="tone-lofi"></i>Lo-Fi</li>
+                                <li><i class="tone-jpop"></i>J-POP</li>
+                                <li><i class="tone-anime"></i>Vocaloid / Anime</li>
+                            </ul>
+                            <div class="demo-radar-hint">
+                                <span class="material-symbols-rounded">touch_app</span>
+                                点をタップして再生
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                </section>
+
+                <section class="demo-cta">
+                    <div>
+                        <p class="demo-kicker">START YOUR COLLECTION</p>
+                        <h2>自分の音楽棚を、今日からつくろう。</h2>
+                        <p>ログインIDとパスワード（またはGoogleログイン）ですぐに無料で始められます。詳しい操作はヘルプからも確認できます。</p>
+                    </div>
+                    <div class="demo-cta-actions">
+                        <button type="button" class="welcome-btn welcome-btn-primary"
+                            onclick="openAuthModal('register')">アカウントを作る（無料）</button>
+                        <button type="button" class="welcome-btn welcome-btn-ghost"
+                            onclick="openAuthModal('login')">ログイン</button>
+                        <button type="button" class="welcome-btn welcome-btn-ghost"
+                            onclick="navigateView('help')">使い方ヘルプ</button>
+                    </div>
+                </section>
+
+                <footer class="welcome-footnote">
+                    <span>TUNE DROP — 音楽で触れ合うブックマーク</span>
+                    <button type="button" class="welcome-help-link"
+                        onclick="navigateView('help')">詳しい使い方・ショートカット一覧を見る</button>
+                </footer>
+            </div>
+        </div>
+
         <div id="view-manager" class="view-section active">
             <aside class="sidebar">
                 <button class="add-btn" onclick="openCreatePlaylistModal()"><span
                         class="material-symbols-rounded">add</span> 新規リスト作成</button>
                 <div class="sidebar-filters">
-                    <input type="text" id="manager-search" placeholder="リスト名で検索..." oninput="filterManagerPlaylists()">
-                    <select id="manager-category" onchange="filterManagerPlaylists()">
+                    <div class="search-clear-wrap">
+                        <input type="text" id="manager-search" aria-label="プレイリスト名で検索" placeholder="リスト名で検索..."
+                            oninput="filterManagerPlaylists()" onkeydown="onManagerSearchKey(event)">
+                        <button type="button" class="search-clear-btn" id="btn-manager-search-clear"
+                            title="検索をクリア" aria-label="検索をクリア" onclick="clearManagerSearch()">×</button>
+                    </div>
+                    <select aria-label="プレイリストのカテゴリ" id="manager-category" onchange="filterManagerPlaylists()">
                         <option value="">All</option>
                         <option value="Vocaloid">Vocaloid</option>
                         <option value="J-POP">J-POP</option>
@@ -226,7 +607,7 @@
                                 <h2 class="section-title" id="home-section-title" style="margin:0;">マイ・プレイリスト</h2>
                                 <p class="dash-lists-sub" id="dash-lists-sub"></p>
                             </div>
-                            <select id="playlist-sort-select" class="ctrl-select" onchange="onPlaylistSortChange()">
+                            <select aria-label="プレイリストの並び順" id="playlist-sort-select" class="ctrl-select" onchange="onPlaylistSortChange()">
                                 <option value="custom" selected>カスタム順</option>
                                 <option value="newest">新規順</option>
                                 <option value="oldest">古い順</option>
@@ -244,18 +625,63 @@
                         <button id="add-track-btn" onclick="addTrack()">追加</button>
                     </div>
                     <div class="action-bar search-bar" style="margin-top: -10px;">
-                        <input type="text" id="track-search" placeholder="🔍 このリスト内から曲名・アーティストを検索..."
-                            aria-label="このリスト内を検索" oninput="filterTracks()" onkeydown="onTrackSearchKey(event)">
+                        <div class="search-clear-wrap">
+                            <input type="text" id="track-search" placeholder="🔍 このリスト内から曲名・アーティストを検索..."
+                                aria-label="このリスト内を検索" oninput="filterTracks()" onkeydown="onTrackSearchKey(event)">
+                            <button type="button" class="search-clear-btn" id="btn-track-search-clear"
+                                title="検索をクリア" aria-label="検索をクリア" onclick="clearTrackSearch()">×</button>
+                        </div>
                     </div>
                     <div class="section-header-row track-section-header">
                         <h2 class="section-title" id="current-list-title" style="margin:0;">すべてのブックマーク</h2>
-                        <select id="manager-track-sort-select" class="ctrl-select"
-                            onchange="onManagerTrackSortChange()">
-                            <option value="custom" selected>カスタム順</option>
-                            <option value="newest">新規順</option>
-                            <option value="oldest">古い順</option>
-                            <option value="name">名前順</option>
-                        </select>
+                        <div class="manager-track-controls">
+                            <!-- プレイリスト内の表示切り替え: カード(ブックマーク) / Share風プレイリスト画面 -->
+                            <div class="view-switch" role="group" aria-label="プレイリストの表示切り替え">
+                                <button type="button" id="btn-playlist-view-bookmarks" class="is-active" aria-pressed="true"
+                                    onclick="showManagerPlaylistView()" title="カードで表示"><span
+                                        class="material-symbols-rounded">donut_small</span>ブックマーク</button>
+                                <button type="button" id="btn-playlist-view-detail" aria-pressed="false"
+                                    onclick="openCurrentListShareView()" title="Shareと同じプレイリスト画面で表示"><span
+                                        class="material-symbols-rounded">queue_music</span>プレイリスト</button>
+                            </div>
+                            <button type="button" id="btn-manager-select-mode" class="manager-select-btn"
+                                onclick="toggleManagerSelectMode()" title="曲を複数選択して一括操作" aria-pressed="false">
+                                <span class="material-symbols-rounded">checklist</span><span class="manager-select-label">選択</span>
+                            </button>
+                            <select aria-label="曲の並び順" id="manager-track-sort-select" class="ctrl-select"
+                                onchange="onManagerTrackSortChange()">
+                                <option value="custom" selected>カスタム順</option>
+                                <option value="newest">新規順</option>
+                                <option value="oldest">古い順</option>
+                                <option value="name">名前順</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- 複数選択時の一括操作バー -->
+                    <div id="manager-bulk-bar" class="manager-bulk-bar" hidden role="toolbar" aria-label="複数曲の一括操作">
+                        <div class="manager-bulk-left">
+                            <span class="manager-bulk-badge"><strong id="manager-bulk-count">0</strong> 件選択中</span>
+                            <button type="button" class="manager-bulk-pill-btn" onclick="selectAllVisibleTracks()">すべて選択</button>
+                            <button type="button" class="manager-bulk-pill-btn" onclick="clearManagerSelection()">選択解除</button>
+                        </div>
+                        <div class="manager-bulk-actions">
+                            <button type="button" class="manager-bulk-action-btn" data-manager-bulk-action onclick="playSelectedTracks()" title="選択した曲を再生">
+                                <span class="material-symbols-rounded">play_arrow</span>再生
+                            </button>
+                            <button type="button" class="manager-bulk-action-btn" data-manager-bulk-action onclick="bulkToggleSelectedFavorite()" title="選択した曲のお気に入りを切り替え">
+                                <span class="material-symbols-rounded" id="manager-bulk-fav-icon">favorite</span>
+                                <span id="manager-bulk-fav-label">お気に入り追加</span>
+                            </button>
+                            <button type="button" class="manager-bulk-action-btn" data-manager-bulk-action onclick="bulkOpenMoveModal()" title="選択した曲を別のリストへ移動">
+                                <span class="material-symbols-rounded">drive_file_move</span>移動
+                            </button>
+                            <button type="button" class="manager-bulk-action-btn danger" data-manager-bulk-action onclick="bulkDeleteSelectedTracks()" title="選択した曲をリストから削除">
+                                <span class="material-symbols-rounded">delete</span>削除
+                            </button>
+                            <button type="button" class="manager-bulk-action-btn close-btn" onclick="toggleManagerSelectMode(false)" title="選択モードを終了">
+                                <span class="material-symbols-rounded">close</span>完了
+                            </button>
+                        </div>
                     </div>
                     <div class="grid-container" id="my-bookmarks"></div>
                 </div>
@@ -275,11 +701,20 @@
                     <div class="filters"><button class="draw-btn" id="btn-radar-analyze-all"
                             title="全曲を Gemini AI + 音源実測で再解析します（Gemini解析済みの曲は対象外。処理が重いため確認があります）">⟳
                             全曲解析</button></div>
+                    <!-- Radarで見つけた曲を、その場で自分のリスト（ブックマーク）へ保存する -->
+                    <div class="filters"><button class="draw-btn radar-save-btn" id="btn-radar-save"
+                            onclick="openRadarSaveForSelected()" disabled
+                            title="選択中の曲を自分のリストに保存します（曲を選ぶと押せます）">🔖
+                            曲を選んで保存</button></div>
+                    <div class="filters"><button class="draw-btn radar-bookmarks-link" id="btn-radar-open-bookmarks"
+                            onclick="openAllBookmarks()"
+                            title="保存した曲（すべてのブックマーク）をManagerで開きます">📚
+                            保存した曲を見る</button></div>
                 </div>
             </aside>
             <section class="content-area radar-content-area">
                 <div class="radar-map-toolbar">
-                    <h2 class="section-title" style="margin:0;">雰囲気 楽曲マップ <span class="radar-count-badge" id="radar-result-count"></span></h2>
+                    <h2 class="section-title" style="margin:0;">雰囲気 楽曲マップ <span class="radar-count-badge" id="radar-result-count"></span><span class="radar-display-note" id="radar-display-note"></span></h2>
                     <div class="radar-map-controls">
                         <div class="radar-search-wrap">
                             <input type="text" id="radar-title-search" class="ctrl-search"
@@ -288,13 +723,21 @@
                                 aria-label="曲名・アーティストで絞り込み">
                             <button class="radar-search-clear" id="btn-radar-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearRadarSearch()">×</button>
                         </div>
-                        <select id="radar-category-filter" class="ctrl-select" onchange="radarStripLimit=30;applyRadarFilter(true)">
+                        <select aria-label="Radarのカテゴリ" id="radar-category-filter" class="ctrl-select" onchange="radarStripLimit=30;applyRadarFilter(true)">
                             <option value="">All</option>
                             <option value="Vocaloid">Vocaloid</option>
                             <option value="J-POP">J-POP</option>
                             <option value="Anime">Anime</option>
                             <option value="Lo-Fi">Lo-Fi</option>
                             <option value="Other">Other</option>
+                        </select>
+                        <select id="radar-display-limit" class="ctrl-select" onchange="setRadarDisplayLimit(this.value)"
+                            title="マップに描画する最大点数。拡大すると自動で詳細が増えます。"
+                            aria-label="マップの表示点数">
+                            <option value="150">表示: 150曲</option>
+                            <option value="250" selected>表示: 250曲</option>
+                            <option value="500">表示: 500曲</option>
+                            <option value="0">表示: すべて</option>
                         </select>
                         <button class="ctrl-chip" id="btn-radar-random" onclick="playRadarRandomThree()"
                             title="表示中のマップからランダムに最大3曲を発掘して再生">📡 Radar</button>
@@ -384,7 +827,7 @@
                                 aria-label="プレイリスト名・ユーザー名で検索">
                             <button class="share-search-clear" id="btn-share-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearShareSearch()">×</button>
                         </div>
-                        <select id="share-category" class="ctrl-select" onchange="renderSharePlaylists()">
+                        <select aria-label="公開リストのカテゴリ" id="share-category" class="ctrl-select" onchange="renderSharePlaylists()">
                             <option value="">All</option>
                             <option value="Vocaloid">Vocaloid</option>
                             <option value="J-POP">J-POP</option>
@@ -392,7 +835,7 @@
                             <option value="Lo-Fi">Lo-Fi</option>
                             <option value="Other">Other</option>
                         </select>
-                        <select id="share-sort" class="ctrl-select" onchange="renderSharePlaylists()" title="並び順">
+                        <select aria-label="公開リストの並び順" id="share-sort" class="ctrl-select" onchange="renderSharePlaylists()" title="並び順">
                             <option value="popular">人気順</option>
                             <option value="newest" selected>新着順</option>
                             <option value="tracks">曲数順</option>
@@ -412,8 +855,19 @@
 
         <div id="view-playlist-detail" class="view-section">
             <section class="content-area playlist-detail-content" style="width: 100%; max-width: 1000px; margin: 0 auto;">
-                <button class="back-btn" onclick="navigateView('share')"><span
-                        class="material-symbols-rounded">arrow_back</span>Shareへ戻る</button>
+                <div class="detail-topbar">
+                    <button class="back-btn" onclick="goBackFromDetail()"><span
+                            class="material-symbols-rounded">arrow_back</span><span id="detail-back-label">Shareへ戻る</span></button>
+                    <!-- 自分のリストのときだけ、カード表示との切り替えを出す -->
+                    <div class="view-switch" id="detail-view-switch" role="group" aria-label="プレイリストの表示切り替え" style="display:none;">
+                        <button type="button" id="btn-detail-view-bookmarks" aria-pressed="false"
+                            onclick="showManagerPlaylistView()" title="カードで表示"><span
+                                class="material-symbols-rounded">donut_small</span>ブックマーク</button>
+                        <button type="button" id="btn-detail-view-detail" class="is-active" aria-pressed="true"
+                            title="Shareと同じプレイリスト画面"><span
+                                class="material-symbols-rounded">queue_music</span>プレイリスト</button>
+                    </div>
+                </div>
                 <div class="playlist-detail-header">
                     <div class="detail-header-content">
                         <div class="detail-cover" id="detail-cover"></div>
@@ -471,19 +925,45 @@
                     <p id="profile-status" role="status" aria-live="polite"></p>
                 </form>
                 <div class="profile-stats" id="profile-stats" hidden>
-                    <div class="stat-box">
-                        <h3 id="profile-track-count">—</h3>
-                        <p>保存曲</p>
-                    </div>
-                    <div class="stat-box">
-                        <h3 id="profile-list-count">—</h3>
-                        <p>プレイリスト</p>
-                    </div>
-                    <div class="stat-box">
-                        <h3 id="profile-favorite-count">—</h3>
-                        <p>お気に入り</p>
-                    </div>
+                    <button class="stat-box stat-toggle" type="button" data-profile-panel="tracks"
+                            aria-expanded="false" aria-controls="profile-panel">
+                        <span class="stat-value" id="profile-track-count">—</span>
+                        <span class="stat-label">保存曲</span>
+                    </button>
+                    <button class="stat-box stat-toggle" type="button" data-profile-panel="playlists"
+                            aria-expanded="false" aria-controls="profile-panel">
+                        <span class="stat-value" id="profile-list-count">—</span>
+                        <span class="stat-label">プレイリスト</span>
+                    </button>
+                    <button class="stat-box stat-toggle" type="button" data-profile-panel="favorites"
+                            aria-expanded="false" aria-controls="profile-panel">
+                        <span class="stat-value" id="profile-favorite-count">—</span>
+                        <span class="stat-label">お気に入り</span>
+                    </button>
+                    <button class="stat-box stat-toggle" type="button" data-profile-panel="following"
+                            aria-expanded="false" aria-controls="profile-panel">
+                        <span class="stat-value" id="profile-following-count">—</span>
+                        <span class="stat-label">フォロー中</span>
+                    </button>
+                    <button class="stat-box stat-toggle" type="button" data-profile-panel="followers"
+                            aria-expanded="false" aria-controls="profile-panel">
+                        <span class="stat-value" id="profile-followers-count">—</span>
+                        <span class="stat-label">フォロワー</span>
+                    </button>
                 </div>
+                <section class="profile-panel" id="profile-panel" hidden aria-live="polite">
+                    <div class="profile-panel-head">
+                        <div>
+                            <h3 class="profile-panel-title" id="profile-panel-title">簡易ログ</h3>
+                            <p class="profile-panel-note" id="profile-panel-note"></p>
+                        </div>
+                        <button class="profile-panel-close" type="button" aria-label="閉じる"
+                                onclick="closeProfilePanel()">
+                            <span class="material-symbols-rounded">close</span>
+                        </button>
+                    </div>
+                    <div class="profile-panel-body" id="profile-panel-body"></div>
+                </section>
             </div>
         </div>
 
@@ -498,6 +978,11 @@
                         <h2 id="user-profile-name">User</h2>
                         <p id="user-profile-meta">プロフィールを読み込み中…</p>
                     </div>
+                    <button class="action-pill secondary user-profile-follow" id="user-profile-follow"
+                            type="button" hidden onclick="toggleUserProfileFollow()">
+                        <span class="material-symbols-rounded" id="user-profile-follow-icon">person_add</span>
+                        <span id="user-profile-follow-label">フォロー</span>
+                    </button>
                 </div>
                 <div class="profile-stats">
                     <div class="stat-box">
@@ -511,6 +996,14 @@
                     <div class="stat-box">
                         <h3 id="user-profile-favorite-count">—</h3>
                         <p>お気に入り</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3 id="user-profile-following-count">—</h3>
+                        <p>フォロー中</p>
+                    </div>
+                    <div class="stat-box">
+                        <h3 id="user-profile-followers-count">—</h3>
+                        <p>フォロワー</p>
                     </div>
                 </div>
                 <h3 class="user-profile-section-title" id="user-profile-lists-title">Shareで公開中のプレイリスト</h3>
@@ -536,6 +1029,7 @@
                     <a href="#help-shortcuts">ショートカット</a>
                     <a href="#help-account">アカウント</a>
                     <a href="#help-mobile">スマホで使う</a>
+                    <a href="#help-site">サイト情報</a>
                 </nav>
 
                 <section class="help-section" id="help-manager">
@@ -553,7 +1047,16 @@
                         <li>「＋ 新規リスト」でプレイリストを作成します（カテゴリも選択できます）。</li>
                         <li>カード左上のカテゴリ選択で、リロードなしにカテゴリを変更できます。</li>
                         <li>三点メニュー「⋮」から「編集・公開」を開くと、名前・カテゴリ・カバー画像・公開設定を変更できます。</li>
-                        <li>曲の三点メニュー「⋮」から、ほかのプレイリストへ移動できます。</li>
+                        <li>三点メニュー「⋮」の「<strong>Shareで見る</strong>」で、Shareと同じレイアウトのプレイリスト詳細を開けます
+                            （戻るボタンは「Managerへ戻る」になり、元のリストへ戻ります）。</li>
+                        <li>曲の三点メニュー「⋮」から、ほかのリストへの移動・別のリストへの追加・Radarで見る・YouTubeで開くができます。</li>
+                    </ul>
+                    <h3>プレイリスト内の表示切り替え（ブックマーク / プレイリスト）</h3>
+                    <ul>
+                        <li>リストを開くと、曲一覧の右上に「<strong>ブックマーク</strong>」「<strong>プレイリスト</strong>」の切り替えがあります。</li>
+                        <li>「ブックマーク」はカードの一覧、「プレイリスト」は Share と同じレイアウトのプレイリスト画面
+                            （カバー・すべて再生・共有・URL書き出し・番号付きの曲リスト）です。</li>
+                        <li>プレイリスト画面の右上にある同じスイッチで「ブックマーク」に戻れます（他の人の公開リストでは表示されません）。</li>
                     </ul>
                     <h3>固定タブ（未整理 / 公開用お気に入り）</h3>
                     <ul>
@@ -571,6 +1074,7 @@
                     <ul>
                         <li>点をタップすると選択カードが開き、「▶ 再生」「周辺N曲」「◎ 中央へ」を選べます。</li>
                         <li>「周辺N曲」は、選択した曲と雰囲気が近い曲をまとめて連続再生し、下の一覧もその曲だけに絞り込みます。</li>
+                        <li>マップは全体表示で最大250点に間引き、拡大すると自動で詳細が増えます（表示点数はツールバーの「表示: 250曲」から変更できます）。</li>
                         <li>マウスホイール／ピンチでズーム、ドラッグで移動できます。</li>
                     </ul>
                     <h3>スマホでの操作</h3>
@@ -587,6 +1091,15 @@
                         <li>「⟳ 全曲解析」は全曲を再解析する重い処理です。実行前に確認が表示されます。<strong>Gemini（AI(Gemini)）で解析済みの曲は対象外</strong>で、ローカルのAI（Ollama）で上書きしません。そうした曲をやり直すときは管理者ページの「解析キャッシュ」から該当曲を削除してから実行してください。</li>
                     </ul>
                     <p class="help-note">雰囲気やBPMは、タイトルからの推測ではなく実際の音源から算出しています。ツールチップに「実測」か「推定」かが表示されます。</p>
+                    <h3>見つけた曲をブックマークに保存</h3>
+                    <ul>
+                        <li>曲を選ぶと、マップ右上のカードに「<strong>⏭ 次の発掘</strong>」が出ます。押すたびに別の曲をランダムに選んで再生します
+                            （キーボードの <kbd>N</kbd> でも次へ）。</li>
+                        <li>曲を選ぶと右上のカードの「<strong>🔖 保存</strong>」から保存先のリストを選べます。</li>
+                        <li>一覧カード右上のしおりアイコンからも同じ画面を開けます。保存済みの曲は<strong>黄色いしおり</strong>になります。</li>
+                        <li>サイドバーの「<strong>🔖 ブックマークに保存</strong>」でも、選択中の曲をそのまま保存できます（曲を選ぶと押せます）。</li>
+                        <li>迷ったら「<strong>未整理</strong>」へ保存しておけば、あとからManagerで好きなリストへ移動できます。保存した曲は「📚 保存した曲を見る」ですぐ開けます。</li>
+                    </ul>
                 </section>
 
                 <section class="help-section" id="help-share">
@@ -599,6 +1112,13 @@
                         <li>ハートのボタンでお気に入りに追加できます（件数も表示されます）。</li>
                         <li>カードの作成者名をタップすると、そのユーザーのプロフィールと公開リスト一覧が開きます。</li>
                     </ul>
+                    <h3>曲の「⋮」メニュー</h3>
+                    <ul>
+                        <li><strong>自分のリストに追加</strong>：表示中のプレイリスト（他の人の公開リストでも）から、自分のリストへ1曲だけ保存できます。</li>
+                        <li><strong>Radarで見る</strong>：その曲をRadarのマップ上で表示します（解析済みの曲のみ）。</li>
+                        <li><strong>YouTubeで開く</strong>：YouTubeの動画ページを新しいタブで開きます。</li>
+                        <li>自分のリストを開いているときは、<strong>別のリストへ移動</strong>と<strong>削除</strong>も選べます。</li>
+                    </ul>
                     <h3>自分のリストを公開する</h3>
                     <p>Managerのプレイリストの「⋮」→「編集・公開」で「Radar 公開設定」をONにすると、Shareに掲載されます。</p>
                 </section>
@@ -607,8 +1127,9 @@
                     <h2><span class="material-symbols-rounded">person</span>Profile（プロフィール）</h2>
                     <ul>
                         <li>表示名を3〜30文字で変更できます（ログインIDは変わりません）。</li>
-                        <li>保存曲数・プレイリスト数・お気に入り数を確認できます。</li>
-                        <li>他のユーザーのプロフィールでは、そのユーザーがShareで公開しているリストだけが表示されます。</li>
+                        <li>保存曲数・プレイリスト数・お気に入り数・フォロー中/フォロワー数を確認できます。</li>
+                        <li>統計カードをタップすると、その項目の簡易ログ（最近保存した曲 / 最近作ったリスト / お気に入り / フォロー中 / フォロワー）に切り替わります。同じカードをもう一度タップすると閉じます。</li>
+                        <li>他のユーザーのプロフィールでは、そのユーザーがShareで公開しているリストだけが表示されます。「フォロー」ボタンでフォローでき、フォロー中/フォロワー数も確認できます（フォローにはログインが必要です）。</li>
                     </ul>
                 </section>
 
@@ -617,7 +1138,8 @@
                     <ul>
                         <li>「すべて再生」で、リストの先頭から連続再生が始まります。</li>
                         <li>再生できない動画は自動で飛ばして次の曲へ進みます。</li>
-                        <li>再生中の曲はハートでお気に入りに追加できます。「お気に入り曲」からいつでも再生できます。</li>
+                        <li>再生中の曲は、プレイヤーの <strong>＋</strong> から自分のリストへ保存、ハートでお気に入りに追加できます。</li>
+                        <li>キーボードの <kbd>Space</kbd> で再生/一時停止、<kbd>N</kbd> / <kbd>P</kbd> で曲送りができます。</li>
                         <li>「📄」で曲名とURLの一覧をコピーできます。</li>
                     </ul>
                 </section>
@@ -627,8 +1149,12 @@
                     <p>操作したい検索欄やRadarマップにフォーカスを合わせて使います。</p>
                     <h3>共通</h3>
                     <div class="help-keys">
+                        <div><kbd>Space</kbd><span>再生 / 一時停止</span></div>
+                        <div><kbd>N</kbd><span>次の曲（Radarで1曲だけのときは「次の発掘」）</span></div>
+                        <div><kbd>P</kbd><span>前の曲</span></div>
                         <div><kbd>Esc</kbd><span>開いているメニューやダイアログを閉じる</span></div>
                     </div>
+                    <p class="help-note">入力欄に文字を打っている間や、ダイアログを開いている間はショートカットは動きません（ブラウザの操作を邪魔しないため）。</p>
                     <h3>検索欄</h3>
                     <div class="help-keys">
                         <div><kbd>Enter</kbd><span>Manager・Radarでは先頭の曲を再生、Shareでは先頭のプレイリストを開く</span></div>
@@ -657,7 +1183,8 @@
                     <ul>
                         <li>右上の「ログイン / 登録」から、ユーザー名とパスワードで登録・ログインできます。</li>
                         <li>Googleアカウントでのログインにも対応しています。</li>
-                        <li>ログインなしでも閲覧・検索はできますが、保存した内容はログイン時にのみ自分のアカウントへ紐づきます。</li>
+                        <li>ログインなしでもヘルプは閲覧できますが、Manager / Radar / Share / Profile はログイン専用です。未ログインのときは、機能を紹介するデモ画面が表示されます。</li>
+                        <li>ログインすると、保存した内容は自分のアカウントに紐づきます。</li>
                     </ul>
                 </section>
 
@@ -668,6 +1195,66 @@
                         <li>並び替えはつまみ（⠿）を長押ししてドラッグします。</li>
                         <li>画面下部のプレイヤーは常に表示されます（YouTubeの利用規約に沿った埋め込み表示です）。</li>
                     </ul>
+                </section>
+
+                <section class="help-section" id="help-site">
+                    <h2><span class="material-symbols-rounded">description</span>サイト情報</h2>
+                    <p>Tune drop は、YouTube の音楽を集めて整理し、みんなで発掘・共有できる無料のWebアプリです。</p>
+
+                    <dl class="help-info">
+                        <dt>サービス名</dt>
+                        <dd>Tune drop（チューンドロップ）</dd>
+                        <dt>公開URL</dt>
+                        <dd><a href="https://music.wawa-app.me/tunedrop/" target="_blank"
+                                rel="noopener noreferrer">https://music.wawa-app.me/tunedrop/</a></dd>
+                        <dt>提供内容</dt>
+                        <dd>YouTube 動画のブックマークとプレイリスト管理、Radar（雰囲気マップ）での発掘、Share（公開リストの共有）</dd>
+                        <dt>利用料金</dt>
+                        <dd>無料</dd>
+                        <dt>運営</dt>
+                        <dd>Tune drop 個人開発プロジェクト</dd>
+                        <dt>お問い合わせ</dt>
+                        <dd><a href="https://github.com/yawara404/Tunedrop/issues" target="_blank"
+                                rel="noopener noreferrer">GitHub リポジトリの Issue</a>（不具合報告・ご要望）</dd>
+                        <dt>推奨環境</dt>
+                        <dd>最新版の Chrome / Edge / Safari / Firefox（JavaScript 有効）</dd>
+                    </dl>
+
+                    <h3 id="help-privacy">プライバシーポリシー</h3>
+                    <p>本サービスは、利用者の情報を次のとおり取り扱います。</p>
+                    <ol>
+                        <li><strong>取得する情報</strong> — 登録時のユーザー名とパスワード（パスワードはハッシュ化して保存し、平文では保持しません）、
+                            Google ログインを利用した場合は Google のアカウント識別子。メールアドレスは保存しません。
+                            あわせて、作成したリスト・保存した曲・お気に入りなどの利用データを保存します。</li>
+                        <li><strong>端末内の保存</strong> — ログイン状態を保つため、トークンやユーザー名をブラウザの localStorage に保存します。
+                            Cookie による追跡は行いません。</li>
+                        <li><strong>利用目的</strong> — ログイン状態の維持、保存データの表示、公開リストの共有、不具合の調査。</li>
+                        <li><strong>外部サービス</strong> — 動画の再生に YouTube IFrame Player API、ログインに Google Identity Services を利用します。
+                            これらの利用時には Google のプライバシーポリシーが適用されます。</li>
+                        <li><strong>公開される情報</strong> — 「公開」に設定したリストとその曲は、ログインしていない人も含め誰でも閲覧できます。
+                            非公開リストは他の利用者には表示されません。</li>
+                        <li><strong>第三者提供</strong> — 法令に基づく場合を除き、本人の同意なく第三者へ提供しません。</li>
+                        <li><strong>開示・訂正・削除</strong> — ご自身のデータの開示・訂正・削除をご希望の場合は、お問い合わせ窓口（GitHub の Issue）へご連絡ください。</li>
+                        <li><strong>改定</strong> — 内容を変更する場合は、このページでお知らせします。</li>
+                    </ol>
+
+                    <h3 id="help-terms">利用規約</h3>
+                    <ul>
+                        <li>本サービスは、YouTube に公開されている動画をブックマークして楽しむためのものです。
+                            動画・音源・画像の著作権は各権利者に帰属します。</li>
+                        <li>次の行為を禁止します。著作権や第三者の権利を侵害する行為、公序良俗に反する内容の保存・公開、
+                            他の利用者への迷惑行為、サーバーに過度な負荷をかける行為、不正アクセスや自動収集（スクレイピング）など
+                            本サービスの運営を妨げる行為。</li>
+                        <li>本サービスは予告なく内容の変更・停止・終了を行うことがあります。</li>
+                        <li>本サービスの利用によって生じた損害について、運営は故意または重大な過失がある場合を除き責任を負いません。</li>
+                        <li>本規約は日本法に準拠します。</li>
+                    </ul>
+
+                    <h3 id="help-contact">お問い合わせ</h3>
+                    <p>不具合のご報告、機能のご要望、データの開示・削除のご依頼は、
+                        <a href="https://github.com/yawara404/Tunedrop/issues" target="_blank"
+                            rel="noopener noreferrer">GitHub リポジトリの Issue</a> へお願いします。</p>
+                    <p class="help-note">本ページの内容は必要に応じて更新されます。最終更新: 2026年11月5日</p>
                 </section>
 
                 <p class="help-footer">困ったときは、このページの内容を確認するか、動作がおかしい場合はページを再読み込み（スーパーリロード）してみてください。</p>
@@ -694,16 +1281,19 @@
                 </div>
             </div>
             <div class="player-controls">
-                <button class="ctrl-btn" onclick="skipTrack(-1)"><span
+                <button class="ctrl-btn" onclick="skipTrack(-1)" title="前の曲 (P)" aria-label="前の曲 (P)"><span
                         class="material-symbols-rounded">skip_previous</span></button>
-                <button class="play-btn" id="play-pause-btn" onclick="togglePlay()">
+                <button class="play-btn" id="play-pause-btn" onclick="togglePlay()"
+                    title="再生 / 一時停止 (Space)" aria-label="再生 / 一時停止 (Space)">
                     <div class="play-pause-icon"></div>
                 </button>
-                <button class="ctrl-btn" onclick="skipTrack(1)"><span
+                <button class="ctrl-btn" onclick="skipTrack(1)" title="次の曲 (N)" aria-label="次の曲 (N)"><span
                         class="material-symbols-rounded">skip_next</span></button>
             </div>
             <div class="player-actions">
                 <span class="time-display" id="time-display">0:00 / 0:00</span>
+                <button class="action-btn" id="btn-player-save" type="button" aria-label="今の曲をリストに保存" title="今の曲をリストに保存" disabled onclick="saveCurrentTrackFromPlayer()"><span
+                        class="material-symbols-rounded">bookmark_add</span></button>
                 <button class="action-btn" id="btn-player-fav" type="button" aria-label="お気に入り追加" aria-pressed="false" disabled onclick="togglePlayerFavorite()"><span
                         class="material-symbols-rounded" id="btn-player-fav-icon">favorite</span></button>
             </div>
@@ -714,15 +1304,15 @@
         onclick="if (event.target === this) closeCreatePlaylistModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
-            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
-            <h3 style="margin-bottom:20px; font-size:18px;">新しいプレイリスト</h3>
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);" role="dialog" aria-modal="true" aria-labelledby="create-playlist-modal-title">
+            <h3 id="create-playlist-modal-title" style="margin-bottom:20px; font-size:18px;">新しいプレイリスト</h3>
             <div style="margin-bottom: 20px;">
-                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">タイトル</label>
+                <label for="new-playlist-title" style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">タイトル</label>
                 <input type="text" id="new-playlist-title" placeholder="プレイリスト名を入力..."
                     style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
             </div>
             <div style="margin-bottom: 20px;">
-                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カテゴリ</label>
+                <label for="new-playlist-category" style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カテゴリ</label>
                 <select id="new-playlist-category"
                     style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
                     <option value="Other">Other</option>
@@ -741,9 +1331,9 @@
                 </label>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:15px;">
-                <button onclick="closeCreatePlaylistModal()"
+                <button type="button" onclick="closeCreatePlaylistModal()"
                     style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">キャンセル</button>
-                <button onclick="submitNewPlaylist()"
+                <button id="create-playlist-submit" type="button" onclick="submitNewPlaylist()"
                     style="padding:10px 20px; background:var(--accent-color); color:#000; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">作成</button>
             </div>
         </div>
@@ -753,16 +1343,16 @@
         onclick="if (event.target === this) closeEditPlaylistModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
-            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
-            <h3 style="margin-bottom:20px; font-size:18px;">プレイリストを編集</h3>
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);" role="dialog" aria-modal="true" aria-labelledby="edit-playlist-modal-title">
+            <h3 id="edit-playlist-modal-title" style="margin-bottom:20px; font-size:18px;">プレイリストを編集</h3>
             <input type="hidden" id="edit-playlist-id">
             <div style="margin-bottom: 20px;">
-                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">タイトル</label>
+                <label for="edit-playlist-title" style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">タイトル</label>
                 <input type="text" id="edit-playlist-title" placeholder="プレイリスト名を入力..."
                     style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
             </div>
             <div style="margin-bottom: 20px;">
-                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カテゴリ</label>
+                <label for="edit-playlist-category" style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カテゴリ</label>
                 <select id="edit-playlist-category"
                     style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
                     <option value="Other">Other</option>
@@ -773,7 +1363,7 @@
                 </select>
             </div>
             <div style="margin-bottom: 20px;">
-                <label style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カバー画像
+                <label for="edit-playlist-cover" style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">カバー画像
                     (リスト内の曲から選択)</label>
                 <select id="edit-playlist-cover"
                     style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;">
@@ -789,9 +1379,9 @@
                 </label>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:15px;">
-                <button onclick="closeEditPlaylistModal()"
+                <button type="button" onclick="closeEditPlaylistModal()"
                     style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">キャンセル</button>
-                <button onclick="submitEditPlaylist()"
+                <button id="edit-playlist-submit" type="button" onclick="submitEditPlaylist()"
                     style="padding:10px 20px; background:var(--accent-color); color:#000; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">保存</button>
             </div>
         </div>
@@ -801,19 +1391,34 @@
         onclick="if (event.target === this) closeMoveModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
-            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
-            <h3 style="margin-bottom:20px; font-size:18px;">プレイリストへ移動</h3>
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);" role="dialog" aria-modal="true" aria-labelledby="move-track-modal-title">
+            <h3 id="move-track-modal-title" style="margin-bottom:20px; font-size:18px;">プレイリストへ移動</h3>
             <div style="margin-bottom: 20px;">
-                <label
+                <label for="move-target-playlist-select"
                     style="display:block; margin-bottom:8px; font-size:13px; color:var(--text-sub);">移動先のリストを選択</label>
                 <select id="move-target-playlist-select"
                     style="width:100%; padding:12px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px; outline:none;"></select>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:15px;">
-                <button onclick="closeMoveModal()"
+                <button type="button" onclick="closeMoveModal()"
                     style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">キャンセル</button>
-                <button onclick="submitMoveTrack()"
+                <button id="move-track-submit" type="button" onclick="submitMoveTrack()"
                     style="padding:10px 20px; background:var(--accent-color); color:#000; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">移動する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Radar: 曲を自分のリスト（ブックマーク）に保存する -->
+    <div id="radar-save-modal" onclick="if (event.target === this) closeRadarSaveModal()"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
+        <div class="radar-save-dialog" role="dialog" aria-modal="true" aria-labelledby="radar-save-modal-title">
+            <h3 id="radar-save-modal-title" style="margin-bottom:6px; font-size:18px;">ブックマークに保存</h3>
+            <p class="radar-save-track" id="radar-save-track"></p>
+            <p class="radar-save-hint">保存先のリストを選んでください（「未整理」に入れてあとから整理できます）。</p>
+            <div class="radar-save-playlists" id="radar-save-playlists"></div>
+            <div style="display:flex; justify-content:flex-end; margin-top:20px;">
+                <button onclick="closeRadarSaveModal()"
+                    style="padding:10px 20px; background:transparent; border:none; color:var(--text-main); cursor:pointer; font-weight:bold;">キャンセル</button>
             </div>
         </div>
     </div>
@@ -822,9 +1427,9 @@
         onclick="if (event.target === this) closeExportModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
         <div
-            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:600px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
-            <h3 style="margin-bottom:20px; font-size:18px;">Export Playlist</h3>
-            <textarea id="export-textarea"
+            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:600px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);" role="dialog" aria-modal="true" aria-labelledby="export-preview-modal-title">
+            <h3 id="export-preview-modal-title" style="margin-bottom:20px; font-size:18px;">Export Playlist</h3>
+            <textarea aria-label="エクスポートする曲のURL一覧" id="export-textarea"
                 style="width:100%; height:300px; padding:15px; background:#121212; border:1px solid #444; color:#fff; border-radius:6px; outline:none; font-family:monospace; font-size:12px; resize:none; margin-bottom:20px; white-space: pre; overflow-wrap: normal; overflow-x: auto;"></textarea>
 
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -848,30 +1453,64 @@
     <div id="login-modal"
         onclick="if (event.target === this) closeLoginModal()"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center;">
-        <div
-            style="background:var(--panel-bg); padding:30px; border-radius:12px; width:100%; max-width:400px; text-align:center;">
-            <h2 style="margin-bottom:20px; color:var(--accent-color);">Tune drop</h2>
-            <form id="login-form" onsubmit="return false;" style="margin:0;">
-            <input type="text" id="auth-username" placeholder="ログインID（メールアドレスなど）" autocomplete="username"
-                style="width:100%; padding:12px; margin-bottom:15px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px;">
-            <input type="password" id="auth-password" placeholder="パスワード" autocomplete="current-password"
-                style="width:100%; padding:12px; margin-bottom:20px; background:#1e1e1e; border:1px solid #444; color:white; border-radius:6px;">
-            <button onclick="loginWithEmail()"
-                style="width:100%; padding:12px; background:var(--accent-color); color:#000; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-bottom:10px;">ログイン</button>
-            <button onclick="registerWithEmail()"
-                style="width:100%; padding:12px; background:transparent; color:var(--text-main); border:1px solid #555; border-radius:6px; cursor:pointer; margin-bottom:20px;">新規登録</button>
-            <p class="login-id-hint">
-                ログインIDは登録時に指定したメールアドレスなどです。プロフィールの「表示名」とは別なのでご注意ください
-                （表示名はログイン後にプロフィールで確認・変更できます）。
-            </p>
+        <div class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="login-title"
+            aria-describedby="login-mode-hint">
+            <button type="button" class="login-close" onclick="closeLoginModal()" aria-label="閉じる" title="閉じる">
+                <span class="material-symbols-rounded">close</span>
+            </button>
+            <h2 id="login-title" class="login-title">Tune drop</h2>
+            <div class="auth-mode-switch" role="group" aria-label="ログインまたは新規登録">
+                <button type="button" id="auth-mode-login" class="auth-mode-btn is-active" aria-pressed="true"
+                    onclick="setAuthMode('login')">ログイン</button>
+                <button type="button" id="auth-mode-register" class="auth-mode-btn" aria-pressed="false"
+                    onclick="setAuthMode('register')">新規登録</button>
+            </div>
+            <p id="login-mode-hint" class="login-mode-hint" role="status"></p>
+            <form id="login-form" onsubmit="submitAuth(event)" style="margin:0;">
+                <div class="auth-field">
+                    <label class="auth-label" for="auth-username">ログインID</label>
+                    <input type="text" id="auth-username" aria-describedby="login-id-hint" placeholder="メールアドレスなど" autocomplete="username"
+                        autocapitalize="none" spellcheck="false">
+                </div>
+                <div class="auth-field">
+                    <label class="auth-label" for="auth-password">パスワード</label>
+                    <span class="auth-password-wrap">
+                        <input type="password" id="auth-password" placeholder="パスワード"
+                            autocomplete="current-password">
+                        <button type="button" id="auth-password-toggle" class="auth-password-toggle"
+                            aria-label="パスワードを表示" aria-pressed="false"
+                            onclick="toggleAuthPassword()">表示</button>
+                    </span>
+                </div>
+                <p class="login-id-hint" id="login-id-hint"></p>
+                <p id="auth-error" class="auth-error" role="alert" hidden></p>
+                <button id="login-submit" type="submit" class="auth-submit">ログイン</button>
+                <button id="register-submit" type="submit" class="auth-submit" hidden>新規登録</button>
             </form>
-            <hr style="border:0; border-top:1px solid #444; margin-bottom:20px;">
+            <hr class="login-divider" id="login-divider">
             <div id="g_id_signin" class="google-signin-box" style="display:flex; justify-content:center; min-height:40px;"></div>
             <p id="google-origin-hint" style="display:none; margin-top:10px; font-size:11px; line-height:1.6; word-break:break-all;"></p>
-            <button onclick="closeLoginModal()"
-                style="margin-top:20px; background:none; border:none; color:var(--text-sub); cursor:pointer;">閉じる</button>
         </div>
     </div>
+
+    <!-- 破壊的な操作の確認 (window.confirm は再生を止めて画面をブロックするため使わない) -->
+    <div id="confirm-modal" onclick="if (event.target === this) closeConfirmModal(false)"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:10000; align-items:center; justify-content:center;">
+        <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message"
+            style="background:var(--panel-bg); padding:28px; border-radius:12px; width:100%; max-width:400px; box-shadow:0 10px 30px rgba(0,0,0,0.8);">
+            <h3 id="confirm-modal-title" style="margin:0 0 12px; font-size:18px;">確認</h3>
+            <p id="confirm-modal-message"
+                style="margin:0 0 24px; color:var(--text-sub); font-size:14px; line-height:1.7; white-space:pre-line;"></p>
+            <div style="display:flex; justify-content:flex-end; gap:12px;">
+                <button id="confirm-modal-cancel" type="button" class="action-pill secondary"
+                    onclick="closeConfirmModal(false)">キャンセル</button>
+                <button id="confirm-modal-ok" type="button" class="action-pill"
+                    onclick="closeConfirmModal(true)">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <noscript><div class="noscript-notice">Tune dropを使うには、ブラウザのJavaScriptを有効にしてください。</div></noscript>
 
     <!-- 画面のビルドは Vite が行う (frontend/main.js から config.js / app.js / style.css を
          取り込む)。プロジェクト直下の index.html はこのファイルを元にしたビルド成果物で、

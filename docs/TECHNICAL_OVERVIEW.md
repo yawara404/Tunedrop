@@ -42,7 +42,7 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
     `/api.php/?action=...` に書き換えるため、`backend/router.php` の許可リストに弾かれて 403 になる
 - YouTube IFrame Player APIによる公式埋め込み再生（YouTube利用規約準拠）
 - Google Identity ServicesによるGoogleログイン（任意）
-- ログイン専用の画面構成。未ログイン時は機能紹介と静的なデモ (サンプル) を表示し、Manager / Radar / Share / Profile はログイン後にのみ利用できる。ログイン後は未ログイン時に開こうとしたURLの画面へ復帰する
+- ログイン専用の画面構成。未ログイン時は公開Radarからランダムに5曲を選ぶデモを表示し、YouTube公式プレイヤーでそのまま再生できる。Manager / Radar / Share / Profile はログイン後にのみ利用できる。ログイン後は未ログイン時に開こうとしたURLの画面へ復帰する
 - Inter + Material Symbols Rounded（`icon_names` サブセット約19KB）を使用
 - 楽曲マップはCanvas描画で、ズーム・パン・色分け（カテゴリ別）に対応
 - モダンCSS（CSS変数・`:has()`・pointer-events）によるタッチ／マウス両対応のドラッグ並び替えと、CSS変数ベースのテーマ
@@ -59,10 +59,11 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
   同じDBを同時に読み書きしてもリクエストが待たされない構成（スキーマ更新は版管理で必要時のみ実行）
 - MySQL スキーマ作成と既存データの移行は [MySQL 移行手順](MYSQL_MIGRATION.md) を参照（macOS なら `brew install mysql` から始める手順を記載）。`TUNEDROP_DB`（SQLite）は切り戻し用に残したまま、`.env` の `TUNEDROP_MYSQL_*` を設定すると MySQL 運用になります
 - 認証系はFlaskサーバーへのプロキシ（`.auth_port` から稼働ポートを動的検出）
+- 未ログインのデモ用 `demo_tracks` は、公開リストの解析済み曲だけを対象にランダム5曲を返す。UMAPの再計算を待たず、公開曲プールを60秒キャッシュし、`valence`×`energy` からマップ座標を作る（非公開曲は返さない）
 - 公開ファイル制限は `backend/router.php`（PHPビルトインサーバーのルーター）の許可リストで実施。
   配信するのは画面のビルド成果物（`frontend/dist/` の `index.html` と `assets/` のハッシュ付き資産。
   公開URLは整理前と同じ `/` と `/assets/...`）、`backend/api.php`・`backend/ogp.php`・
-  `robots.txt`・`sitemap.xml` とOGPカード画像（`frontend/favicon-card.png`）だけで、
+  `robots.txt`・`sitemap.xml` とOGP/アイコン画像（`frontend/ogp-card.png`・`frontend/favicon-card.png`）だけで、
   ビルド元の `frontend/*.js`・`*.css`、`backend/` のソース、`node_modules`、DB・鍵・バックアップは配信しない
   （`assets/` はファイル名に内容のハッシュが入るため長期キャッシュ、`index.html` は ETag / Last-Modified で毎回検証し 304 で本文を送らない）
 
@@ -70,7 +71,7 @@ PHP: 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35 以降が必須（2026-10-21 公表の RC
 
 - Python (Flask + flask-cors + PyJWT + Werkzeug + google-auth) によるメール登録・ログイン・Googleログイン検証
 - ログインIDは登録時に入力した値（メールアドレスなど）で、プロフィールで変更できる「表示名」とは別。プロフィール画面にログインIDを表示して取り違えを防ぐ
-- ゲスト認証 (`/auth/guest`) はAPI互換のため残しているが、画面はログイン専用で、未ログイン時はデモ表示のみ（APIは呼ばない）。旧ゲストの `localStorage` 認証情報は画面からは利用しない
+- ゲスト認証 (`/auth/guest`) はAPI互換のため残しているが、画面は未ログイン時も公開Radarのデモを表示する。デモは `demo_tracks`（公開曲のみ）を使い、保存系APIは呼ばない。旧ゲストの `localStorage` 認証情報は画面からは利用しない
 - Waitressで配信（未導入時はFlask開発サーバーにフォールバック）。空きポートを自動選択し `.auth_port` に記録
 - パスワードはハッシュ化して保存し、署名付きJWT（24時間）でセッションを維持
 - 楽曲メタデータ取得はYouTube Data API v3（任意、未設定時はoEmbed/noembedフォールバック）

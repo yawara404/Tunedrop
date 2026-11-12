@@ -8,7 +8,7 @@ from pathlib import Path
 from runtime_config import load_environment
 
 
-TABLES = ('users', 'playlists', 'bookmarks', 'public_favorites', 'analysis_cache', 'site_settings')
+TABLES = ('users', 'playlists', 'bookmarks', 'public_favorites', 'user_follows', 'analysis_cache', 'site_settings')
 
 
 def main():

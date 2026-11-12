@@ -21,7 +21,7 @@ mysql -u root -e "
   GRANT ALL PRIVILEGES ON tunedrop.* TO 'tunedrop'@'127.0.0.1';
   FLUSH PRIVILEGES;"
 
-# スキーマ（テーブル6つ）を適用する
+# スキーマ（テーブル7つ。user_follows を含む）を適用する
 mysql -u root tunedrop < backend/mysql_schema.sql
 mysql -u root tunedrop -e 'SHOW TABLES;'
 ```
@@ -56,6 +56,7 @@ mysql -u root tunedrop -e 'SHOW TABLES;'
 
 ## 3. 運用メモ
 
+- **フォロー機能の追加**: `user_follows` テーブルは `backend/mysql_schema.sql` に含まれます。既存の MySQL DB でも、プロフィールまたはフォロー API の初回アクセス時に `CREATE TABLE IF NOT EXISTS` で自動作成されます（SQLite はスキーマ版 3 で追加）。
 - **バックアップ**: `mysqldump --single-transaction --databases tunedrop > tunedrop-$(date +%Y%m%d-%H%M%S).sql`。管理画面の SQLite ファイルバックアップは MySQL では利用できません。
 - **テスト**: テストは一時 SQLite を前提に書かれています。`.env` に `TUNEDROP_MYSQL_*` がある状態で個別に実行すると**本番 MySQL へ接続してしまう**ため、同梱のランナーを使ってください（MySQL 設定を空にして実行します）。
 

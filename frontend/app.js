@@ -176,7 +176,9 @@ let sessionExpiredNoticeAt = 0;
 
 export function handleExpiredSession() {
     if (!localStorage.getItem('tunedrop_token')) return;
-    clearSession();   // 無効なトークンを捨てる (以降はゲストとして扱われる)
+    clearSession();   // 無効なトークンを捨てる
+    // ログイン専用のため、期限切れ後は初期ビュー (デモ) へ戻す
+    showWelcomeView();
     if (Date.now() - sessionExpiredNoticeAt < 10000) return;
     sessionExpiredNoticeAt = Date.now();
     showToast('ログインの有効期限が切れました。もう一度ログインしてください。', 'error');
@@ -248,6 +250,8 @@ export async function ensureTunedropGuest(apiUrl) {
 // エラーは読み上げにも乗る role="alert" で、成功より長く表示する。
 // ==========================================================
 const TOAST_DURATION = { success: 2800, info: 3600, error: 5200 };
+// 同時に3件まで。連打で同じ通知が積み上がって画面を覆わないようにする。
+const MAX_TOASTS = 3;
 
 export function showToast(message, kind = 'success') {
     const text = String(message == null ? '' : message).trim();
@@ -259,6 +263,17 @@ export function showToast(message, kind = 'success') {
         host.id = 'toast-host';
         host.className = 'toast-host';
         document.body.appendChild(host);
+    }
+    // 同じ内容が連続したら積まない (二重クリックやポーリングの連通知対策)
+    const currentToasts = host.children ? [...host.children] : [];
+    const duplicate = currentToasts.find(
+        element => element.classList && element.classList.contains(`toast-${type}`) && element.textContent === text
+    );
+    if (duplicate) return duplicate;
+    while (host.children && host.children.length >= MAX_TOASTS) {
+        const oldest = host.firstElementChild || host.children[0];
+        if (!oldest) break;
+        oldest.remove();
     }
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
@@ -290,13 +305,41 @@ const MODAL_CLOSERS = [
     { id: 'create-playlist-modal', close: () => closeCreatePlaylistModal() },
     { id: 'edit-playlist-modal', close: () => closeEditPlaylistModal() },
     { id: 'move-track-modal', close: () => closeMoveModal() },
+    { id: 'radar-save-modal', close: () => closeRadarSaveModal() },
     { id: 'export-preview-modal', close: () => closeExportModal() },
     { id: 'login-modal', close: () => closeLoginModal() },
+    // 確認ダイアログは最後 (最前面) に閉じる。キャンセル扱い。
+    { id: 'confirm-modal', close: () => closeConfirmModal(false) },
 ];
 
 export function isModalVisible(id) {
     const modal = document.getElementById(id);
     return Boolean(modal) && modal.style.display !== 'none';
+}
+
+// Keep keyboard navigation in the frontmost dialog, including confirmation dialogs
+// stacked above sign-in. The existing auth handler covers Google's embedded button.
+export function trapModalFocus(event) {
+    if (!event || event.key !== 'Tab' || event.defaultPrevented) return;
+    if (document.body?.classList.contains('maintenance-open')) return;
+    const top = [...MODAL_CLOSERS].reverse().find(item =>
+        typeof item.isOpen === 'function' ? item.isOpen() : isModalVisible(item.id));
+    if (!top) return;
+    if (top.id === 'login-modal') return trapAuthModalFocus(event);
+    const modal = document.getElementById(top.id);
+    if (!modal || typeof modal.querySelectorAll !== 'function') return;
+    const controls = [...modal.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]):not([type="hidden"]), ' +
+        'select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    )].filter(el => !el.hidden && (!el.getClientRects || el.getClientRects().length > 0));
+    if (!controls.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    const active = document.activeElement;
+    if (!modal.contains(active) || (event.shiftKey && active === first) || (!event.shiftKey && active === last)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+    }
 }
 
 export function closeTopmostModal() {
@@ -309,6 +352,106 @@ export function closeTopmostModal() {
         }
     }
     return false;
+}
+
+// ==========================================================
+// 共通UI: 確認ダイアログ (window.confirm の置き換え)
+// ----------------------------------------------------------
+// window.confirm は再生中の音を止め、閉じるまで画面全体をブロックする。
+// 見た目もブラウザ依存なので、アプリ内のモーダルで確認する。
+//   const ok = await showConfirm({ title, message, confirmLabel, danger });
+// ==========================================================
+let confirmResolver = null;
+let confirmReturnFocus = null;
+
+export function showConfirm(options = {}) {
+    const modal = document.getElementById('confirm-modal');
+    const message = String(options.message || '').trim();
+    // index.html が無いテスト環境では従来の confirm にフォールバックする
+    if (!modal) {
+        return Promise.resolve(typeof window !== 'undefined' && typeof window.confirm === 'function'
+            ? window.confirm(message)
+            : false);
+    }
+    if (confirmResolver) {
+        const previous = confirmResolver;
+        confirmResolver = null;
+        previous(false);
+    }
+    confirmReturnFocus = typeof document !== 'undefined' ? document.activeElement : null;
+    document.getElementById('confirm-modal-title').textContent = options.title || '確認';
+    document.getElementById('confirm-modal-message').textContent = message;
+    const okButton = document.getElementById('confirm-modal-ok');
+    const cancelButton = document.getElementById('confirm-modal-cancel');
+    if (okButton) {
+        okButton.textContent = options.confirmLabel || 'OK';
+        okButton.classList.toggle('danger', Boolean(options.danger));
+    }
+    if (cancelButton) cancelButton.textContent = options.cancelLabel || 'キャンセル';
+    modal.style.display = 'flex';
+    // 破壊的な操作は「キャンセル」にフォーカスして、Enter の誤確定を防ぐ
+    const focusTarget = options.danger ? cancelButton : okButton;
+    if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus();
+    return new Promise(resolve => { confirmResolver = resolve; });
+}
+
+export function closeConfirmModal(result) {
+    const modal = document.getElementById('confirm-modal');
+    if (modal) modal.style.display = 'none';
+    const resolve = confirmResolver;
+    confirmResolver = null;
+    if (resolve) resolve(Boolean(result));
+    if (confirmReturnFocus && confirmReturnFocus.isConnected !== false
+        && typeof confirmReturnFocus.focus === 'function') {
+        confirmReturnFocus.focus();
+    }
+    confirmReturnFocus = null;
+}
+
+// クリップボードへコピーする。HTTPS でない環境や古いブラウザでも動くよう
+// Clipboard API → execCommand の順に試す。
+export async function copyTextToClipboard(text) {
+    const value = String(text == null ? '' : text);
+    if (!value) return false;
+    try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(value);
+            return true;
+        }
+    } catch (_) { /* 権限や非セキュアコンテキストでは execCommand を試す */ }
+    try {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.top = '-1000px';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = typeof document.execCommand === 'function' && document.execCommand('copy');
+        textarea.remove();
+        return Boolean(copied);
+    } catch (_) {
+        return false;
+    }
+}
+
+// 送信ボタンの二重クリックを防ぐ (処理中は文言を変えて無効化する)。
+function setActionBusy(button, busy, busyLabel) {
+    if (!button) return false;
+    if (busy) {
+        if (button.disabled) return false;
+        button.dataset.idleLabel = button.textContent;
+        button.textContent = busyLabel;
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        return true;
+    }
+    if (button.dataset.idleLabel) button.textContent = button.dataset.idleLabel;
+    delete button.dataset.idleLabel;
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    return true;
 }
 
 // ==========================================================
@@ -329,6 +472,8 @@ export function extractYouTubeIds(text) {
 }
 
 let player;
+// プレイヤーを閉じた直後に YouTube が ENDED を返しても次曲へ進まないための期限
+let ignorePlayerEndedUntil = 0;
 let playerReady = false;
 let isPlaying = false;
 let progressInterval;
@@ -343,7 +488,13 @@ let sharePlaylists = [];
 let shareRecommended = [];
 let currentTracks = [];
 let currentDetailTracks = [];
+let currentDetailIsMine = false;   // 表示中のリストが自分のものか (移動・削除の可否)
+let detailReturnView = 'share';    // 詳細画面の「戻る」先 (share / manager)
 let selectedTrackIdForMove = null;
+let bulkMoveTrackIds = [];          // 複数選択から移動する bookmarks.id
+let managerSelectMode = false;      // Manager の曲カードを複数選択中か
+let managerSelectedTrackIds = new Set();  // 選択中の bookmarks.id
+let managerSelectionAnchorId = null;      // Shift+クリックの起点
 let managerSummary = null;          // Managerホームの集計 (get_manager_summary)
 let managerSummaryPromise = null;   // 同時リクエストの重複防止
 let managerSummaryError = false;    // 集計の取得に失敗したか (再試行の案内に使う)
@@ -473,13 +624,763 @@ window.addEventListener('resize', () => {
 export function closeYoutubePlayer() {
     const popup = document.getElementById('youtube-popup');
     if (!popup) return;
+    // stopVideo() は YouTube 側で ENDED を発火し、自動次曲に進むことがある。
+    // 閉じる操作では自動送りを抑止し、pause で音だけ止める。
+    ignorePlayerEndedUntil = Date.now() + 1000;
     popup.classList.remove('is-active');
-    if (player && player.stopVideo) player.stopVideo();
+    if (player) {
+        if (typeof player.pauseVideo === 'function') player.pauseVideo();
+        else if (typeof player.stopVideo === 'function') player.stopVideo();
+    }
     isPlaying = false;
+    const playBtn = document.getElementById('play-pause-btn');
+    if (playBtn) playBtn.classList.remove('is-playing');
     clearInterval(progressInterval);
 }
 
+// ==========================================================
+// ログイン専用モード / 未ログインのデモ初期ビュー
+// ----------------------------------------------------------
+// Tune drop はログイン専用のアプリ。未ログインのときは
+// #view-welcome (デモ) だけを表示し、Manager / Radar / Share /
+// Profile は開けない (navigateView / applyPathView でガードする)。
+// デモは静的なサンプルで、APIは一切呼ばない。
+// ==========================================================
+export function hasAccountSession() {
+    try {
+        return Boolean(localStorage.getItem('tunedrop_token'));
+    } catch (_) {
+        return false;
+    }
+}
+
+// デモの「新規登録 / ログイン」ボタンから開く。モードに応じて案内文を変える。
+export function openAuthModal(mode) {
+    showLoginModal(mode === 'register' ? 'register' : 'login');
+}
+
+// 未ログインでアプリの操作をしようとしたときの共通案内
+export function promptLogin(message) {
+    showToast(message || 'デモ表示です。ログインすると使えます。', 'info');
+    showLoginModal();
+}
+
+export function prefersReducedMotion() {
+    return typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+export function scrollToWelcomeDemo() {
+    const target = document.getElementById('welcome-demo');
+    if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    }
+}
+
+export function scrollToWelcomeGuide() {
+    const target = document.getElementById('welcome-howto');
+    if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
+    }
+}
+
+export function showWelcomeView() {
+    renderWelcomeDemo();
+    const view = document.getElementById('view-welcome');
+    const wasActive = Boolean(view && view.classList.contains('active'));
+    switchView('welcome');
+    // ロゴクリックやログアウトで戻ったときに、前回のスクロール位置に残らないようにする
+    if (!view) return;
+    if (typeof view.scrollTo === 'function') {
+        view.scrollTo({ top: 0, behavior: wasActive && !prefersReducedMotion() ? 'smooth' : 'auto' });
+    } else {
+        view.scrollTop = 0;
+    }
+}
+
+// ----------------------------------------------------------
+// 未ログインのデモ: Radar Radio
+// ----------------------------------------------------------
+// 公開RadarのデモAPI (api.php?action=demo_tracks) からランダムに5曲を選び、
+// YouTube公式プレイヤーで再生する。APIに接続できない場合も、同じ画面構成の
+// サンプル5曲で再生できるようにしておく。
+const WELCOME_DEMO_COUNT = 5;
+const WELCOME_DEMO_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const WELCOME_DEMO_PLAYER_STATE = { ENDED: 0, PLAYING: 1 };
+const WELCOME_DEMO_MAP_PADDING = 8;
+const WELCOME_DEMO_MAP_SPAN = 84;
+const WELCOME_DEMO_MAP_BASE = `
+    <line class="demo-radar-grid" x1="0" y1="50" x2="100" y2="50"></line>
+    <line class="demo-radar-grid" x1="50" y1="0" x2="50" y2="100"></line>
+    <circle class="demo-radar-ring" cx="50" cy="50" r="36"></circle>
+    <circle class="demo-radar-ring" cx="50" cy="50" r="22"></circle>
+    <circle class="demo-radar-ring" cx="50" cy="50" r="8"></circle>`;
+
+const WELCOME_DEMO_FALLBACK_TRACKS = [
+    { youtube_id: 'bPI0_YzOiEw', title: 'i wanna be your world', channel: 'kz (livetune)', category: 'J-POP', features: { x: 0.801, y: 0.4205, mood: 'calm', tempo: 149.7 } },
+    { youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'kz (livetune)', category: 'J-POP', features: { x: 0.4529, y: 0.5842, mood: 'energetic', tempo: 127.4 } },
+    { youtube_id: 'cZYYwtnUarU', title: '東京真中 - レムニスケート feat. 初音ミク', channel: '東京真中', category: 'Vocaloid', features: { x: 0.6969, y: 0.6383, mood: 'energetic', tempo: 104.9 } },
+    { youtube_id: '4cArp-fgrOU', title: '笹川真生 - サニーサイドへようこそ', channel: '笹川真生 - Mao Sasagawa', category: 'J-POP', features: { x: 0.3001, y: 0.74, mood: 'energetic', tempo: 110.7 } },
+    { youtube_id: '_UyCmkC64zk', title: 'KAIRUI & higma - ネバーエンド(feat.初音ミク)', channel: 'KAIRUI', category: 'Vocaloid', features: { x: 0.95, y: 0.3215, mood: 'energetic', tempo: 127.9 } },
+];
+
+function demoToneFor(track) {
+    const category = String(track && track.category || '').toLowerCase();
+    if (category.includes('lo-fi') || category.includes('lofi')) return 'lofi';
+    if (category.includes('anime') || category.includes('vocaloid')) return 'anime';
+    if (category.includes('j-pop') || category.includes('jpop')) return 'jpop';
+    return 'other';
+}
+
+function normalizeDemoTrack(point) {
+    const source = point && typeof point === 'object' ? point : {};
+    const features = source.features && typeof source.features === 'object' ? source.features : {};
+    const x = Number(source.x !== undefined ? source.x : features.x);
+    const y = Number(source.y !== undefined ? source.y : features.y);
+    const mood = source.mood !== undefined ? source.mood : features.mood;
+    const tempo = Number(source.tempo !== undefined ? source.tempo : features.tempo);
+    return {
+        youtube_id: String(source.youtube_id || ''),
+        title: String(source.title || '').trim() || 'タイトル不明',
+        channel: String(source.channel || '').trim() || 'Unknown Artist',
+        category: String(source.category || 'Other').trim() || 'Other',
+        mood: String(mood || '').trim(),
+        tempo: Number.isFinite(tempo) ? tempo : 0,
+        x: Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0.5,
+        y: Number.isFinite(y) ? Math.min(1, Math.max(0, y)) : 0.5,
+    };
+}
+
+function normalizeDemoList(list) {
+    const seen = new Set();
+    return (Array.isArray(list) ? list : [])
+        .map(normalizeDemoTrack)
+        .filter(track => {
+            if (!WELCOME_DEMO_VIDEO_ID_RE.test(track.youtube_id) || seen.has(track.youtube_id)) return false;
+            seen.add(track.youtube_id);
+            return true;
+        });
+}
+
+function spreadDemoCoordinates(items, reference = items) {
+    if (!items.length || !reference.length) return items;
+    const axisRange = (axis) => {
+        const values = reference.map(item => item[axis]).filter(Number.isFinite);
+        if (!values.length) return null;
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        return max - min > 1e-6 ? { min, span: max - min } : null;
+    };
+    const xr = axisRange('x');
+    const yr = axisRange('y');
+    // 解析値は中央付近に固まりやすい。デモでは5曲の位置関係が読めるよう、
+    // 極端に狭い場合だけ 0.08〜0.92 に引き伸ばす (本物のRadarの座標は変えない)。
+    if (xr && xr.span < 0.45) {
+        items.forEach(item => { item.x = 0.08 + ((item.x - xr.min) / xr.span) * 0.84; });
+    }
+    if (yr && yr.span < 0.45) {
+        items.forEach(item => { item.y = 0.08 + ((item.y - yr.min) / yr.span) * 0.84; });
+    }
+    return items;
+}
+
+function separateDemoDots(tracks) {
+    const clamp = (value) => Math.min(0.92, Math.max(0.08, value));
+    const placed = [];
+    tracks.forEach((track, index) => {
+        const originX = track.x;
+        const originY = track.y;
+        let x = originX;
+        let y = originY;
+        let attempt = 0;
+        while (placed.some(p => Math.hypot(p.x - x, p.y - y) < 0.14) && attempt < 24) {
+            const angle = index * 1.7 + attempt * 2.4;
+            const radius = 0.08 + Math.floor(attempt / 6) * 0.05;
+            x = clamp(originX + Math.cos(angle) * radius);
+            y = clamp(originY + Math.sin(angle) * radius);
+            attempt += 1;
+        }
+        track.x = x;
+        track.y = y;
+        placed.push(track);
+    });
+    return tracks;
+}
+
+function pickWelcomeDemoTracks(points, count = WELCOME_DEMO_COUNT) {
+    const unique = normalizeDemoList(points);
+    for (let i = unique.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [unique[i], unique[j]] = [unique[j], unique[i]];
+    }
+    return unique.slice(0, count);
+}
+
+function fillWelcomeDemoTracks(tracks, count = WELCOME_DEMO_COUNT) {
+    const result = [...tracks];
+    const seen = new Set(result.map(track => track.youtube_id));
+    for (const fallback of WELCOME_DEMO_FALLBACK_TRACKS) {
+        if (result.length >= count) break;
+        const track = normalizeDemoTrack(fallback);
+        if (seen.has(track.youtube_id)) continue;
+        seen.add(track.youtube_id);
+        result.push(track);
+    }
+    return result.slice(0, count);
+}
+
+function prepareWelcomeDemoTracks(points, count = WELCOME_DEMO_COUNT) {
+    return separateDemoDots(fillWelcomeDemoTracks(pickWelcomeDemoTracks(points, count), count));
+}
+
+function welcomeDemoMapPercent(value, invert = false) {
+    const percent = WELCOME_DEMO_MAP_PADDING + value * WELCOME_DEMO_MAP_SPAN;
+    return invert ? 100 - percent : percent;
+}
+
+
+
+// デモ画面の状態・描画・プレイヤー操作を1か所にまとめる。
+// 以前は12個のモジュール変数と関数が散在し、非同期取得の結果が
+// 別の画面状態を上書きすることがあった。ここでは state を this に集約し、
+// API取得には世代番号を付けて古い応答を無視する。
+class WelcomeDemoController {
+    constructor() {
+        this.resetState();
+    }
+
+    resetState() {
+        this.els = Object.create(null);
+        this.rendered = false;
+        this.pool = [];
+        this.tracks = [];
+        this.index = 0;
+        this.player = null;
+        this.playerReady = false;
+        this.started = false;
+        this.playing = false;
+        this.creating = false;
+        this.progressTimer = null;
+        this.errorStreak = 0;
+        this.apiRequest = 0;
+        this.bootTimer = null;
+        this.sourceIsPublic = false;
+        this.ignoreEndedUntil = 0;
+    }
+
+    get track() {
+        return this.tracks[this.index] || null;
+    }
+
+    el(id) {
+        if (this.els[id]) return this.els[id];
+        const node = document.getElementById(id);
+        if (node) this.els[id] = node;
+        return node;
+    }
+
+    setText(id, text) {
+        const node = this.el(id);
+        if (node) node.textContent = text;
+    }
+
+    setNote(message) {
+        this.setText('demo-queue-note', message);
+    }
+
+    setSource(text) {
+        this.setText('demo-source', text);
+    }
+
+    setLoading(loading) {
+        const box = this.el('demo-screen-loading');
+        if (box) box.hidden = !loading;
+    }
+
+    render(force = false) {
+        if (this.rendered && !force) return;
+        if (!this.el('demo-queue') || !this.el('demo-radar')) return;
+        if (force) {
+            this.destroyPlayer();
+            this.els = Object.create(null);
+            this.apiRequest += 1;
+        }
+        this.sourceIsPublic = false;
+        this.pool = [...WELCOME_DEMO_FALLBACK_TRACKS];
+        this.tracks = prepareWelcomeDemoTracks(this.pool);
+        this.index = 0;
+        this.renderAll();
+        this.setSource('RADAR / SAMPLE');
+        this.setNote('公開Radarから5曲を選んでいます…');
+        this.rendered = true;
+        void this.loadTracks();
+    }
+
+    renderAll() {
+        this.renderQueue();
+        this.drawRadar();
+        this.updateUI();
+    }
+
+    renderQueue() {
+        const host = this.el('demo-queue');
+        if (!host) return;
+        this.setText('demo-queue-count', String(this.tracks.length));
+        host.innerHTML = this.tracks.map((track, index) => {
+            const isCurrent = index === this.index;
+            const active = isCurrent ? ' is-active' : '';
+            const tone = demoToneFor(track);
+            const thumb = `https://i.ytimg.com/vi/${track.youtube_id}/mqdefault.jpg`;
+            return `
+                <li class="demo-queue-item${active}">
+                    <button type="button" class="demo-queue-btn${active}" data-demo-track="${index}"
+                        onclick="playWelcomeTrack(${index})" aria-label="${escapeHtml(track.title)} を再生">
+                        <span class="demo-queue-no">${String(index + 1).padStart(2, '0')}</span>
+                        <span class="demo-queue-thumb">
+                            <img src="${thumb}" alt="" loading="lazy">
+                            <span class="demo-queue-play"><span class="material-symbols-rounded">${isCurrent && this.playing ? 'pause' : 'play_arrow'}</span></span>
+                        </span>
+                        <span class="demo-queue-main">
+                            <strong>${escapeHtml(track.title)}</strong>
+                            <small>${escapeHtml(track.channel)}</small>
+                        </span>
+                        <span class="demo-queue-meta">
+                            <span class="tone-${tone}">${escapeHtml(track.category)}</span>
+                            <small>${track.tempo ? Math.round(track.tempo) + ' BPM' : '—'}</small>
+                        </span>
+                    </button>
+                </li>`;
+        }).join('');
+    }
+
+    drawRadar() {
+        const svg = this.el('demo-radar');
+        const dots = this.el('demo-radar-dots');
+        if (!svg || !dots) return;
+        const pool = this.pool.length ? this.pool : this.tracks;
+        const backgroundDots = pool.slice(0, 120).map(point => {
+            const track = normalizeDemoTrack(point);
+            const x = welcomeDemoMapPercent(track.x);
+            const y = welcomeDemoMapPercent(track.y, true);
+            return `<circle class="demo-radar-bg tone-${demoToneFor(track)}" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="0.9"></circle>`;
+        }).join('');
+        svg.innerHTML = WELCOME_DEMO_MAP_BASE + backgroundDots;
+        dots.innerHTML = this.tracks.map((track, index) => {
+            const left = welcomeDemoMapPercent(track.x);
+            const top = welcomeDemoMapPercent(track.y, true);
+            const active = index === this.index ? ' is-active' : '';
+            return `<button type="button" class="demo-radar-dot tone-${demoToneFor(track)}${active}"
+                data-demo-point="${index}" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%"
+                onclick="playWelcomeTrack(${index})" aria-label="${escapeHtml(track.title)} を再生">${index + 1}</button>`;
+        }).join('');
+    }
+
+    updateUI() {
+        const track = this.track;
+        if (!track) return;
+        const label = `${String(this.index + 1).padStart(2, '0')} / ${String(this.tracks.length).padStart(2, '0')}`;
+        this.setText('demo-screen-index', label);
+        this.setText('demo-now-index', label);
+        this.setText('demo-title', track.title);
+        this.setText('demo-artist', track.channel);
+
+        const poster = this.el('demo-poster');
+        if (poster) {
+            poster.src = `https://i.ytimg.com/vi/${track.youtube_id}/hq720.jpg`;
+            poster.onerror = () => {
+                poster.onerror = null;
+                poster.src = `https://i.ytimg.com/vi/${track.youtube_id}/mqdefault.jpg`;
+            };
+            poster.alt = `${track.title} のサムネイル`;
+        }
+        const link = this.el('demo-youtube-link');
+        if (link) link.href = `https://www.youtube.com/watch?v=${track.youtube_id}`;
+
+        const tags = [
+            track.category ? { label: track.category, tone: demoToneFor(track) } : null,
+            track.mood ? { label: track.mood } : null,
+            track.tempo ? { label: `${Math.round(track.tempo)} BPM` } : null,
+        ].filter(Boolean);
+        const tagHost = this.el('demo-tags');
+        if (tagHost) {
+            tagHost.innerHTML = tags.map(tag => {
+                const tone = tag.tone ? ` class="tone-${tag.tone}"` : '';
+                return `<span${tone}>${escapeHtml(tag.label)}</span>`;
+            }).join('');
+        }
+
+        const playIcon = this.el('demo-play-icon');
+        if (playIcon) playIcon.textContent = this.playing ? 'pause' : 'play_arrow';
+        const playBtn = this.el('demo-play-btn');
+        if (playBtn) {
+            playBtn.classList.toggle('is-playing', this.playing);
+            playBtn.setAttribute('aria-label', this.playing ? '一時停止' : '再生');
+        }
+        const screen = this.el('demo-screen');
+        if (screen) screen.classList.toggle('is-started', this.started);
+
+        const queue = this.el('demo-queue');
+        if (queue) {
+            queue.querySelectorAll('[data-demo-track]').forEach(button => {
+                const isActive = Number(button.dataset.demoTrack) === this.index;
+                button.classList.toggle('is-active', isActive);
+                const item = button.closest('.demo-queue-item');
+                if (item) item.classList.toggle('is-active', isActive);
+                const queueIcon = button.querySelector('.demo-queue-play .material-symbols-rounded');
+                if (queueIcon) queueIcon.textContent = isActive && this.playing ? 'pause' : 'play_arrow';
+            });
+        }
+        const dots = this.el('demo-radar-dots');
+        if (dots) {
+            dots.querySelectorAll('[data-demo-point]').forEach(button => {
+                button.classList.toggle('is-active', Number(button.dataset.demoPoint) === this.index);
+            });
+        }
+    }
+
+    parseTrackPayload(data) {
+        const points = normalizeDemoList(data && data.points);
+        const picksSource = Array.isArray(data && data.picks) && data.picks.length
+            ? data.picks
+            : points;
+        const picks = normalizeDemoList(picksSource);
+        if (!points.length || !picks.length) {
+            throw new Error('demo_tracks returned no playable tracks');
+        }
+        return { points, picks };
+    }
+
+    async loadTracks() {
+        if (hasAccountSession()) return;
+        const request = ++this.apiRequest;
+        try {
+            const api = await resolveTunedropApi();
+            const url = new URL(api.href);
+            url.search = '?action=demo_tracks';
+            const response = await fetch(url, {
+                headers: { Accept: 'application/json' },
+                cache: 'no-store',
+            });
+            if (request !== this.apiRequest) return;
+            if (!response.ok) throw new Error(`demo_tracks ${response.status}`);
+            const { points, picks } = this.parseTrackPayload(await response.json());
+            if (request !== this.apiRequest) return;
+            this.pool = spreadDemoCoordinates(points.map(track => ({ ...track })), points);
+            const spreadPicks = spreadDemoCoordinates(picks.map(track => ({ ...track })), points);
+            this.setText('demo-radar-caption', `${points.length}曲の公開Radar`);
+            this.setSource('RADAR / PUBLIC');
+            this.sourceIsPublic = true;
+            this.setNote(`${points.length}曲の公開Radarからランダムに5曲。曲が終わると次へ進みます。`);
+            // ユーザーがサンプル曲を再生し始めた後は、キューを勝手に差し替えない。
+            if (!this.started) {
+                this.tracks = prepareWelcomeDemoTracks(spreadPicks);
+                this.index = 0;
+                this.renderQueue();
+                this.updateUI();
+            }
+            this.drawRadar();
+        } catch (error) {
+            if (request !== this.apiRequest) return;
+            console.warn('Radarデモの取得に失敗しました:', error);
+            this.setSource('RADAR / SAMPLE');
+            this.sourceIsPublic = false;
+            this.setNote('公開Radarに接続できないため、サンプル5曲を表示しています。');
+        } finally {
+        }
+    }
+
+    reroll() {
+        const pool = this.pool.length ? this.pool : WELCOME_DEMO_FALLBACK_TRACKS;
+        const picked = prepareWelcomeDemoTracks(pool);
+        if (!picked.length) return;
+        this.destroyPlayer();
+        this.tracks = picked;
+        this.index = 0;
+        this.renderAll();
+        this.setNote('別の5曲を選びました。曲を選ぶと再生が始まります。');
+        this.setSource(this.sourceIsPublic ? 'RADAR / PUBLIC' : 'RADAR / SAMPLE');
+    }
+
+
+    clearBootTimer() {
+        if (this.bootTimer) {
+            clearTimeout(this.bootTimer);
+            this.bootTimer = null;
+        }
+    }
+
+    destroyPlayer() {
+        this.stopProgress();
+        this.clearBootTimer();
+        if (this.player && typeof this.player.destroy === 'function') {
+            try { this.player.destroy(); } catch (_) { /* iframe already gone */ }
+        }
+        this.player = null;
+        this.playerReady = false;
+        this.started = false;
+        this.playing = false;
+        this.creating = false;
+        this.errorStreak = 0;
+        this.ignoreEndedUntil = 0;
+        const host = this.el('demo-player-mount');
+        if (host) host.innerHTML = '';
+        const screen = this.el('demo-screen');
+        if (screen) screen.classList.remove('is-started');
+        this.setLoading(false);
+        this.resetProgress();
+    }
+
+    resetProgress() {
+        const fill = this.el('demo-progress-fill');
+        if (fill) fill.style.width = '0%';
+        this.setText('demo-time', '0:00 / 0:00');
+        const bar = this.el('demo-progress');
+        if (bar) bar.setAttribute('aria-valuenow', '0');
+    }
+
+    createPlayer(track) {
+        if (this.creating || this.player) return;
+        this.creating = true;
+        this.setLoading(true);
+        let attempts = 0;
+        const boot = () => {
+            if (!this.creating) return;
+            if (!(window.YT && window.YT.Player)) {
+                attempts += 1;
+                if (attempts <= 40) {
+                    this.bootTimer = setTimeout(boot, 250);
+                    return;
+                }
+                this.creating = false;
+                this.setLoading(false);
+                showToast('YouTubeプレイヤーを読み込めませんでした。通信環境を確認してください。', 'error');
+                return;
+            }
+            this.bootTimer = null;
+            const host = this.el('demo-player-mount');
+            if (!host) {
+                this.creating = false;
+                this.setLoading(false);
+                return;
+            }
+            host.innerHTML = '<div id="demo-player-frame"></div>';
+            try {
+                this.player = new window.YT.Player('demo-player-frame', {
+                    videoId: track.youtube_id,
+                    playerVars: {
+                        autoplay: 1,
+                        cc_load_policy: 0,
+                        controls: 0,
+                        disablekb: 1,
+                        enablejsapi: 1,
+                        fs: 1,
+                        modestbranding: 1,
+                        origin: window.location.origin,
+                        playsinline: 1,
+                        rel: 0,
+                    },
+                    events: {
+                        onReady: event => this.onPlayerReady(event),
+                        onStateChange: event => this.onPlayerState(event),
+                        onError: event => this.onPlayerError(event),
+                    },
+                });
+            } catch (error) {
+                console.warn('YouTubeプレイヤーの作成に失敗しました:', error);
+                this.creating = false;
+                this.setLoading(false);
+                showToast('YouTubeプレイヤーを開始できませんでした。', 'error');
+            }
+        };
+        boot();
+    }
+
+    onPlayerReady(event) {
+        if (this.player !== event.target) return;
+        this.playerReady = true;
+        this.creating = false;
+        this.started = true;
+        this.setLoading(false);
+        const track = this.track;
+        try {
+            const loaded = event.target.getVideoData?.().video_id;
+            if (track && loaded && loaded !== track.youtube_id) {
+                event.target.loadVideoById(track.youtube_id);
+            } else {
+                event.target.playVideo();
+            }
+        } catch (_) {
+            // playVideo はユーザー操作後のため、失敗しても次回のクリックで再試行できる
+        }
+        this.updateUI();
+    }
+
+    onPlayerState(event) {
+        if (this.player !== event.target) return;
+        this.playing = event.data === WELCOME_DEMO_PLAYER_STATE.PLAYING;
+        if (this.playing) {
+            this.errorStreak = 0;
+            this.startProgress();
+        } else {
+            this.stopProgress();
+        }
+        this.updateUI();
+        if (event.data === WELCOME_DEMO_PLAYER_STATE.ENDED) {
+            // 曲の切り替え直後に前の動画の ENDED が届いても、勝手に次へ進めない。
+            if (Date.now() < this.ignoreEndedUntil) return;
+            this.next();
+        }
+    }
+
+    onPlayerError(event) {
+        if (this.player !== event.target) return;
+        console.warn('YouTubeデモ再生エラー:', event.data);
+        this.errorStreak += 1;
+        if (this.errorStreak > this.tracks.length) {
+            this.playing = false;
+            this.stopProgress();
+            this.updateUI();
+            showToast('この5曲は再生できませんでした。別の5曲を試してください。', 'error');
+            return;
+        }
+        this.next();
+    }
+
+
+    play(index = this.index) {
+        const nextIndex = Number(index);
+        if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= this.tracks.length) return;
+        this.index = nextIndex;
+        this.errorStreak = 0;
+        this.ignoreEndedUntil = Date.now() + 1500;
+        const track = this.track;
+        if (!track) return;
+        if (this.player || this.creating) this.started = true;
+        this.updateUI();
+        if (this.player && this.playerReady) {
+            try {
+                const loaded = this.player.getVideoData?.().video_id;
+                if (loaded === track.youtube_id) this.player.playVideo();
+                else this.player.loadVideoById(track.youtube_id);
+            } catch (error) {
+                console.warn('デモ曲の切り替えに失敗しました:', error);
+            }
+            return;
+        }
+        if (this.creating) return;   // onReady で最新の曲を読み込む
+        if (this.player) return;      // 作成直後で onReady 待ち
+        this.createPlayer(track);
+    }
+
+    stopProgress() {
+        if (this.progressTimer) {
+            clearInterval(this.progressTimer);
+            this.progressTimer = null;
+        }
+    }
+
+    updateProgress() {
+        if (!this.player || typeof this.player.getCurrentTime !== 'function') return;
+        const current = Number(this.player.getCurrentTime()) || 0;
+        const duration = Number(this.player.getDuration()) || 0;
+        const percent = duration > 0 ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0;
+        const fill = this.el('demo-progress-fill');
+        if (fill) fill.style.width = `${percent}%`;
+        this.setText('demo-time', `${formatTime(current)} / ${formatTime(duration)}`);
+        const bar = this.el('demo-progress');
+        if (bar) bar.setAttribute('aria-valuenow', String(Math.round(percent)));
+    }
+
+    startProgress() {
+        this.stopProgress();
+        this.updateProgress();
+        this.progressTimer = setInterval(() => this.updateProgress(), 500);
+    }
+
+    pause() {
+        this.stopProgress();
+        if (this.player && typeof this.player.pauseVideo === 'function') {
+            try { this.player.pauseVideo(); } catch (_) { /* noop */ }
+        }
+        this.playing = false;
+        this.updateUI();
+    }
+
+    seek(event) {
+        if (!this.player || !this.playerReady) return;
+        const bar = this.el('demo-progress');
+        if (!bar || typeof bar.getBoundingClientRect !== 'function') return;
+        const rect = bar.getBoundingClientRect();
+        if (!rect.width) return;
+        const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        const duration = Number(this.player.getDuration()) || 0;
+        if (duration > 0) this.player.seekTo(ratio * duration, true);
+    }
+
+    seekByKey(event) {
+        if (!this.player || !this.playerReady) return;
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        const duration = Number(this.player.getDuration()) || 0;
+        if (!duration) return;
+        const delta = event.key === 'ArrowRight' ? 5 : -5;
+        const next = Math.min(duration, Math.max(0, (Number(this.player.getCurrentTime()) || 0) + delta));
+        this.player.seekTo(next, true);
+    }
+
+    next() {
+        if (!this.tracks.length) return;
+        this.play((this.index + 1) % this.tracks.length);
+    }
+
+    prev() {
+        if (!this.tracks.length) return;
+        this.play((this.index - 1 + this.tracks.length) % this.tracks.length);
+    }
+
+    toggle() {
+        if (!this.player || !this.playerReady) {
+            this.play();
+            return;
+        }
+        if (this.playing) {
+            this.pause();
+            return;
+        }
+        this.started = true;
+        this.playing = true;
+        this.updateUI();
+        this.player.playVideo();
+    }
+}
+
+const welcomeDemo = new WelcomeDemoController();
+
+// HTML の onclick / app.js 内部から使う公開API。
+// 状態は welcomeDemo に集約し、ここでは名前だけを安定させておく。
+export function renderWelcomeDemo(force = false) { welcomeDemo.render(force); }
+export function playWelcomeTrack(index = welcomeDemo.index) { welcomeDemo.play(index); }
+export function startWelcomeDemo() { welcomeDemo.play(welcomeDemo.index); }
+export function toggleWelcomeDemo() { welcomeDemo.toggle(); }
+export function nextWelcomeTrack() { welcomeDemo.next(); }
+export function prevWelcomeTrack() { welcomeDemo.prev(); }
+export function rerollWelcomeDemo() { welcomeDemo.reroll(); }
+export function pauseWelcomeDemo() { welcomeDemo.pause(); }
+export function seekWelcomeDemo(event) { welcomeDemo.seek(event); }
+export function onWelcomeDemoProgressKey(event) { welcomeDemo.seekByKey(event); }
+
+
+
 export function goToHome() {
+    // 未ログイン時は初期ビュー (デモ) へ。アプリのデータは読み込まない。
+    if (!hasAccountSession()) {
+        const { basePath } = parseLocationPath();
+        if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+            history.replaceState(null, '', basePath);
+        }
+        showWelcomeView();
+        return;
+    }
     navigateView('manager');
     selectPlaylist('home');
 }
@@ -540,8 +1441,20 @@ function pushLocationPath(path) {
     }
 }
 
+// 未ログインで開こうとした画面 (ログイン成功後に復帰する)
+let postLoginView = null;
+
 // ビューをURLに記録しつつ遷移する (戻る履歴へ積む)
 export function navigateView(viewName, id) {
+    // ログイン専用: 未ログインではデモ (welcome) とヘルプだけを表示する。
+    // 直接 navigateView() を呼ばれてもアプリ画面へ入れないよう、ここでも止める。
+    if (!hasAccountSession() && viewName !== 'help' && viewName !== 'welcome') {
+        postLoginView = { view: viewName, id: id || null };
+        showToast('ログインすると使えます。', 'info');
+        showWelcomeView();
+        showLoginModal();
+        return;
+    }
     const route = viewName === 'playlist-detail' ? 'playlist' : (viewName === 'user-profile' ? 'user' : viewName);
     const { basePath } = parseLocationPath();
     const path = basePath + (route === 'manager' ? '' : route + (id ? '/' + id : ''));
@@ -660,6 +1573,14 @@ export function applyPathView() {
             try { location.pathname = normalizedPath; } catch (error) { /* noop */ }
         }
     }
+    // 未ログイン時は初期ビュー (デモ) だけを表示する。
+    // URLはそのまま残すので、ログイン成功後に applyPathView() で
+    // 元のURL (/radar や /playlist/12 など) の画面へ復帰できる。
+    if (!hasAccountSession() && view !== 'help' && view !== 'welcome') {
+        showWelcomeView();
+        lastScrollKey = location.pathname;
+        return;
+    }
     // 表示名は pendingDetail / pendingUserProfile が同じIDのときだけ使う
     // (renderPlaylistDetail / renderUserProfile 側で判定するため、ここでは消さない)
     if (view === 'playlist-detail' && id) {
@@ -681,6 +1602,14 @@ export function applyPathView() {
 export const applyHashView = applyPathView;
 
 export function switchView(viewName) {
+    // ログイン専用: 低レベル呼び出し (コンソール等) でもアプリ画面を表示しない。
+    // 通常の遷移は navigateView / applyPathView が先にガードしている。
+    if (!hasAccountSession() && viewName !== 'welcome' && viewName !== 'help') {
+        showWelcomeView();
+        return;
+    }
+    // デモ画面を離れるときは、YouTubeの音が裏で流れ続けないように止める。
+    if (viewName !== 'welcome') pauseWelcomeDemo();
     // 切り替える前に、表示中のビューのスクロール位置を控える。
     // (切替後は display:none になり scrollTop が 0 に戻るため、ここで取る必要がある)
     // 同じビューへの再適用 (二重呼び出し) では控えない。
@@ -703,20 +1632,32 @@ export function switchView(viewName) {
     //  一度点いた黄色が戻らなくなる)
     document.querySelectorAll('.top-nav button').forEach(btn => {
         btn.classList.remove('active');
+        btn.removeAttribute?.('aria-current');
         btn.style.color = '';
     });
 
     const navBtn = document.getElementById(`nav-${viewName}`);
     if (navBtn) {
         navBtn.classList.add('active');
+        navBtn.setAttribute?.('aria-current', 'page');
         navBtn.style.color = 'var(--accent-color)';
     }
 
     // 画面遷移したらモバイルメニューは必ず閉じる
     closeMobileMenu();
+    // プロフィールの簡易ログは別画面へ移ったら閉じる (戻ったときに古い内容を見せない)
+    if (viewName !== 'profile') closeProfilePanel();
+    if (viewName !== 'manager') resetManagerSelection();
 
     if (viewName === 'manager') loadPlaylists().catch(err => showToast(err.message, 'error'));
-    else if (viewName === 'radar') loadRadarData();
+    else if (viewName === 'radar') {
+        if (vibeMapData.length) {
+            drawRadarMap(vibeFiltered.length ? vibeFiltered : vibeMapData);
+        }
+        loadRadarData();
+        // 保存済み (自分のブックマーク) の曲を✓表示にする。60秒キャッシュなので連続遷移でも重くならない。
+        loadRadarSavedTracks();
+    }
     else if (viewName === 'share') loadSharePlaylists();
     else if (viewName === 'profile') loadProfile();
 }
@@ -724,7 +1665,20 @@ export function switchView(viewName) {
 export function checkLoginStatus() {
     const token = localStorage.getItem('tunedrop_token');
     const username = localStorage.getItem('tunedrop_username');
-    if (token && username) {
+    const loggedIn = Boolean(token && username);
+    // 未ログイン時のデモ表示を CSS 側にも伝える (プレイヤー等を隠す)
+    if (document.body && document.body.classList) {
+        document.body.classList.toggle('is-guest', !loggedIn);
+    }
+    // 初期表示のちらつき防止用クラスは、判定できた時点で外す
+    if (document.documentElement && document.documentElement.classList) {
+        document.documentElement.classList.remove('is-guest-boot');
+    }
+    const guestBadge = document.getElementById('guest-badge');
+    if (guestBadge) guestBadge.hidden = loggedIn;
+    if (loggedIn) {
+        // ログイン後はデモの音を止める (モーダルを閉じても裏で鳴り続けないように)
+        pauseWelcomeDemo();
         // display は CSS 側 (inline-flex) に任せる。'inline-block' を直接入れると
         // アイコンとラベルの並び (flex) が崩れて高さが揃わなくなる。
         document.getElementById('nav-login').style.display = 'none';
@@ -748,7 +1702,10 @@ export function clearSession() {
     managerSummary = null;
     managerSummaryError = false;
     favoriteTrackSummary = null;
+    favoriteTrackSummaryError = false;
     favoriteTrackSummaryRequest = null;
+    profileFollowOverview = null;
+    closeProfilePanel();
     checkLoginStatus();
 }
 
@@ -781,6 +1738,7 @@ export function setProfileVisibility(loggedIn) {
     document.getElementById('profile-stats').hidden = !loggedIn;
     document.getElementById('profile-form').hidden = !loggedIn;
     document.getElementById('profile-guest-notice').hidden = loggedIn;
+    if (!loggedIn) closeProfilePanel();
 }
 
 // 登録日をプロフィールカードのサブタイトルに表示する (created_at: YYYY-MM-DD HH:MM:SS)
@@ -798,9 +1756,9 @@ export async function loadProfile() {
     const loggedIn = Boolean(localStorage.getItem('tunedrop_token'));
     setProfileVisibility(loggedIn);
     if (!loggedIn) {
-        // 未ログイン時は実データが無いため、ダミー表示ではなくログイン案内を出す
+        // 未ログイン時は実データが無いため、ダミー表示ではなく初期ビュー (デモ) を出す
         status.textContent = '';
-        showLoginModal();
+        showWelcomeView();
         return;
     }
     input.value = localStorage.getItem('tunedrop_username') || '';
@@ -810,10 +1768,11 @@ export async function loadProfile() {
         const response = await tunedropFetch('api.php?action=auth&endpoint=me');
         const data = await response.json().catch(() => ({}));
         if (response.status === 401) {
-            // トークン期限切れ: セッションを破棄してログインをやり直してもらう
+            // トークン期限切れ: セッションを破棄して初期ビュー (デモ) へ戻す
             clearSession();
             setProfileVisibility(false);
             status.textContent = '';
+            showWelcomeView();
             showLoginModal();
             return;
         }
@@ -827,9 +1786,304 @@ export async function loadProfile() {
         document.getElementById('profile-track-count').textContent = data.user.stats.bookmarks_count;
         document.getElementById('profile-list-count').textContent = data.user.stats.playlists_count;
         document.getElementById('profile-favorite-count').textContent = data.user.stats.favorites_count;
+        document.getElementById('profile-following-count').textContent = '—';
+        document.getElementById('profile-followers-count').textContent = '—';
+        loadProfileFollowCounts();
         status.textContent = '';
     } catch (error) { status.textContent = error.message; }
     finally { button.disabled = false; }
+}
+
+// ==========================================================
+// プロフィールの統計カード → 簡易ログ / フォロー一覧
+// ----------------------------------------------------------
+// 保存曲・プレイリスト・お気に入り・フォロー中・フォロワーのカードを
+// クリックすると、同じパネルの中身を切り替える (再クリックで閉じる)。
+// ==========================================================
+let activeProfilePanel = null;
+let profilePanelRequest = 0;
+let profileFollowOverview = null;
+let profilePanelTracks = [];
+let profilePanelPlaylists = [];
+let currentUserProfileId = null;
+
+const PROFILE_PANELS = {
+    tracks: { title: '保存曲の簡易ログ', note: '最近保存した曲を新しい順に表示します（同じ曲は1件）。' },
+    playlists: { title: 'プレイリストの簡易ログ', note: '最近作成したプレイリストを新しい順に表示します（未整理・公開用お気に入りを除く）。' },
+    favorites: { title: 'お気に入りの簡易ログ', note: 'お気に入りにした曲とリストを表示します。' },
+    following: { title: 'フォロー中のユーザー', note: 'あなたがフォローしているユーザーです。' },
+    followers: { title: 'フォロワー', note: 'あなたをフォローしているユーザーです。' },
+};
+
+export function closeProfilePanel() {
+    activeProfilePanel = null;
+    profilePanelRequest += 1;
+    const panel = document.getElementById('profile-panel');
+    if (panel) panel.hidden = true;
+    document.querySelectorAll('[data-profile-panel]').forEach(btn => {
+        btn.classList.remove('is-active');
+        btn.setAttribute('aria-expanded', 'false');
+    });
+}
+
+export function selectProfilePanel(type) {
+    const panel = document.getElementById('profile-panel');
+    if (!panel || !PROFILE_PANELS[type]) return;
+    if (activeProfilePanel === type) { closeProfilePanel(); return; }
+    activeProfilePanel = type;
+    document.querySelectorAll('[data-profile-panel]').forEach(btn => {
+        const on = btn.dataset.profilePanel === type;
+        btn.classList.toggle('is-active', on);
+        btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    });
+    document.getElementById('profile-panel-title').textContent = PROFILE_PANELS[type].title;
+    document.getElementById('profile-panel-note').textContent = PROFILE_PANELS[type].note;
+    panel.hidden = false;
+    // スマホでカードの下にパネルが隠れる場合だけ、見える位置までスクロールする
+    if (typeof panel.scrollIntoView === 'function') {
+        panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    const body = document.getElementById('profile-panel-body');
+    body.innerHTML = '<div class="activity-empty is-loading">読み込み中…</div>';
+    const requestId = ++profilePanelRequest;
+    loadProfilePanel(type).then(html => {
+        if (requestId !== profilePanelRequest || activeProfilePanel !== type) return;
+        body.innerHTML = html;
+        bindProfilePanelActions(type);
+    }).catch(error => {
+        if (requestId !== profilePanelRequest) return;
+        body.innerHTML = `<div class="activity-empty">${escapeHtml(error.message || '読み込みに失敗しました。')}</div>`;
+    });
+}
+
+async function loadProfilePanel(type) {
+    if (type === 'following' || type === 'followers') {
+        const res = await tunedropFetch('api.php?action=get_follow_overview');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'フォロー一覧を取得できませんでした。');
+        profileFollowOverview = data;
+        applyFollowCounts(data.counts);
+        return renderFollowList(data[type] || [], type);
+    }
+    const res = await tunedropFetch(`api.php?action=get_profile_activity&type=${type}&limit=20`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'ログを取得できませんでした。');
+    if (type === 'tracks') {
+        profilePanelTracks = data.tracks || [];
+        return renderTrackLog(profilePanelTracks);
+    }
+    if (type === 'playlists') {
+        profilePanelPlaylists = data.playlists || [];
+        return renderPlaylistLog(profilePanelPlaylists);
+    }
+    profilePanelTracks = data.tracks || [];
+    profilePanelPlaylists = data.playlists || [];
+    return renderFavoriteLog(profilePanelTracks, profilePanelPlaylists);
+}
+
+async function loadProfileFollowCounts() {
+    try {
+        const res = await tunedropFetch('api.php?action=get_follow_overview&summary=1');
+        if (!res.ok) return;
+        const data = await res.json().catch(() => ({}));
+        if (data.counts) {
+            profileFollowOverview = data;
+            applyFollowCounts(data.counts);
+        }
+    } catch (_) { /* フォロー件数は補助情報。失敗してもプロフィールは表示する */ }
+}
+
+function applyFollowCounts(counts) {
+    if (!counts) return;
+    const following = document.getElementById('profile-following-count');
+    const followers = document.getElementById('profile-followers-count');
+    if (following) following.textContent = Number(counts.following) || 0;
+    if (followers) followers.textContent = Number(counts.followers) || 0;
+}
+
+// ----------------------------------------------------------
+// 簡易ログの描画
+// ----------------------------------------------------------
+function activityCover(coverId, fallbackIcon) {
+    if (coverId) {
+        return `<img class="activity-thumb" src="https://img.youtube.com/vi/${encodeURIComponent(coverId)}/mqdefault.jpg" alt="" loading="lazy">`;
+    }
+    return `<span class="activity-thumb activity-thumb-empty material-symbols-rounded">${fallbackIcon}</span>`;
+}
+
+function renderTrackLog(tracks) {
+    if (!tracks.length) return '<div class="activity-empty">まだ保存した曲がありません。</div>';
+    return `<div class="activity-list">${tracks.map((track, index) => `
+        <button class="activity-row" type="button" data-activity-track="${index}" title="${escapeHtml(track.title || '')} を再生">
+            ${activityCover(track.youtube_id, 'music_note')}
+            <span class="activity-main">
+                <span class="activity-title">${escapeHtml(track.title || 'Unknown Title')}</span>
+                <span class="activity-meta">${escapeHtml(track.channel || 'Unknown Artist')}${track.playlist_name ? ' ・ ' + escapeHtml(track.playlist_name) : ''}</span>
+            </span>
+            <span class="activity-time">${formatRelativeTime(track.added_at)}</span>
+            <span class="material-symbols-rounded activity-play-icon">play_arrow</span>
+        </button>`).join('')}</div>`;
+}
+
+function renderPlaylistLog(playlists) {
+    if (!playlists.length) return '<div class="activity-empty">まだプレイリストがありません。</div>';
+    return `<div class="activity-list">${playlists.map((playlist, index) => `
+        <button class="activity-row" type="button" data-activity-playlist="${index}" title="${escapeHtml(playlist.name || '')} を開く">
+            ${activityCover(playlist.cover_id, 'queue_music')}
+            <span class="activity-main">
+                <span class="activity-title">${escapeHtml(playlist.name || '無題のプレイリスト')}</span>
+                <span class="activity-meta">${Number(playlist.track_count) || 0}曲 ・ ${escapeHtml(playlist.category || 'Other')} ・ ${Number(playlist.is_public) ? '公開' : '非公開'}</span>
+            </span>
+            <span class="activity-time">${formatRelativeTime(playlist.created_at)}</span>
+            <span class="material-symbols-rounded activity-play-icon">chevron_right</span>
+        </button>`).join('')}</div>`;
+}
+
+function renderFavoriteLog(tracks, playlists) {
+    if (!tracks.length && !playlists.length) return '<div class="activity-empty">まだお気に入りがありません。</div>';
+    let html = '';
+    if (tracks.length) html += `<h4 class="activity-section-title">お気に入り曲</h4>${renderTrackLog(tracks)}`;
+    if (playlists.length) html += `<h4 class="activity-section-title">お気に入りリスト</h4>${renderPlaylistLog(playlists)}`;
+    return html;
+}
+
+function renderFollowList(users, kind) {
+    if (!users.length) {
+        return `<div class="activity-empty">${kind === 'following' ? 'まだ誰もフォローしていません。' : 'まだフォロワーがいません。'}</div>`;
+    }
+    return `<div class="activity-list">${users.map(user => `
+        <div class="activity-row follow-row" data-follow-user="${Number(user.id)}" role="button" tabindex="0"
+             title="${escapeHtml(user.name || 'User')} のプロフィールを開く">
+            <span class="avatar-sm">${escapeHtml((user.name || 'U').slice(0, 1).toUpperCase())}</span>
+            <span class="activity-main">
+                <span class="activity-title">${escapeHtml(user.name || 'User')}</span>
+                <span class="activity-meta">${user.followed_at ? formatRelativeTime(user.followed_at) + ' から' : ''}</span>
+            </span>
+            <button class="follow-action${Number(user.is_following) ? ' is-following' : ''}" type="button"
+                    data-follow-toggle="${Number(user.id)}" data-following="${Number(user.is_following) ? '1' : '0'}">
+                ${Number(user.is_following) ? 'フォロー中' : 'フォロー'}
+            </button>
+        </div>`).join('')}</div>`;
+}
+
+// パネル内の行クリック (再生 / プレイリストを開く / プロフィール / フォロー)
+function bindProfilePanelActions(type) {
+    const body = document.getElementById('profile-panel-body');
+    if (!body) return;
+    body.querySelectorAll('[data-activity-track]').forEach(el => {
+        el.onclick = () => playTrackFromQueue(Number(el.dataset.activityTrack), profilePanelTracks);
+    });
+    body.querySelectorAll('[data-activity-playlist]').forEach(el => {
+        const playlist = profilePanelPlaylists[Number(el.dataset.activityPlaylist)];
+        if (playlist) el.onclick = () => openPlaylistDetail(playlist.id, playlist.name, playlist.cover_id || '');
+    });
+    if (type !== 'following' && type !== 'followers') return;
+    const users = [...(profileFollowOverview?.following || []), ...(profileFollowOverview?.followers || [])];
+    body.querySelectorAll('[data-follow-user]').forEach(el => {
+        const userId = Number(el.dataset.followUser);
+        const user = users.find(item => Number(item.id) === userId);
+        el.onclick = (event) => {
+            if (event.target.closest('[data-follow-toggle]')) return;
+            openUserProfile(userId, user?.name || '');
+        };
+        el.onkeydown = (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                el.click();
+            }
+        };
+    });
+    body.querySelectorAll('[data-follow-toggle]').forEach(button => {
+        button.onclick = async (event) => {
+            event.stopPropagation();
+            await toggleFollowButton(button);
+        };
+    });
+}
+
+// ----------------------------------------------------------
+// フォロー / 解除
+// ----------------------------------------------------------
+async function requestFollow(userId, shouldFollow) {
+    const response = await tunedropFetch(`api.php?action=${shouldFollow ? 'follow_user' : 'unfollow_user'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: Number(userId) }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401 || response.status === 403) {
+        showLoginModal();
+        throw new Error(data.error || 'フォローにはログインが必要です。');
+    }
+    if (!response.ok || !data.success) throw new Error(data.error || 'フォローを更新できませんでした。');
+    return data;
+}
+
+async function toggleFollowButton(button) {
+    const userId = Number(button.dataset.followToggle);
+    const following = button.dataset.following === '1';
+    button.disabled = true;
+    try {
+        const data = await requestFollow(userId, !following);
+        const nowFollowing = Boolean(data.is_following);
+        button.dataset.following = nowFollowing ? '1' : '0';
+        button.classList.toggle('is-following', nowFollowing);
+        button.textContent = nowFollowing ? 'フォロー中' : 'フォロー';
+
+        const followingCount = document.getElementById('profile-following-count');
+        if (followingCount) followingCount.textContent = Number(data.following) || 0;
+        if (profileFollowOverview) {
+            profileFollowOverview.counts = {
+                following: Number(data.following) || 0,
+                followers: Number(profileFollowOverview.counts?.followers) || 0,
+            };
+            (profileFollowOverview[activeProfilePanel] || []).forEach(user => {
+                if (Number(user.id) === userId) user.is_following = nowFollowing ? 1 : 0;
+            });
+        }
+        // 「フォロー中」一覧から解除した行はその場で消す
+        if (!nowFollowing && activeProfilePanel === 'following') {
+            button.closest('.follow-row')?.remove();
+        }
+        showToast(nowFollowing ? 'フォローしました。' : 'フォローを解除しました。', 'info');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+// 他ユーザーのプロフィールのフォローボタン
+export async function toggleUserProfileFollow() {
+    const button = document.getElementById('user-profile-follow');
+    if (!button || button.disabled || !currentUserProfileId) return;
+    const following = button.dataset.following === '1';
+    button.disabled = true;
+    try {
+        const data = await requestFollow(currentUserProfileId, !following);
+        applyUserProfileFollowState(Boolean(data.is_following));
+        const followers = document.getElementById('user-profile-followers-count');
+        if (followers) followers.textContent = Number(data.followers) || 0;
+        const followingCount = document.getElementById('profile-following-count');
+        if (followingCount) followingCount.textContent = Number(data.following) || 0;
+        showToast(data.is_following ? 'フォローしました。' : 'フォローを解除しました。', 'info');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function applyUserProfileFollowState(following) {
+    const button = document.getElementById('user-profile-follow');
+    if (!button) return;
+    button.dataset.following = following ? '1' : '0';
+    button.classList.toggle('is-following', following);
+    button.title = following ? 'フォローを解除' : 'フォローする';
+    const icon = document.getElementById('user-profile-follow-icon');
+    if (icon) icon.textContent = following ? 'check' : 'person_add';
+    const label = document.getElementById('user-profile-follow-label');
+    if (label) label.textContent = following ? 'フォロー中' : 'フォロー';
 }
 
 // ==========================================================
@@ -900,9 +2154,18 @@ export async function renderUserProfile(userId) {
     if (metaEl) metaEl.textContent = '読み込み中…';
     if (avatarEl && pendingName) avatarEl.textContent = pendingName.slice(0, 1).toUpperCase();
     if (grid) grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>プロフィールを読み込んでいます…</div>';
-    for (const elId of ['user-profile-public-count', 'user-profile-track-count', 'user-profile-favorite-count']) {
+    for (const elId of ['user-profile-public-count', 'user-profile-track-count', 'user-profile-favorite-count',
+                        'user-profile-following-count', 'user-profile-followers-count']) {
         document.getElementById(elId).textContent = '—';
     }
+    const followButton = document.getElementById('user-profile-follow');
+    if (followButton) {
+        followButton.hidden = true;
+        followButton.disabled = false;
+        followButton.dataset.following = '0';
+        followButton.classList.remove('is-following');
+    }
+    currentUserProfileId = id;
     try {
         const res = await tunedropFetch(`api.php?action=get_user_profile&user_id=${id}`);
         const data = await res.json();
@@ -919,10 +2182,17 @@ export async function renderUserProfile(userId) {
         document.getElementById('user-profile-public-count').textContent = stats.public_playlists ?? 0;
         document.getElementById('user-profile-track-count').textContent = stats.public_tracks ?? 0;
         document.getElementById('user-profile-favorite-count').textContent = stats.favorites ?? 0;
+        document.getElementById('user-profile-following-count').textContent = stats.following ?? 0;
+        document.getElementById('user-profile-followers-count').textContent = stats.followers ?? 0;
+        if (followButton) {
+            followButton.hidden = Boolean(user.is_self || user.is_guest);
+            applyUserProfileFollowState(Boolean(user.is_following));
+        }
         if (titleEl) titleEl.textContent = `${name} がShareで公開中のプレイリスト`;
         renderUserProfileCards(data.playlists);
     } catch (error) {
         if (metaEl) metaEl.textContent = error.message;
+        if (followButton) followButton.hidden = true;
         if (grid) grid.innerHTML = '<div class="share-empty"><p>プロフィールを読み込めませんでした。</p></div>';
     }
 }
@@ -944,6 +2214,7 @@ export async function saveProfile(event) {
             clearSession();
             setProfileVisibility(false);
             status.textContent = '';
+            showWelcomeView();
             showLoginModal();
             return;
         }
@@ -957,12 +2228,286 @@ export async function saveProfile(event) {
     finally { button.disabled = false; }
 }
 
-export function showLoginModal() {
-    closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
-    document.getElementById('login-modal').style.display = 'flex';
-    initGoogleAuth();
+// ==========================================================
+// ログイン / 新規登録モーダル
+// ----------------------------------------------------------
+// 「ログイン」と「新規登録」をタブで切り替え、入力エラーは
+// モーダル内にその場で表示する (トーストだけだと見落としやすい)。
+// パスワードの表示切り替え・フォーカス移動・最後に使ったIDの
+// 復元もここで扱う。
+// ==========================================================
+let authMode = 'login';
+let authReturnFocus = null;
+const AUTH_MODE_CONFIG = {
+    login: {
+        hint: '登録済みのアカウントでログインします。',
+        idHint: 'ログインIDは登録時に指定したメールアドレスなどです。プロフィールの「表示名」とは別です。',
+        passwordAutocomplete: 'current-password',
+    },
+    register: {
+        hint: '初めての方は、ログインIDとパスワードを決めて登録します。',
+        idHint: 'ログインIDは3〜30文字、パスワードは4文字以上。表示名は登録後にプロフィールで変更できます。',
+        passwordAutocomplete: 'new-password',
+    },
+};
+
+function authElement(id) {
+    return typeof document !== 'undefined' && typeof document.getElementById === 'function'
+        ? document.getElementById(id)
+        : null;
 }
-export function closeLoginModal() { document.getElementById('login-modal').style.display = 'none'; }
+
+export function clearAuthError() {
+    const box = authElement('auth-error');
+    if (box) {
+        box.textContent = '';
+        box.hidden = true;
+    }
+    for (const id of ['auth-username', 'auth-password']) {
+        const input = authElement(id);
+        if (input && input.removeAttribute) input.removeAttribute('aria-invalid');
+    }
+}
+
+function showAuthError(message, fieldId = '') {
+    const text = String(message || '').trim();
+    if (!text) return;
+    const box = authElement('auth-error');
+    if (box) {
+        box.textContent = text;
+        box.hidden = false;
+    }
+    if (fieldId) {
+        const input = authElement(fieldId);
+        if (input && input.setAttribute) input.setAttribute('aria-invalid', 'true');
+    }
+    // モーダルが閉じている環境では、従来どおりトーストでも知らせる
+    if (!isModalVisible('login-modal')) showToast(text, 'error');
+}
+
+function focusAuthField(fieldId) {
+    const input = authElement(fieldId);
+    if (input && typeof input.focus === 'function') input.focus();
+}
+
+// 次回のログインで入力し直さなくて済むよう、最後に使ったログインIDだけを保存する
+// (パスワードは保存しない)。ログアウトしても残す。
+function rememberLoginId(value) {
+    const id = String(value || '').trim();
+    if (!id) return;
+    try {
+        localStorage.setItem('tunedrop_last_login_id', id);
+    } catch (_) { /* localStorage が使えない環境では何もしない */ }
+}
+
+export function setAuthMode(mode, options = {}) {
+    authMode = mode === 'register' ? 'register' : 'login';
+    const config = AUTH_MODE_CONFIG[authMode];
+    const loginTab = authElement('auth-mode-login');
+    const registerTab = authElement('auth-mode-register');
+    for (const [tab, active] of [[loginTab, authMode === 'login'], [registerTab, authMode === 'register']]) {
+        if (!tab) continue;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-pressed', String(active));
+    }
+    const loginButton = authElement('login-submit');
+    const registerButton = authElement('register-submit');
+    if (loginButton) loginButton.hidden = authMode !== 'login';
+    if (registerButton) registerButton.hidden = authMode !== 'register';
+    const password = authElement('auth-password');
+    if (password && password.setAttribute) {
+        password.setAttribute('autocomplete', config.passwordAutocomplete);
+    }
+    const hint = authElement('login-mode-hint');
+    if (hint) {
+        hint.textContent = config.hint;
+        hint.hidden = false;
+    }
+    const idHint = authElement('login-id-hint');
+    if (idHint) idHint.textContent = config.idHint;
+    clearAuthError();
+    setAuthBusy(authRequestInFlight, authMode);
+    // タブを切り替えたら、そのまま入力できるよう先頭欄へフォーカスする。
+    // (スマホではキーボードが画面を覆うため自動フォーカスしない)
+    if (!options.keepFocus && !authRequestInFlight && !isCoarsePointer()) {
+        focusAuthField('auth-username');
+    }
+}
+
+export function isCoarsePointer() {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        && window.matchMedia('(pointer: coarse)').matches;
+}
+
+export function toggleAuthPassword() {
+    const input = authElement('auth-password');
+    const button = authElement('auth-password-toggle');
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    if (button) {
+        button.textContent = show ? '隠す' : '表示';
+        button.setAttribute('aria-pressed', String(show));
+        button.setAttribute('aria-label', show ? 'パスワードを隠す' : 'パスワードを表示');
+    }
+    focusAuthField('auth-password');
+}
+
+// モーダル内で Tab を押したときに、背景のボタンへ抜けないようにする
+export function trapAuthModalFocus(event) {
+    if (!event || event.key !== 'Tab' || !isModalVisible('login-modal')) return;
+    // メンテナンス画面が出ているときは、そちらの再試行ボタンを操作できるようにする
+    if (typeof document !== 'undefined' && document.body
+        && document.body.classList && document.body.classList.contains('maintenance-open')) return;
+    const modal = authElement('login-modal');
+    const dialog = modal && typeof modal.querySelector === 'function'
+        ? (modal.querySelector('.login-dialog') || modal)
+        : modal;
+    if (!dialog || typeof dialog.querySelectorAll !== 'function') return;
+    const focusables = [...dialog.querySelectorAll(
+        'button:not([disabled]):not([hidden]), input:not([disabled]):not([type="hidden"]), a[href], iframe, ' +
+        '[role="button"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])'
+    )].filter(el => !el.hidden && (!el.getClientRects || el.getClientRects().length > 0));
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    // フォーカスがモーダルの外にある (背景クリック直後など) 場合は中へ戻す
+    if (!active || !dialog.contains || !dialog.contains(active)) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof first.focus === 'function') first.focus();
+        return;
+    }
+    // Googleボタンの内部要素はフォーカス可能でも一覧に載らないことがある。
+    // 最後の操作要素なので、次のTabはモーダル先頭へ戻す。
+    const inGoogle = active && typeof active.closest === 'function' && active.closest('#g_id_signin');
+    if (!event.shiftKey && inGoogle) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof first.focus === 'function') first.focus();
+        return;
+    }
+    if (event.shiftKey && active === first) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof last.focus === 'function') last.focus();
+    } else if (!event.shiftKey && active === last) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof first.focus === 'function') first.focus();
+    }
+}
+
+// フォームの submit は現在のタブ (ログイン / 新規登録) に応じて振り分ける。
+// これにより、新規登録タブで Enter を押してもログイン扱いにならない。
+export function submitAuth(event) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (authRequestInFlight) return;
+    return authMode === 'register' ? registerWithEmail(event) : loginWithEmail(event);
+}
+
+export function showLoginModal(mode = '') {
+    closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
+    const modal = authElement('login-modal');
+    const wasOpen = isModalVisible('login-modal');
+    // 閉じていたら、開く前のフォーカス位置を覚えておく (閉じたときに戻す)
+    if (!wasOpen && typeof document !== 'undefined') authReturnFocus = document.activeElement;
+    if (modal) {
+        modal.style.display = 'flex';
+        const dialog = typeof modal.querySelector === 'function'
+            ? (modal.querySelector('.login-dialog') || modal)
+            : modal;
+        if (dialog) {
+            if (typeof dialog.scrollTo === 'function') dialog.scrollTo({ top: 0 });
+            else dialog.scrollTop = 0;
+        }
+    }
+    // 前回のエラーは持ち越さない
+    clearAuthError();
+    // 最後に使ったログインIDを復元する (毎回入力し直さない)
+    const username = authElement('auth-username');
+    if (username && !String(username.value || '').trim()) {
+        let remembered = '';
+        try {
+            remembered = localStorage.getItem('tunedrop_last_login_id') || '';
+        } catch (_) { /* localStorage が使えない環境では何もしない */ }
+        if (remembered) username.value = remembered;
+    }
+    setAuthMode(mode === 'register' ? 'register' : 'login');
+    if (!authRequestInFlight) setAuthBusy(false, authMode);
+    initGoogleAuth();
+    // スマホでは自動フォーカスでキーボードが入力欄を隠すため、PCだけフォーカスする
+    if (!isCoarsePointer()) focusAuthField('auth-username');
+}
+
+export function closeLoginModal() {
+    const modal = authElement('login-modal');
+    if (modal) modal.style.display = 'none';
+    // パスワードは閉じるたびに破棄する (共有端末での見落とし対策)
+    const password = authElement('auth-password');
+    if (password) {
+        password.value = '';
+        password.type = 'password';
+    }
+    const toggle = authElement('auth-password-toggle');
+    if (toggle) {
+        toggle.textContent = '表示';
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.setAttribute('aria-label', 'パスワードを表示');
+    }
+    clearAuthError();
+    const hint = authElement('login-mode-hint');
+    if (hint) {
+        hint.textContent = '';
+        hint.hidden = true;
+    }
+    // ログイン成功時は画面が切り替わるので、元の要素へは戻さない
+    const target = authReturnFocus;
+    authReturnFocus = null;
+    if (!hasAccountSession() && target
+        && (typeof document.contains !== 'function' || document.contains(target))
+        && typeof target.focus === 'function') {
+        target.focus({ preventScroll: true });
+    }
+}
+
+// ログイン成功後の共通処理。
+// 未ログインのまま開こうとした画面 (postLoginView) があればそこへ、
+// 無ければ現在のURLの画面へ復帰する (デモを閉じてアプリを表示する)。
+function finishAuth(message, nextView = '') {
+    closeLoginModal();
+    checkLoginStatus();
+    showToast(message);
+    if (nextView) {
+        postLoginView = null;
+        navigateView(nextView);
+        return;
+    }
+    const pending = postLoginView;
+    postLoginView = null;
+    if (pending) navigateView(pending.view, pending.id || undefined);
+    else applyPathView();
+}
+
+// ログイン/新規登録の二重送信を防ぐ。処理中は両方のボタンを止めて文言を変える。
+let authRequestInFlight = false;
+function setAuthBusy(busy, mode = authMode) {
+    const activeMode = mode === 'register' ? 'register' : 'login';
+    for (const [button, buttonMode] of [
+        [authElement('login-submit'), 'login'],
+        [authElement('register-submit'), 'register'],
+    ]) {
+        if (!button) continue;
+        button.disabled = busy;
+        button.hidden = authMode !== buttonMode;
+        button.setAttribute('aria-busy', busy ? 'true' : 'false');
+        const working = busy && activeMode === buttonMode;
+        button.textContent = buttonMode === 'register'
+            ? (working ? '登録中…' : '新規登録')
+            : (working ? 'ログイン中…' : 'ログイン');
+    }
+    // 送信中にタブを切り替えると、どちらの結果か分からなくなるため止める
+    for (const tab of [authElement('auth-mode-login'), authElement('auth-mode-register')]) {
+        if (tab) tab.disabled = busy;
+    }
+}
 
 // ログイン後にユーザー固有のプレイリストを再取得して反映する
 // (アカウント切り替えでゲストの一覧が残らないようにホームへ戻して再読込する)
@@ -971,46 +2516,100 @@ export function reloadPlaylistsAfterAuth() {
     loadPlaylists();
 }
 
-export async function loginWithEmail() {
-    const username = document.getElementById('auth-username').value;
-    const password = document.getElementById('auth-password').value;
-    if (!username || !password) return showToast('ログインIDとパスワードを入力してください。', 'error');
+export async function loginWithEmail(event) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (authRequestInFlight) return;
+    const usernameInput = authElement('auth-username');
+    const passwordInput = authElement('auth-password');
+    const username = String((usernameInput && usernameInput.value) || '').trim();
+    const password = String((passwordInput && passwordInput.value) || '').trim();
+    clearAuthError();
+    if (!username || !password) {
+        showAuthError(
+            'ログインIDとパスワードを入力してください。',
+            !username ? 'auth-username' : 'auth-password'
+        );
+        focusAuthField(!username ? 'auth-username' : 'auth-password');
+        return;
+    }
+    authRequestInFlight = true;
+    setAuthBusy(true, 'login');
     try {
         const res = await tunedropFetch('api.php?action=auth&endpoint=login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
-        const data = await res.json();
-        if (data.success) {
+        const data = await res.json().catch(() => ({}));
+        if (data.success && data.user) {
             localStorage.setItem('tunedrop_token', data.token);
             localStorage.setItem('tunedrop_username', data.user.username);
             localStorage.setItem('tunedrop_login_id', data.user.login_id || username);
-            closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); showToast('ログインしました。');
-        } else showToast(data.error || 'ログインに失敗しました。', 'error');
-    } catch (err) { showToast('認証サーバーに接続できません。', 'error'); }
+            rememberLoginId(data.user.login_id || username);
+            finishAuth('ログインしました。');
+        } else {
+            showAuthError(data.error || 'ログインに失敗しました。');
+            focusAuthField('auth-password');
+            if (passwordInput && typeof passwordInput.select === 'function') passwordInput.select();
+        }
+    } catch (err) {
+        showAuthError('認証サーバーに接続できません。時間をおいてお試しください。');
+    } finally {
+        authRequestInFlight = false;
+        setAuthBusy(false, 'login');
+    }
 }
 
-export async function registerWithEmail() {
-    const username = document.getElementById('auth-username').value;
-    const password = document.getElementById('auth-password').value;
-    if (!username || !password) return showToast('ログインIDとパスワードを入力してください。', 'error');
+export async function registerWithEmail(event) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (authRequestInFlight) return;
+    const usernameInput = authElement('auth-username');
+    const passwordInput = authElement('auth-password');
+    const username = String((usernameInput && usernameInput.value) || '').trim();
+    const password = String((passwordInput && passwordInput.value) || '').trim();
+    clearAuthError();
+    if (!username || !password) {
+        showAuthError(
+            'ログインIDとパスワードを入力してください。',
+            !username ? 'auth-username' : 'auth-password'
+        );
+        focusAuthField(!username ? 'auth-username' : 'auth-password');
+        return;
+    }
+    // サーバーへ送る前に同じ条件で確認し、往復の待ち時間を減らす
+    if (username.length < 3 || username.length > 30) {
+        showAuthError('ログインIDは3〜30文字で指定してください。', 'auth-username');
+        focusAuthField('auth-username');
+        return;
+    }
+    if (password.length < 4) {
+        showAuthError('パスワードは4文字以上で指定してください。', 'auth-password');
+        focusAuthField('auth-password');
+        return;
+    }
+    authRequestInFlight = true;
+    setAuthBusy(true, 'register');
     try {
         const res = await tunedropFetch('api.php?action=auth&endpoint=register', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
-        const data = await res.json();
-        if (data.success) {
+        const data = await res.json().catch(() => ({}));
+        if (data.success && data.user) {
             localStorage.setItem('tunedrop_token', data.token);
             localStorage.setItem('tunedrop_username', data.user.username);
-            closeLoginModal();
-            checkLoginStatus();
-            reloadPlaylistsAfterAuth();
-            navigateView('profile');
-            showToast('アカウントを作成しました。');
+            rememberLoginId(data.user.login_id || username);
+            finishAuth('アカウントを作成しました。', 'profile');
+        } else {
+            showAuthError(data.error || '登録に失敗しました。');
+            focusAuthField('auth-username');
+            if (usernameInput && typeof usernameInput.select === 'function') usernameInput.select();
         }
-        else showToast(data.error || '登録に失敗しました。', 'error');
-    } catch (err) { showToast('認証サーバーに接続できません。', 'error'); }
+    } catch (err) {
+        showAuthError('認証サーバーに接続できません。時間をおいてお試しください。');
+    } finally {
+        authRequestInFlight = false;
+        setAuthBusy(false, 'register');
+    }
 }
 
 // ==========================================================
@@ -1039,18 +2638,25 @@ export function showGoogleAuthHint(message, isError) {
 export function initGoogleAuth() {
     const cid = googleClientId();
     const origin = window.location.origin;
+    // Googleボタンと区切り線は、実際に表示できる状態になるまで隠す。
+    // (クライアントID未設定なのに区切り線だけ残る/読み込み中に空の枠が見えるのを防ぐ)
+    const setGoogleAuthVisible = visible => {
+        const box = document.getElementById('g_id_signin');
+        if (box) box.style.display = visible ? 'flex' : 'none';
+        const divider = document.getElementById('login-divider');
+        if (divider) divider.style.display = visible ? '' : 'none';
+    };
     if (!cid) {
         // クライアントID未設定なら枠を非表示
-        const box = document.getElementById('g_id_signin');
-        if (box) box.style.display = 'none';
+        setGoogleAuthVisible(false);
         return;
     }
     if (!isValidGoogleClientId(cid)) {
         // APIキー (AQ.やAIzaで始まる値) が誤って設定されているケース:
         // Googleボタンを描画せず、正しい設定方法を案内する
+        setGoogleAuthVisible(true);
         const box = document.getElementById('g_id_signin');
         if (box) {
-            box.style.display = 'flex';
             box.innerHTML = '<p style="color:#ff8a80; font-size:11px; line-height:1.7; text-align:center; margin:0;">この値はAPIキーの形式です。<br>OAuth 2.0 クライアントID<br>(〜.apps.googleusercontent.com)を設定してください。</p>';
         }
         console.warn('TUNEDROP_CONFIG.googleClientId が OAuth クライアントIDの形式ではありません:', cid);
@@ -1064,8 +2670,14 @@ export function initGoogleAuth() {
     // GSI スクリプト未ロード時は初期化を待機する (ログインモーダルを開いたときに再試行)。
     // 未登録 origin では Google 側が [GSI_LOGGER] エラーを出すため、コンソールを汚さないよう
     // 初期化はユーザーがログインモーダルを開いたタイミングに限定する。
-    if (!(window.google && google.accounts && google.accounts.id)) return;
-    if (googleAuthInitialized) return;
+    if (!(window.google && google.accounts && google.accounts.id)) {
+        setGoogleAuthVisible(false);
+        return;
+    }
+    if (googleAuthInitialized) {
+        setGoogleAuthVisible(true);
+        return;
+    }
 
     googleAuthInitialized = true;
     google.accounts.id.initialize({
@@ -1075,9 +2687,9 @@ export function initGoogleAuth() {
         cancel_on_tap_outside: false,
     });
 
+    setGoogleAuthVisible(true);
     const btnBox = document.getElementById('g_id_signin');
     if (btnBox) {
-        btnBox.style.display = 'flex';
         try {
             google.accounts.id.renderButton(btnBox, {
                 theme: 'outline',
@@ -1091,11 +2703,14 @@ export function initGoogleAuth() {
             console.error('Google renderButton error:', e);
         }
     }
-    // 「no registered origin」対策: 現在ページを開いている origin を案内表示する。
-    // この URL を Google Cloud Console の「承認済み JavaScript 生成元」に登録する。
-    showGoogleAuthHint(
-        'Googleログインができない (no registered origin) 場合は、Google Cloud Console > 認証情報 > OAuthクライアント の「承認済み JavaScript 生成元」に「' + origin + '」を登録してください。'
-    );
+    // 「no registered origin」対策の案内は、開発中 (localhost) だけ表示する。
+    // 本番の利用者には技術的な説明を見せず、Googleボタンだけを出す。
+    const localHost = /^(localhost|127\.0\.0\.1|::1|\[::1\])$/i.test(String(window.location.hostname || ''));
+    if (localHost) {
+        showGoogleAuthHint(
+            'Googleログインができない (no registered origin) 場合は、Google Cloud Console > 認証情報 > OAuthクライアント の「承認済み JavaScript 生成元」に「' + origin + '」を登録してください。'
+        );
+    }
 }
 
 export async function handleGoogleCredential(response) {
@@ -1111,7 +2726,8 @@ export async function handleGoogleCredential(response) {
             localStorage.setItem('tunedrop_token', data.token);
             localStorage.setItem('tunedrop_username', data.user && data.user.username);
             localStorage.setItem('tunedrop_login_id', (data.user && data.user.login_id) || '');
-            closeLoginModal(); checkLoginStatus(); refreshProfileIfVisible(); reloadPlaylistsAfterAuth(); showToast('Googleログインしました。');
+            rememberLoginId((data.user && data.user.login_id) || '');
+            finishAuth('Googleログインしました。');
         } else {
             showToast(data.error || 'Googleログインに失敗しました。', 'error');
         }
@@ -1124,16 +2740,25 @@ export async function handleGoogleCredential(response) {
 export function logout() {
     clearSession();
     setProfileVisibility(false);
-    navigateView('manager');
+    postLoginView = null;
+    showWelcomeView();
+    // ログイン中に開いていたURLが残らないよう、トップへ戻す
+    const { basePath } = parseLocationPath();
+    if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+        history.replaceState(null, '', basePath);
+    }
     showToast('ログアウトしました。', 'info');
 }
 
 export async function loadPlaylists() {
+    // 未ログイン (デモ表示) ではAPIを呼ばない
+    if (!hasAccountSession()) return;
     const response = await tunedropFetch('api.php?action=get_playlists');
     // 未ログイン (401) の場合は空配列で安全に描画する (アカウントごとのデータ分離)
     allPlaylists = response.ok ? await response.json() : [];
     // お気に入り曲の集計は曲の追加・お気に入り変更で変わるため、次に開いたときに取り直す
     favoriteTrackSummary = null;
+    favoriteTrackSummaryError = false;
     favoriteTrackSummaryRequest = null;
     filterManagerPlaylists();
     // ダッシュボードの集計は Manager ホームが DOM にあるときだけ取得する
@@ -1141,7 +2766,317 @@ export async function loadPlaylists() {
     if (document.getElementById('dash-stats')) loadManagerSummary();
 }
 
+// ==========================================================
+// 検索サジェスト (リスト名・曲名・アーティスト名など)
+// ----------------------------------------------------------
+// 各検索欄の下に、入力中の文字に一致する候補をドロップダウン表示する。
+// 候補はその画面がすでに読み込んでいるデータから作るため、入力のたびに
+// API を呼び出すことはしない。
+//   - ↑ / ↓ : 候補を選択
+//   - Enter : 選択中の候補を決定 (未選択なら従来どおり先頭を再生/クリア)
+//   - Esc   : 候補を閉じる (検索欄のクリアは従来どおり各画面の処理に任せる)
+// ==========================================================
+const SEARCH_SUGGEST_LIMIT = 8;
+
+function suggestionText(value) {
+    return String(value == null ? '' : value).trim();
+}
+
+function suggestionKey(value) {
+    return suggestionText(value).toLowerCase();
+}
+
+// 同じ名前の候補 (曲名とアーティスト名が同じ等) は1つにまとめる
+function uniqueSuggestionItems(items) {
+    const seen = new Set();
+    const result = [];
+    for (const item of items) {
+        const key = suggestionKey(item.value);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        result.push(item);
+    }
+    return result;
+}
+
+// 前方一致を先に、次に部分一致。同順位は日本語の名前順で並べる。
+function rankSuggestionItems(items, query) {
+    const q = suggestionKey(query);
+    const rank = (item) => {
+        const label = suggestionKey(item.label);
+        if (label === q) return 0;
+        if (label.startsWith(q)) return 1;
+        return 2;
+    };
+    return items
+        .map((item, index) => ({ item, index, rank: rank(item) }))
+        .sort((a, b) => a.rank - b.rank
+            || String(a.item.label).localeCompare(String(b.item.label), 'ja')
+            || a.index - b.index)
+        .map(entry => entry.item);
+}
+
+function matchSuggestionItems(items, query) {
+    const q = suggestionKey(query);
+    if (!q) return [];
+    const matched = uniqueSuggestionItems(items).filter(item => suggestionKey(item.label).includes(q));
+    return rankSuggestionItems(matched, query).slice(0, SEARCH_SUGGEST_LIMIT);
+}
+
+function playlistSuggestionItems(playlists, metaLabel) {
+    return (playlists || []).map(list => ({
+        value: suggestionText(list?.name),
+        label: suggestionText(list?.name),
+        meta: suggestionText(list?.category) || metaLabel,
+        icon: 'queue_music'
+    })).filter(item => item.value);
+}
+
+function trackSuggestionItems(tracks) {
+    const items = [];
+    for (const track of tracks || []) {
+        const title = suggestionText(track?.title);
+        if (title) {
+            items.push({
+                value: title,
+                label: title,
+                meta: suggestionText(track?.channel),
+                icon: 'music_note'
+            });
+        }
+        const artist = suggestionText(track?.channel || track?.author);
+        if (artist) {
+            items.push({
+                value: artist,
+                label: artist,
+                meta: 'アーティスト',
+                icon: 'person'
+            });
+        }
+    }
+    return items;
+}
+
+function shareSuggestionItems(playlists) {
+    const items = [];
+    for (const list of playlists || []) {
+        const name = suggestionText(list?.name);
+        if (name) {
+            items.push({ value: name, label: name, meta: 'プレイリスト', icon: 'queue_music' });
+        }
+        const author = suggestionText(list?.author || list?.author_name || list?.username);
+        if (author) {
+            items.push({ value: author, label: author, meta: 'ユーザー', icon: 'person' });
+        }
+    }
+    return items;
+}
+
+// 1つの検索欄にサジェストのドロップダウンを取り付ける。
+function attachSearchSuggestions(input, options) {
+    if (!input || typeof document === 'undefined') return null;
+    const wrapper = input.closest?.('.search-clear-wrap, .radar-search-wrap, .share-search-wrap')
+        || input.parentElement;
+    if (!wrapper) return null;
+
+    const listId = `${input.id || 'search'}-suggestions`;
+    const list = document.createElement('div');
+    list.className = 'search-suggest';
+    list.id = listId;
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', options.ariaLabel || '検索候補');
+    wrapper.appendChild(list);
+
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', listId);
+    input.setAttribute('aria-expanded', 'false');
+    if (!input.getAttribute('autocomplete')) input.setAttribute('autocomplete', 'off');
+
+    let items = [];
+    let activeIndex = -1;
+    let suppressFocusRefresh = false;
+
+    const isOpen = () => list.classList.contains('is-open');
+
+    const close = () => {
+        if (!isOpen()) return;
+        list.classList.remove('is-open');
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
+        activeIndex = -1;
+    };
+
+    const setActive = (index) => {
+        const option = list.children[index];
+        if (!option) return;
+        activeIndex = index;
+        Array.from(list.children).forEach((child, childIndex) => {
+            const selected = childIndex === index;
+            child.classList.toggle('is-active', selected);
+            child.setAttribute('aria-selected', String(selected));
+        });
+        input.setAttribute('aria-activedescendant', option.id);
+        // キーボードで候補を移動したとき、長い一覧でも選択中が見えるようにする
+        option.scrollIntoView?.({ block: 'nearest' });
+    };
+
+    const choose = (index) => {
+        const item = items[index];
+        if (!item) return;
+        input.value = item.value;
+        close();
+        if (typeof options.onSelect === 'function') options.onSelect(item);
+        // 選択直後の focus で候補を開き直さない (タッチ操作で blur してから
+        // 選択した場合も、入力欄へ戻すだけで閉じたままにする)
+        suppressFocusRefresh = true;
+        input.focus?.();
+        suppressFocusRefresh = false;
+    };
+
+    const render = () => {
+        list.innerHTML = '';
+        if (!items.length) {
+            close();
+            return;
+        }
+        items.forEach((item, index) => {
+            const option = document.createElement('div');
+            option.className = 'search-suggest-item';
+            option.id = `${listId}-option-${index}`;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', 'false');
+
+            const icon = document.createElement('span');
+            icon.className = 'material-symbols-rounded search-suggest-icon';
+            icon.textContent = item.icon || 'search';
+            option.appendChild(icon);
+
+            const label = document.createElement('span');
+            label.className = 'search-suggest-label';
+            label.textContent = item.label;
+            option.appendChild(label);
+
+            if (item.meta) {
+                const meta = document.createElement('span');
+                meta.className = 'search-suggest-meta';
+                meta.textContent = item.meta;
+                option.appendChild(meta);
+            }
+
+            // blur で閉じる前に選択できるよう、mousedown の既定動作を止める
+            option.addEventListener('mousedown', (event) => {
+                event.preventDefault();
+                choose(index);
+            });
+            list.appendChild(option);
+        });
+        activeIndex = -1;
+        list.classList.add('is-open');
+        input.setAttribute('aria-expanded', 'true');
+        input.removeAttribute('aria-activedescendant');
+    };
+
+    const refresh = () => {
+        const query = suggestionText(input.value);
+        items = matchSuggestionItems(options.getItems?.() || [], query);
+        render();
+    };
+
+    // 日本語入力の変換中は候補を更新せず、確定後 (compositionend) にまとめて更新する
+    input.addEventListener('input', (event) => {
+        if (!event.isComposing) refresh();
+    });
+    input.addEventListener('compositionend', refresh);
+    input.addEventListener('focus', () => {
+        if (suppressFocusRefresh) return;
+        if (suggestionText(input.value)) refresh();
+        else close();
+    });
+    input.addEventListener('blur', () => setTimeout(close, 100));
+
+    // 既存のインライン Enter 処理 (先頭を再生・検索実行) より先に判定するため capture で受ける。
+    input.addEventListener('keydown', (event) => {
+        if (event.isComposing) return;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (!items.length) refresh();
+            if (!items.length) return;
+            event.preventDefault();
+            const delta = event.key === 'ArrowDown' ? 1 : -1;
+            const next = activeIndex < 0
+                ? (delta > 0 ? 0 : items.length - 1)
+                : (activeIndex + delta + items.length) % items.length;
+            setActive(next);
+            return;
+        }
+        if (event.key === 'Enter') {
+            if (!isOpen() || activeIndex < 0) return;
+            event.preventDefault();
+            // インラインの onkeydown (先頭の曲を再生 / リストを開く) を止める
+            event.stopImmediatePropagation?.();
+            choose(activeIndex);
+            return;
+        }
+        if (event.key === 'Escape' || event.key === 'Tab') close();
+    }, true);
+
+    // 検索欄の外をクリックしたら閉じる (フォーカスが移らない要素でも確実に閉じる)
+    document.addEventListener('pointerdown', (event) => {
+        if (!wrapper.contains(event.target)) close();
+    });
+
+    return { refresh, close };
+}
+
+// 各検索欄へサジェストを設定する (DOMContentLoaded で1回だけ呼ぶ)。
+export function setupSearchSuggestions() {
+    attachSearchSuggestions(document.getElementById('manager-search'), {
+        ariaLabel: 'リスト名の検索候補',
+        getItems: () => {
+            // カテゴリ絞り込み中は、そのカテゴリのリストだけを候補にする
+            const category = document.getElementById('manager-category')?.value || '';
+            const lists = (allPlaylists || []).filter(list => !category || list.category === category);
+            return playlistSuggestionItems(lists, 'リスト');
+        },
+        onSelect: () => filterManagerPlaylists()
+    });
+    attachSearchSuggestions(document.getElementById('track-search'), {
+        ariaLabel: '曲名・アーティスト名の検索候補',
+        getItems: () => trackSuggestionItems(currentTracks),
+        onSelect: () => filterTracks()
+    });
+    attachSearchSuggestions(document.getElementById('radar-title-search'), {
+        ariaLabel: '曲名・アーティスト名の検索候補',
+        getItems: () => trackSuggestionItems(vibeMapData),
+        onSelect: () => applyRadarFilter(true)
+    });
+    attachSearchSuggestions(document.getElementById('share-search'), {
+        ariaLabel: 'プレイリスト名・ユーザー名の検索候補',
+        getItems: () => {
+            const category = document.getElementById('share-category')?.value || '';
+            const lists = (sharePlaylists || []).filter(list => !category || (list.category || 'Other') === category);
+            return shareSuggestionItems(lists);
+        },
+        onSelect: () => renderSharePlaylists()
+    });
+}
+
+export function syncManagerSearchClear() {
+    const input = document.getElementById('manager-search');
+    const button = document.getElementById('btn-manager-search-clear');
+    if (button) button.classList.toggle('is-visible', Boolean(input && input.value));
+}
+
+export function clearManagerSearch() {
+    const input = document.getElementById('manager-search');
+    if (!input) return;
+    input.value = '';
+    filterManagerPlaylists();
+    if (typeof input.focus === 'function') input.focus();
+}
+
 export function filterManagerPlaylists() {
+    syncManagerSearchClear();
     const query = document.getElementById('manager-search').value.toLowerCase();
     const category = document.getElementById('manager-category').value;
     const filtered = allPlaylists.filter(list => list.name.toLowerCase().includes(query) && (category === "" || list.category === category));
@@ -1193,6 +3128,7 @@ export function renderPlaylistNav(playlists) {
             <div class="sidebar-menu-container" onclick="event.stopPropagation()">
                 <button class="sidebar-menu-btn" onclick="toggleSidebarMenu(event, this)"><span class="material-symbols-rounded">more_vert</span></button>
                 <div class="sidebar-dropdown-menu">
+                    <button onclick="openPlaylistShareView(${list.id})"><span class="material-symbols-rounded">public</span>Shareで見る</button>
                     <button onclick="openEditPlaylistModal(event, ${list.id})"><span class="material-symbols-rounded">edit</span>編集・公開</button>
                     <button onclick="deletePlaylistFromSidebar(event, ${list.id})"><span class="material-symbols-rounded">delete</span>削除</button>
                 </div>
@@ -1548,6 +3484,7 @@ export function syncTrackDomOrder() {
 }
 
 export function selectPlaylist(id, options = {}) {
+    resetManagerSelection();
     currentPlaylistId = id;
     filterManagerPlaylists();
     const homeArea = document.getElementById('manager-home-area');
@@ -1702,18 +3639,27 @@ document.addEventListener('click', () => {
 
 export function openCreatePlaylistModal() {
     closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
-    document.getElementById('new-playlist-title').value = '';
+    const titleInput = document.getElementById('new-playlist-title');
+    titleInput.value = '';
     document.getElementById('new-playlist-category').value = 'Other';
     document.getElementById('new-playlist-public').checked = false;
     document.getElementById('create-playlist-modal').style.display = 'flex';
+    // 開いた直後に入力できるようにする (スマホでも1タップ減る)
+    if (titleInput && typeof titleInput.focus === 'function') titleInput.focus();
 }
 export function closeCreatePlaylistModal() { document.getElementById('create-playlist-modal').style.display = 'none'; }
 
 export async function submitNewPlaylist() {
+    const button = document.getElementById('create-playlist-submit');
+    if (button && button.disabled) return;
     const name = document.getElementById('new-playlist-title').value.trim();
     const category = document.getElementById('new-playlist-category').value;
     const isPublic = document.getElementById('new-playlist-public').checked ? 1 : 0;
-    if (!name) return showToast('リスト名を入力してください。', 'error');
+    if (!name) {
+        document.getElementById('new-playlist-title').focus();
+        return showToast('リスト名を入力してください。', 'error');
+    }
+    setActionBusy(button, true, '作成中…');
     try {
         const response = await tunedropFetch('api.php?action=create_playlist', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1723,6 +3669,7 @@ export async function submitNewPlaylist() {
         if (result.success) { closeCreatePlaylistModal(); loadPlaylists(); showToast(`リスト「${name}」を作成しました。`); }
         else showToast('作成に失敗しました。' + (result.error ? ' ' + result.error : ''), 'error');
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
+    finally { setActionBusy(button, false); }
 }
 
 export async function openEditPlaylistModal(event, playlistId) {
@@ -1738,10 +3685,18 @@ export async function openEditPlaylistModal(event, playlistId) {
     document.getElementById('edit-playlist-public').checked = list.is_public == 1;
 
     const coverSelect = document.getElementById('edit-playlist-cover');
-    coverSelect.innerHTML = '<option value="">設定しない / 今のまま</option>';
+    coverSelect.innerHTML = '<option value="">読み込み中…</option>';
+    // 曲一覧の取得を待たずにモーダルを開く (クリック直後に何も起きない時間をなくす)
+    document.getElementById('edit-playlist-modal').style.display = 'flex';
+    const titleInput = document.getElementById('edit-playlist-title');
+    if (titleInput && typeof titleInput.focus === 'function') {
+        titleInput.focus();
+        if (typeof titleInput.select === 'function') titleInput.select();
+    }
     try {
         const response = await tunedropFetch(`api.php?action=get_my_bookmarks&playlist_id=${playlistId}`);
         const tracks = await response.json();
+        coverSelect.innerHTML = '<option value="">設定しない / 今のまま</option>';
         tracks.forEach(track => {
             const option = document.createElement('option');
             option.value = track.youtube_id;
@@ -1749,19 +3704,27 @@ export async function openEditPlaylistModal(event, playlistId) {
             if (list.cover_id === track.youtube_id) option.selected = true;
             coverSelect.appendChild(option);
         });
-    } catch (err) { console.error(err); }
-    document.getElementById('edit-playlist-modal').style.display = 'flex';
+    } catch (err) {
+        console.error(err);
+        coverSelect.innerHTML = '<option value="">設定しない / 今のまま</option>';
+    }
 }
 export function closeEditPlaylistModal() { document.getElementById('edit-playlist-modal').style.display = 'none'; }
 
 export async function submitEditPlaylist() {
+    const button = document.getElementById('edit-playlist-submit');
+    if (button && button.disabled) return;
     const id = document.getElementById('edit-playlist-id').value;
     const name = document.getElementById('edit-playlist-title').value.trim();
     const category = document.getElementById('edit-playlist-category').value;
     const isPublic = document.getElementById('edit-playlist-public').checked ? 1 : 0;
     const coverId = document.getElementById('edit-playlist-cover').value;
 
-    if (!name) return showToast('リスト名を入力してください。', 'error');
+    if (!name) {
+        document.getElementById('edit-playlist-title').focus();
+        return showToast('リスト名を入力してください。', 'error');
+    }
+    setActionBusy(button, true, '保存中…');
     try {
         const response = await tunedropFetch('api.php?action=edit_playlist', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1771,12 +3734,19 @@ export async function submitEditPlaylist() {
         if (result.success) { closeEditPlaylistModal(); loadPlaylists(); showToast('リストを更新しました。'); }
         else showToast('更新に失敗しました。', 'error');
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
+    finally { setActionBusy(button, false); }
 }
 
 export async function deletePlaylistFromSidebar(event, playlistId) {
     event.stopPropagation();
     document.querySelectorAll('.sidebar-dropdown-menu').forEach(m => m.style.display = 'none');
-    if (!confirm("このプレイリストを削除しますか？\n（リスト内の曲もすべて削除されます）")) return;
+    const confirmed = await showConfirm({
+        title: 'プレイリストを削除',
+        message: 'このプレイリストを削除しますか？\nリスト内の曲もすべて削除されます。',
+        confirmLabel: '削除する',
+        danger: true,
+    });
+    if (!confirmed) return;
     try {
         const response = await tunedropFetch('api.php?action=delete_playlist', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1811,6 +3781,8 @@ export async function updatePlaylistCategory(playlistId, newCategory, event) {
 // 変わって loadPlaylists() が走るたびに取り直す。
 // ==========================================================
 export async function loadManagerSummary() {
+    // 未ログイン (デモ表示) ではAPIを呼ばない
+    if (!hasAccountSession()) return;
     if (!document.getElementById('dash-stats')) return;   // Manager 以外の画面では何もしない
     if (managerSummaryPromise) return managerSummaryPromise;
 
@@ -1972,6 +3944,7 @@ export function renderGenreRows(container, categories, emptyText) {
 // ==========================================================
 let favoriteDashboardLists = [];      // 直近の get_playlists 結果 (再描画用)
 let favoriteTrackSummary = null;      // お気に入り曲の一覧 (null = 未取得)
+let favoriteTrackSummaryError = false;
 let favoriteTrackSummaryRequest = null;
 
 export function renderFavoritesDashboard(lists) {
@@ -1992,8 +3965,8 @@ export function renderFavoritesDashboard(lists) {
 
     // アイコンは静的な <span> として持たせる (Material Symbols のサブセット検出にも乗る)
     const statCards = [
-        { label: 'お気に入り曲', value: trackCount, hint: '★ を付けた曲', loading: !tracks, action: "selectPlaylist('fav_tracks')", icon: '<span class="material-symbols-rounded">favorite</span>' },
-        { label: 'アーティスト', value: artistCount, hint: '重複を除く', loading: !tracks, action: "selectPlaylist('fav_tracks')", icon: '<span class="material-symbols-rounded">person</span>' },
+        { label: 'お気に入り曲', value: trackCount, hint: '★ を付けた曲', loading: !tracks && !favoriteTrackSummaryError, action: "selectPlaylist('fav_tracks')", icon: '<span class="material-symbols-rounded">favorite</span>' },
+        { label: 'アーティスト', value: artistCount, hint: '重複を除く', loading: !tracks && !favoriteTrackSummaryError, action: "selectPlaylist('fav_tracks')", icon: '<span class="material-symbols-rounded">person</span>' },
         { label: 'お気に入りリスト', value: favoriteLists.length, hint: '固定タブを除く', loading: false, action: 'focusPlaylistGrid()', icon: '<span class="material-symbols-rounded">queue_music</span>' },
         { label: 'カテゴリ', value: categoryMap.size, hint: 'ジャンルの広がり', loading: false, action: 'focusCategoryFilter()', icon: '<span class="material-symbols-rounded">insights</span>' },
     ];
@@ -2018,14 +3991,26 @@ export function loadFavoriteTrackSummary() {
     favoriteTrackSummaryRequest = (async () => {
         try {
             const response = await tunedropFetch('api.php?action=get_my_bookmarks&playlist_id=fav_tracks');
-            favoriteTrackSummary = response.ok ? await response.json() : [];
+            const tracks = await response.json();
+            if (!response.ok || !Array.isArray(tracks)) throw new Error('お気に入りを取得できませんでした。');
+            favoriteTrackSummary = tracks;
+            favoriteTrackSummaryError = false;
         } catch (error) {
-            favoriteTrackSummary = [];
+            favoriteTrackSummary = null;
+            favoriteTrackSummaryError = true;
         }
         renderFavoritesDashboard(favoriteDashboardLists);
         return favoriteTrackSummary;
     })();
     return favoriteTrackSummaryRequest;
+}
+
+export function retryFavoriteTrackSummary() {
+    favoriteTrackSummaryRequest = null;
+    favoriteTrackSummaryError = false;
+    const request = loadFavoriteTrackSummary();
+    renderFavoriteTracksPanel();
+    return request;
 }
 
 // お気に入り曲のパネル (最近お気に入りにした曲 / アーティスト分布)
@@ -2036,7 +4021,9 @@ export function renderFavoriteTracksPanel() {
 
     const tracks = favoriteTrackSummary;
     if (!tracks) {
-        const loading = '<div class="dash-panel-empty is-loading"><p>お気に入り曲を読み込み中…</p></div>';
+        const loading = favoriteTrackSummaryError
+            ? '<div class="dash-panel-empty" role="status"><p>お気に入りを読み込めませんでした。</p><button type="button" onclick="retryFavoriteTrackSummary()">再試行</button></div>'
+            : '<div class="dash-panel-empty is-loading"><p>お気に入り曲を読み込み中…</p></div>';
         if (recentEl) recentEl.innerHTML = loading;
         if (artistsEl) artistsEl.innerHTML = loading;
         return;
@@ -2295,8 +4282,78 @@ document.addEventListener('keydown', event => {
     closeTrackMenus();
     trigger?.focus();
     // 開いているモーダルがあれば閉じる (Escで画面が勝手に切り替わらないように)
-    closeTopmostModal();
+    if (!closeTopmostModal()) {
+        if (!closeProfilePanel() && managerSelectMode) {
+            resetManagerSelection();
+        }
+    }
 });
+
+// ==========================================================
+// グローバル再生ショートカット (Kiite 風)
+// ----------------------------------------------------------
+// Space = 再生/一時停止, N = 次の曲, P = 前の曲。
+// 入力欄・ボタン・モーダル表示中はブラウザの操作を邪魔しないよう何もしない。
+// (Radar で1曲だけのときに N を押すと「次の発掘」へ進む)
+// ==========================================================
+const SHORTCUT_IGNORE_TAGS = new Set(['input', 'textarea', 'select', 'button', 'a']);
+
+export function isTypingTarget(target) {
+    if (!target) return false;
+    if (target.isContentEditable) return true;
+    const tag = String(target.tagName || '').toLowerCase();
+    return SHORTCUT_IGNORE_TAGS.has(tag);
+}
+
+export function hasOpenOverlay() {
+    for (const target of MODAL_CLOSERS) {
+        const open = typeof target.isOpen === 'function' ? target.isOpen() : isModalVisible(target.id);
+        if (open) return true;
+    }
+    return false;
+}
+
+export function handlePlaybackShortcut(event) {
+    if (!event || event.defaultPrevented) return false;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return false;
+    if (isTypingTarget(event.target) || hasOpenOverlay()) return false;
+
+    if (event.key === ' ' || event.key === 'Spacebar') {
+        if (!currentQueue.length) return false;
+        event.preventDefault();
+        togglePlay();
+        return true;
+    }
+
+    if (event.key === 'n' || event.key === 'N') {
+        if (currentQueue.length > 1) {
+            event.preventDefault();
+            skipTrack(1);
+            return true;
+        }
+        // 1曲だけのときは Radar の発掘を進める
+        const radar = document.getElementById('view-radar');
+        if (radar && radar.classList.contains('active')) {
+            event.preventDefault();
+            radarDigNext();
+            return true;
+        }
+        return false;
+    }
+
+    if (event.key === 'p' || event.key === 'P') {
+        if (currentQueue.length > 1) {
+            event.preventDefault();
+            skipTrack(-1);
+            return true;
+        }
+        return false;
+    }
+
+    return false;
+}
+
+document.addEventListener('keydown', handlePlaybackShortcut);
 
 // ==========================================================
 // ソート機能
@@ -2370,6 +4427,9 @@ export function deleteTrackFromMenu(event, trackId) {
 
 export async function addTrack() {
     const input = document.getElementById('youtube-url');
+    const button = document.getElementById('add-track-btn');
+    // ボタン連打・Enter 連打による二重登録を防ぐ
+    if (button && button.disabled) return;
     // 複数URLのまとめ貼り付けに対応 (1件ずつ追加した結果をまとめて知らせる)
     const youtubeIds = extractYouTubeIds(input ? input.value : '');
     if (youtubeIds.length === 0) {
@@ -2387,7 +4447,6 @@ export async function addTrack() {
         : (Number.isInteger(currentPlaylistId) ? currentPlaylistId : inboxId);
 
     // ボタン連打による二重登録を防ぐ (追加中は押せなくする)
-    const button = document.getElementById('add-track-btn');
     if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
     try {
         let added = 0;
@@ -2411,7 +4470,7 @@ export async function addTrack() {
         }
 
         if (added > 0) {
-            if (input) input.value = '';
+            if (input) { input.value = ''; input.focus(); }
             loadMyBookmarks(currentPlaylistId);
             await loadPlaylists();
 
@@ -2433,7 +4492,13 @@ export async function addTrack() {
 
 export async function deleteTrack(event, trackId) {
     event.stopPropagation();
-    if (!confirm("この曲をリストから削除しますか？")) return;
+    const confirmed = await showConfirm({
+        title: '曲を削除',
+        message: 'この曲をリストから削除しますか？',
+        confirmLabel: '削除する',
+        danger: true,
+    });
+    if (!confirmed) return;
     try {
         const res = await tunedropFetch('api.php?action=delete_bookmark', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2443,6 +4508,11 @@ export async function deleteTrack(event, trackId) {
         if (result.success) {
             loadMyBookmarks(currentPlaylistId);
             await loadPlaylists();
+            // 詳細画面から削除したときは、その場の一覧も更新する
+            if (document.getElementById('view-playlist-detail')?.classList.contains('active')) {
+                currentDetailTracks = currentDetailTracks.filter(t => t.id !== trackId);
+                renderDetailTracks(currentDetailTracks);
+            }
             showToast('リストから削除しました。', 'info');
         } else {
             showToast('削除に失敗しました。', 'error');
@@ -2453,11 +4523,9 @@ export async function deleteTrack(event, trackId) {
     }
 }
 
-export function openMoveModal(event, trackId) {
-    event.stopPropagation();
-    closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
-    selectedTrackIdForMove = trackId;
+function populateMoveTargetPlaylists() {
     const select = document.getElementById('move-target-playlist-select');
+    if (!select) return;
     select.innerHTML = '';
     allPlaylists.forEach(list => {
         const option = document.createElement('option');
@@ -2466,21 +4534,77 @@ export function openMoveModal(event, trackId) {
         option.innerText = isSystemPlaylist(list) ? list.name : `${list.name} (${list.category})`;
         select.appendChild(option);
     });
-    document.getElementById('move-track-modal').style.display = 'flex';
 }
-export function closeMoveModal() { document.getElementById('move-track-modal').style.display = 'none'; selectedTrackIdForMove = null; }
+
+export function openMoveModal(event, trackId) {
+    event.stopPropagation();
+    closeMobileMenu();   // モーダル表示中はメニューを畳んでおく
+    selectedTrackIdForMove = trackId;
+    bulkMoveTrackIds = [];
+    populateMoveTargetPlaylists();
+    const title = document.getElementById('move-track-modal-title');
+    if (title) title.textContent = '曲を移動';
+    document.getElementById('move-track-modal').style.display = 'flex';
+    const select = document.getElementById('move-target-playlist-select');
+    if (select && typeof select.focus === 'function') select.focus();
+}
+export function closeMoveModal() {
+    document.getElementById('move-track-modal').style.display = 'none';
+    selectedTrackIdForMove = null;
+    bulkMoveTrackIds = [];
+}
 
 export async function submitMoveTrack() {
+    const button = document.getElementById('move-track-submit');
+    if (button && button.disabled) return;
     const targetPlaylistId = document.getElementById('move-target-playlist-select').value;
-    if (!selectedTrackIdForMove || !targetPlaylistId) return;
+    if ((!selectedTrackIdForMove && !bulkMoveTrackIds.length) || !targetPlaylistId) return;
+    const movedId = selectedTrackIdForMove;
+    const bulkIds = bulkMoveTrackIds.slice();
+    const isBulk = bulkIds.length > 0;
+    setActionBusy(button, true, '移動中…');
     try {
-        const response = await tunedropFetch('api.php?action=move_bookmark', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: selectedTrackIdForMove, target_playlist_id: targetPlaylistId })
-        });
+        const response = isBulk
+            ? await tunedropFetch('api.php?action=bulk_move_bookmarks', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: bulkIds, target_playlist_id: targetPlaylistId })
+            })
+            : await tunedropFetch('api.php?action=move_bookmark', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: selectedTrackIdForMove, target_playlist_id: targetPlaylistId })
+            });
         const result = await response.json();
-        if (result.success) { closeMoveModal(); loadMyBookmarks(currentPlaylistId); await loadPlaylists(); showToast('移動しました。'); } else showToast(result.error || '移動に失敗しました。', 'error');
+        if (result.success) {
+            closeMoveModal();
+            if (isBulk) {
+                managerSelectedTrackIds.clear();
+                managerSelectionAnchorId = null;
+            }
+            await loadMyBookmarks(currentPlaylistId);
+            await loadPlaylists();
+            if (isBulk) {
+                const moved = Number(result.moved) || 0;
+                const skipped = Number(result.skipped) || 0;
+                if (moved === 0 && skipped > 0) {
+                    showToast(`移動できる曲がありませんでした（${skipped}曲は移動先に同じ曲があります）。`, 'error');
+                } else {
+                    showToast(skipped
+                        ? `${moved}曲を移動しました（${skipped}曲は移動先に同じ曲があるためスキップ）。`
+                        : `${moved}曲を移動しました。`);
+                }
+                syncManagerSelectionUI();
+            } else {
+                // 詳細画面から移動したときは、その場の一覧からも取り除く
+                const detailView = document.getElementById('view-playlist-detail');
+                if (detailView && detailView.classList.contains('active')) {
+                    currentDetailTracks = currentDetailTracks.filter(t => t.id !== movedId);
+                    renderDetailTracks(currentDetailTracks);
+                }
+                showToast('移動しました。');
+            }
+        } else showToast(result.error || '移動に失敗しました。', 'error');
     } catch (err) { showToast('通信エラーが発生しました。', 'error'); }
+    finally { setActionBusy(button, false); }
 }
 
 export async function loadMyBookmarks(playlistId = null) {
@@ -2489,7 +4613,9 @@ export async function loadMyBookmarks(playlistId = null) {
     const response = await tunedropFetch(url);
     // 未ログイン (401) の場合は空配列で安全に描画する (アカウントごとのデータ分離)
     currentTracks = response.ok ? await response.json() : [];
-    if (document.getElementById('track-search')) document.getElementById('track-search').value = '';
+    const trackSearch = document.getElementById('track-search');
+    if (trackSearch) trackSearch.value = '';
+    syncTrackSearchClear();
     renderTracks(currentTracks);
 }
 
@@ -2501,8 +4627,35 @@ export function filteredTracks() {
     return currentTracks.filter(track => (track.title && track.title.toLowerCase().includes(query)) || (track.channel && track.channel.toLowerCase().includes(query)));
 }
 
+export function syncTrackSearchClear() {
+    const input = document.getElementById('track-search');
+    const button = document.getElementById('btn-track-search-clear');
+    if (button) button.classList.toggle('is-visible', Boolean(input && input.value));
+}
+
+export function clearTrackSearch() {
+    const input = document.getElementById('track-search');
+    if (!input) return;
+    input.value = '';
+    filterTracks();
+    if (typeof input.focus === 'function') input.focus();
+}
+
 export function filterTracks() {
+    syncTrackSearchClear();
     renderTracks(filteredTracks());
+}
+
+// Manager のリスト検索は Escape でクリア (曲・Radar検索と同じ操作感)
+export function onManagerSearchKey(event) {
+    if (!event || event.key !== 'Escape') return;
+    const input = document.getElementById('manager-search');
+    if (!input || !input.value) return;
+    event.preventDefault();
+    if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    input.value = '';
+    filterManagerPlaylists();
+    if (typeof input.focus === 'function') input.focus();
 }
 
 // 検索欄の Enter=先頭の曲を再生、Escape=クリア (Radar / Share と同じ操作感)
@@ -2521,26 +4674,309 @@ export function onTrackSearchKey(event) {
     }
 }
 
+// ==========================================================
+// Manager: 曲カードの複数選択
+// ----------------------------------------------------------
+// 選択モード中はカードのクリックで選択/解除し、Shift+クリックで
+// 表示中の並びに沿って範囲選択する。一括操作は api.php の
+// bulk_* アクションでまとめて実行する。
+// ==========================================================
+export function isManagerSelectMode() {
+    return managerSelectMode;
+}
+
+export function selectedManagerTrackIds() {
+    return [...managerSelectedTrackIds];
+}
+
+export function selectedManagerTracks() {
+    return currentTracks.filter(track => managerSelectedTrackIds.has(Number(track.id)));
+}
+
+function displayedManagerTracks() {
+    return sortTracks(filteredTracks(), trackSortMode);
+}
+
+function managerBulkButtons() {
+    return [...document.querySelectorAll('[data-manager-bulk-action]')];
+}
+
+// 選択状態を DOM (チェック・件数・ボタンの有効/無効) へ反映する。
+// カードの作り直しはしないため、クリック直後でもスクロール位置が動かない。
+export function syncManagerSelectionUI() {
+    const grid = document.getElementById('my-bookmarks');
+    if (grid && grid.classList) grid.classList.toggle('is-select-mode', managerSelectMode);
+
+    const toggle = document.getElementById('btn-manager-select-mode');
+    if (toggle) {
+        toggle.classList.toggle('is-active', managerSelectMode);
+        toggle.setAttribute('aria-pressed', String(managerSelectMode));
+        const label = toggle.querySelector('.manager-select-label');
+        if (label) label.textContent = managerSelectMode ? '選択中' : '選択';
+    }
+
+    const bar = document.getElementById('manager-bulk-bar');
+    if (bar) bar.hidden = !managerSelectMode;
+
+    const count = document.getElementById('manager-bulk-count');
+    if (count) count.textContent = String(managerSelectedTrackIds.size);
+
+    if (grid && typeof grid.querySelectorAll === 'function') {
+        grid.querySelectorAll('.card').forEach(card => {
+            const selected = managerSelectedTrackIds.has(Number(card.dataset.trackId));
+            card.classList.toggle('is-selected', managerSelectMode && selected);
+            card.setAttribute('aria-selected', String(managerSelectMode && selected));
+            card.querySelectorAll('.card-select-box').forEach(box => {
+                box.classList.toggle('is-checked', selected);
+                box.setAttribute('aria-checked', String(selected));
+            });
+        });
+    }
+
+    const selectedTracks = selectedManagerTracks();
+    const allFavorite = selectedTracks.length > 0
+        && selectedTracks.every(track => Number(track.is_favorite) === 1);
+    const favLabel = document.getElementById('manager-bulk-fav-label');
+    if (favLabel) favLabel.textContent = allFavorite ? 'お気に入り解除' : 'お気に入り追加';
+    const favIcon = document.getElementById('manager-bulk-fav-icon');
+    if (favIcon) favIcon.textContent = allFavorite ? 'heart_broken' : 'favorite';
+
+    managerBulkButtons().forEach(button => {
+        button.disabled = managerBulkBusy || managerSelectedTrackIds.size === 0;
+    });
+}
+
+let managerBulkBusy = false;
+
+function setManagerBulkBusy(busy) {
+    managerBulkBusy = Boolean(busy);
+    syncManagerSelectionUI();
+}
+
+export function resetManagerSelection() {
+    managerSelectMode = false;
+    managerSelectedTrackIds.clear();
+    managerSelectionAnchorId = null;
+    managerBulkBusy = false;
+    syncManagerSelectionUI();
+}
+
+export function toggleManagerSelectMode(force) {
+    const next = typeof force === 'boolean' ? force : !managerSelectMode;
+    managerSelectMode = next;
+    if (!next) {
+        managerSelectedTrackIds.clear();
+        managerSelectionAnchorId = null;
+    }
+    // 選択モード中はドラッグ並び替えを止めるため、カードを作り直して
+    // draggable / ハンドルの状態を揃える。
+    renderTracks(filteredTracks());
+}
+
+export function clearManagerSelection() {
+    managerSelectedTrackIds.clear();
+    managerSelectionAnchorId = null;
+    syncManagerSelectionUI();
+}
+
+export function selectManagerTrackRange(trackId, orderedTracks = null) {
+    const ordered = orderedTracks || displayedManagerTracks();
+    const ids = ordered.map(track => Number(track.id));
+    const anchorIndex = ids.indexOf(Number(managerSelectionAnchorId));
+    const targetIndex = ids.indexOf(Number(trackId));
+    if (anchorIndex === -1 || targetIndex === -1) {
+        toggleTrackSelection(trackId);
+        return;
+    }
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    for (let i = start; i <= end; i++) managerSelectedTrackIds.add(ids[i]);
+    managerSelectionAnchorId = Number(trackId);
+    syncManagerSelectionUI();
+}
+
+export function toggleTrackSelection(trackId, event = null) {
+    const id = Number(trackId);
+    if (!Number.isInteger(id) || id <= 0) return;
+    if (!managerSelectMode) {
+        managerSelectMode = true;
+        managerSelectedTrackIds.add(id);
+        managerSelectionAnchorId = id;
+        renderTracks(filteredTracks());
+        return;
+    }
+    if (event && event.shiftKey && managerSelectionAnchorId != null) {
+        selectManagerTrackRange(id);
+        return;
+    }
+    if (managerSelectedTrackIds.has(id)) managerSelectedTrackIds.delete(id);
+    else managerSelectedTrackIds.add(id);
+    managerSelectionAnchorId = id;
+    syncManagerSelectionUI();
+}
+
+export function selectAllVisibleTracks() {
+    const ordered = displayedManagerTracks();
+    ordered.forEach(track => managerSelectedTrackIds.add(Number(track.id)));
+    if (ordered.length) managerSelectionAnchorId = Number(ordered[ordered.length - 1].id);
+    syncManagerSelectionUI();
+}
+
+export async function bulkToggleSelectedFavorite() {
+    if (managerBulkBusy) return;
+    const selected = selectedManagerTracks();
+    if (!selected.length) return;
+    const allFavorite = selected.every(track => Number(track.is_favorite) === 1);
+    const nextState = allFavorite ? 0 : 1;
+    setManagerBulkBusy(true);
+    try {
+        const response = await tunedropFetch('api.php?action=bulk_set_favorite_bookmarks', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ids: selected.map(track => Number(track.id)),
+                is_favorite: nextState,
+            })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            showToast(data.error || 'お気に入りを更新できませんでした。', 'error');
+            return;
+        }
+        const youtubeIds = new Set((data.youtube_ids || []).map(String));
+        if (!youtubeIds.size) selected.forEach(track => youtubeIds.add(String(track.youtube_id)));
+        [...currentTracks, ...currentDetailTracks, ...currentQueue].forEach(track => {
+            if (youtubeIds.has(String(track.youtube_id))) track.is_favorite = nextState;
+        });
+        const playing = currentQueue[currentTrackIndex];
+        if (playing && youtubeIds.has(String(playing.youtube_id))) updatePlayerFavButton(nextState);
+        filterTracks();
+        showToast(nextState
+            ? `${selected.length}曲をお気に入りに追加しました。`
+            : `${selected.length}曲のお気に入りを解除しました。`);
+    } catch (error) {
+        console.error(error);
+        showToast('お気に入りを更新できませんでした。もう一度お試しください。', 'error');
+    } finally {
+        setManagerBulkBusy(false);
+    }
+}
+
+export async function bulkDeleteSelectedTracks() {
+    if (managerBulkBusy) return;
+    const ids = selectedManagerTrackIds();
+    if (!ids.length) return;
+    const confirmed = await showConfirm({
+        title: '選択した曲を削除',
+        message: `選択した${ids.length}曲をリストから削除しますか？`,
+        confirmLabel: `${ids.length}曲を削除する`,
+        danger: true,
+    });
+    if (!confirmed) return;
+    setManagerBulkBusy(true);
+    try {
+        const response = await tunedropFetch('api.php?action=bulk_delete_bookmarks', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            showToast(data.error || '削除に失敗しました。', 'error');
+            return;
+        }
+        const deleted = Number(data.deleted) || 0;
+        managerSelectedTrackIds.clear();
+        managerSelectionAnchorId = null;
+        await loadMyBookmarks(currentPlaylistId);
+        await loadPlaylists();
+        showToast(`${deleted}曲を削除しました。`, 'info');
+    } catch (error) {
+        console.error(error);
+        showToast('削除できませんでした。時間をおいてお試しください。', 'error');
+    } finally {
+        setManagerBulkBusy(false);
+    }
+}
+
+export function bulkOpenMoveModal() {
+    const ids = selectedManagerTrackIds();
+    if (!ids.length) return;
+    closeMobileMenu();
+    selectedTrackIdForMove = null;
+    bulkMoveTrackIds = ids;
+    populateMoveTargetPlaylists();
+    const title = document.getElementById('move-track-modal-title');
+    if (title) title.textContent = `${ids.length}曲を移動`;
+    document.getElementById('move-track-modal').style.display = 'flex';
+    const select = document.getElementById('move-target-playlist-select');
+    if (select && typeof select.focus === 'function') select.focus();
+}
+
+export function playSelectedTracks() {
+    const ordered = displayedManagerTracks()
+        .filter(track => managerSelectedTrackIds.has(Number(track.id)));
+    if (!ordered.length) {
+        showToast('選択した曲が表示中の一覧にありません。', 'error');
+        return;
+    }
+    playTrackFromQueue(0, ordered);
+}
+
 export function renderTracks(tracks) {
     const container = document.getElementById('my-bookmarks');
+    if (!container) return;
+    const validIds = new Set(currentTracks.map(track => Number(track.id)));
+    for (const id of managerSelectedTrackIds) {
+        if (!validIds.has(id)) managerSelectedTrackIds.delete(id);
+    }
     container.innerHTML = '';
-    if (tracks.length === 0) return container.innerHTML = '<p style="color:var(--text-sub);">曲が見つかりません。</p>';
+    if (tracks.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-sub);">曲が見つかりません。</p>';
+        syncManagerSelectionUI();
+        return;
+    }
 
     const displayTracks = sortTracks(tracks, trackSortMode);
 
     displayTracks.forEach((track, index) => {
         const card = document.createElement('div');
         card.className = 'card draggable-track';
-        card.draggable = true;
+        card.draggable = !managerSelectMode;
         card.dataset.trackId = track.id;
-        card.onclick = () => { if (card._dragged || card._pointerDragged) return; playTrackFromQueue(index, displayTracks); };
+        card.onclick = (event = {}) => {
+            if (card._dragged || card._pointerDragged) return;
+            if (managerSelectMode) {
+                toggleTrackSelection(track.id, event);
+                return;
+            }
+            // Ctrl/Cmd+クリックで選択モードに入る (デスクトップの定番操作)
+            if (event.metaKey || event.ctrlKey) {
+                managerSelectMode = true;
+                managerSelectedTrackIds.add(Number(track.id));
+                managerSelectionAnchorId = Number(track.id);
+                renderTracks(filteredTracks());
+                return;
+            }
+            playTrackFromQueue(index, displayTracks);
+        };
 
         card.innerHTML = `
+            <button type="button" class="card-select-box" role="checkbox" aria-checked="false"
+                aria-label="この曲を選択" onclick="event.stopPropagation(); toggleTrackSelection(${track.id}, event)">
+                <span class="material-symbols-rounded">check</span>
+            </button>
+            <button type="button" class="card-quick-fav${track.is_favorite == 1 ? ' is-active' : ''}"
+                onclick="toggleTrackFavorite(${track.id}, event)"
+                title="${track.is_favorite == 1 ? 'お気に入り解除' : 'お気に入りに追加'}"
+                aria-label="${track.is_favorite == 1 ? 'お気に入り解除' : 'お気に入りに追加'}"
+                aria-pressed="${track.is_favorite == 1 ? 'true' : 'false'}"><span class="material-symbols-rounded${track.is_favorite == 1 ? ' is-filled' : ''}">favorite</span></button>
             <div class="track-menu-container" onclick="event.stopPropagation()">
                 <button class="track-menu-btn" onclick="toggleTrackMenu(event, this)"><span class="material-symbols-rounded">more_vert</span></button>
                 <div class="track-dropdown-menu">
                     <button onclick="toggleTrackFavorite(${track.id}, event)"><span class="material-symbols-rounded">${track.is_favorite == 1 ? 'heart_broken' : 'favorite'}</span>${track.is_favorite == 1 ? 'お気に入り解除' : 'お気に入り追加'}</button>
                     <button onclick="openMoveModalFromMenu(event, ${track.id})"><span class="material-symbols-rounded">drive_file_move</span>移動</button>
+                    <button onclick="openSaveTrackModalFor('${track.youtube_id}')"><span class="material-symbols-rounded">playlist_add</span>別のリストにも追加</button>
+                    <button onclick="openInRadar('${track.youtube_id}')"><span class="material-symbols-rounded">radar</span>Radarで見る</button>
+                    <button onclick="openYouTubeLink('${track.youtube_id}')"><span class="material-symbols-rounded">play_arrow</span>YouTubeで開く</button>
                     <button onclick="deleteTrackFromMenu(event, ${track.id})"><span class="material-symbols-rounded">close</span>削除</button>
                 </div>
             </div>
@@ -2602,6 +5038,42 @@ export function renderTracks(tracks) {
 
         container.appendChild(card);
     });
+    syncManagerSelectionUI();
+}
+
+// ==========================================================
+// プレイリスト内の表示切り替え
+// ----------------------------------------------------------
+// 「ブックマーク」= Manager のカード一覧
+// 「プレイリスト」= Share と同じレイアウトの詳細画面 (view-playlist-detail)
+// どちらの画面からでも同じ位置のスイッチで行き来できる。
+// ==========================================================
+export function updatePlaylistViewSwitch() {
+    const inDetail = Boolean(document.getElementById('view-playlist-detail')?.classList.contains('active'));
+    const bookmarksBtn = document.getElementById('btn-playlist-view-bookmarks');
+    const detailBtn = document.getElementById('btn-playlist-view-detail');
+    if (bookmarksBtn && detailBtn) {
+        bookmarksBtn.classList.toggle('is-active', !inDetail);
+        bookmarksBtn.setAttribute('aria-pressed', String(!inDetail));
+        detailBtn.classList.toggle('is-active', inDetail);
+        detailBtn.setAttribute('aria-pressed', String(inDetail));
+    }
+    // 詳細画面のスイッチは「自分のリスト」のときだけ出す
+    // (他の人の公開リストには Manager 側のカード表示が無いため)
+    const detailSwitch = document.getElementById('detail-view-switch');
+    if (detailSwitch) detailSwitch.style.display = currentDetailIsMine ? 'inline-flex' : 'none';
+    const detailBookmarksBtn = document.getElementById('btn-detail-view-bookmarks');
+    const detailViewBtn = document.getElementById('btn-detail-view-detail');
+    if (detailBookmarksBtn) detailBookmarksBtn.setAttribute('aria-pressed', 'false');
+    if (detailViewBtn) detailViewBtn.setAttribute('aria-pressed', 'true');
+}
+
+// カード表示 (Manager のプレイリスト画面) へ戻る / 切り替える
+export function showManagerPlaylistView() {
+    const id = Number(pendingDetail.id) || Number(currentPlaylistId) || 0;
+    navigateView('manager');
+    if (id) selectPlaylist(id);
+    updatePlaylistViewSwitch();
 }
 
 // ブックマークの並びを保存
@@ -2630,6 +5102,34 @@ let radarSelectedId = null;
 let radarNeighborIds = null;   // 周辺9曲ボタンで下の一覧を絞り込んだときの youtube_id 群 (解除するまで維持)
 let radarPlotCache = null;   // 直近 drawRadarMap の当たり判定用プロット (mousemove毎の再計算を避ける)
 let radarDrawQueued = false; // ドラッグ/ホイール中の再描画まとめ用
+// マップに描画する最大点数 (0 = すべて)。全体表示では間引き、拡大すると詳細を増やす。
+const RADAR_DISPLAY_LIMITS = [0, 150, 250, 500];
+const RADAR_DISPLAY_LIMIT_DEFAULT = 250;
+let radarDisplayLimit = RADAR_DISPLAY_LIMIT_DEFAULT;
+try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('tunedrop_radar_limit') : null;
+    const saved = raw === null ? NaN : Number(raw);
+    if (RADAR_DISPLAY_LIMITS.includes(saved)) radarDisplayLimit = saved;
+} catch (_) { /* localStorage が無い環境では既定値 */ }
+// 4軸ガイドの向きは全データの相関で決まり、描画中に変わらない。毎フレーム再計算しない。
+let radarAxisCache = { source: null, value: null };
+// 表示上限の間引き結果。パン中は同じ間引きを使い回し、ズーム/選択/データ変更時だけ再計算する。
+let radarSelectionCache = { source: null, limit: null, zoom: null, required: '', ids: null };
+// 選択中の曲の周辺6曲キャッシュ。パン/ズーム中は再ソートしない。
+let radarNearCache = { source: null, selectedId: null, ids: new Set() };
+
+// ==========================================================
+// Radar → ブックマーク (保存)
+// ----------------------------------------------------------
+// Radarのマップは全ユーザーのブックマークをまとめたものなので、
+// 見つけた曲はその場で自分のリストへ保存できるようにする。
+//   - radarSavedIds  … 自分のブックマークにある youtube_id (保存済み表示用)
+//   - radarSaveTarget … 保存モーダルで選択中の曲
+// ==========================================================
+let radarSavedIds = new Set();
+let radarSavedLoadedAt = 0;          // 保存済み一覧の取得時刻 (ミリ秒)
+let radarSavedRequest = null;        // 取得中のリクエスト (多重取得の防止)
+let radarSaveTarget = null;          // { youtube_id, title, channel }
 
 const CATEGORY_COLORS = {
     'Vocaloid': '#ff5c7a',
@@ -2743,10 +5243,109 @@ export function radarPlotPoints(tracks, W, H) {
         }
         return {
             t: track,
+            x,
+            y,
             px: W / 2 + (x - 0.5) * W * radarZoom + radarPan.x * W,
             py: H / 2 + (y - 0.5) * H * radarZoom + radarPan.y * H,
         };
     });
+}
+
+/**
+ * 表示上限に合わせてプロットを間引く (Kiite Radar 風の focus+context)。
+ *
+ * - 全体表示では上限まで点を減らし、拡大するほど予算を増やして詳細を出す
+ * - 正規化座標のグリッドごとに代表点を均等に選ぶので、map の形が偏らない
+ * - 選択中の曲と周辺曲は必ず残す (選択・周辺線が消えない)
+ * - 同じデータ・同じズームなら常に同じ点が選ばれる (ちらつき防止)
+ *
+ * @param {Array} plot radarPlotPoints() の結果
+ * @param {{limit?: number, zoom?: number, requiredIds?: Array<string|number>}} options
+ */
+export function radarSelectPlotPoints(plot, options = {}) {
+    const points = Array.isArray(plot) ? plot : [];
+    const limit = Number(options.limit || 0);
+    if (!Number.isFinite(limit) || limit <= 0 || points.length <= limit) return points;
+
+    // ズームアウト時は少なく、ズームイン時は多く (最大4倍まで)
+    const zoom = Math.max(0.25, Number(options.zoom) || 1);
+    const boost = Math.max(0.6, Math.min(4, Math.sqrt(zoom)));
+    const target = Math.min(points.length, Math.max(1, Math.round(limit * boost)));
+    if (target >= points.length) return points;
+
+    const requiredIds = new Set((options.requiredIds || []).filter(Boolean));
+    const required = points.filter(point => requiredIds.has(point?.t?.youtube_id));
+    const rest = points.filter(point => !requiredIds.has(point?.t?.youtube_id));
+    const budget = Math.max(0, target - required.length);
+    if (!budget) return required;
+
+    // 描画予算からセルサイズを決める。点が多いほど細かいセルになる。
+    const cell = Math.sqrt(1 / Math.max(1, budget));
+    const buckets = new Map();
+    rest.forEach((point, index) => {
+        const f = point?.t?.features || {};
+        const px = Number(point?.x);
+        const py = Number(point?.y);
+        const fx = Number(f.x);
+        const fy = Number(f.y);
+        const x = Number.isFinite(px) ? px : (Number.isFinite(fx) ? fx : 0.5);
+        const y = Number.isFinite(py) ? py : (Number.isFinite(fy) ? fy : 0.5);
+        const cx = Math.floor(x / cell);
+        const cy = Math.floor(y / cell);
+        const key = `${cx}:${cy}`;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push({ point, index, cx, cy });
+    });
+    // セル中心に近い点を優先すると、密集地の「にじみ」が減る
+    for (const list of buckets.values()) {
+        list.sort((a, b) => {
+            const ax = (a.cx + 0.5) * cell, ay = (a.cy + 0.5) * cell;
+            const bx = (b.cx + 0.5) * cell, by = (b.cy + 0.5) * cell;
+            const af = a.point?.t?.features || {};
+            const bf = b.point?.t?.features || {};
+            const axv = Number.isFinite(Number(a.point?.x)) ? Number(a.point.x) : (Number.isFinite(Number(af.x)) ? Number(af.x) : 0.5);
+            const ayv = Number.isFinite(Number(a.point?.y)) ? Number(a.point.y) : (Number.isFinite(Number(af.y)) ? Number(af.y) : 0.5);
+            const bxv = Number.isFinite(Number(b.point?.x)) ? Number(b.point.x) : (Number.isFinite(Number(bf.x)) ? Number(bf.x) : 0.5);
+            const byv = Number.isFinite(Number(b.point?.y)) ? Number(b.point.y) : (Number.isFinite(Number(bf.y)) ? Number(bf.y) : 0.5);
+            const da = Math.hypot(axv - ax, ayv - ay);
+            const db = Math.hypot(bxv - bx, byv - by);
+            return (da - db) || (a.index - b.index);
+        });
+    }
+    // セルを均等に巡回して1点ずつ選ぶ (特定のクラスタだけにならない)
+    const keys = [...buckets.keys()].sort();
+    const picked = [];
+    let round = 0;
+    while (picked.length < budget) {
+        let added = false;
+        for (const key of keys) {
+            const list = buckets.get(key);
+            if (round >= list.length) continue;
+            picked.push(list[round].point);
+            added = true;
+            if (picked.length >= budget) break;
+        }
+        if (!added) break;
+        round += 1;
+    }
+    return [...required, ...picked];
+}
+
+/** マップの表示上限を変更する (0 = すべて)。設定は次回以降も保持する。 */
+export function setRadarDisplayLimit(value) {
+    const next = Number(value);
+    radarDisplayLimit = RADAR_DISPLAY_LIMITS.includes(next) ? next : RADAR_DISPLAY_LIMIT_DEFAULT;
+    try { localStorage.setItem('tunedrop_radar_limit', String(radarDisplayLimit)); } catch (_) { /* noop */ }
+    const select = document.getElementById('radar-display-limit');
+    if (select) select.value = String(radarDisplayLimit);
+    drawRadarMap(vibeFiltered);
+    updateRadarCount();
+}
+
+/** 表示上限セレクトを現在値に合わせる (画面初期化時)。 */
+export function syncRadarDisplayLimitControl() {
+    const select = document.getElementById('radar-display-limit');
+    if (select) select.value = String(radarDisplayLimit);
 }
 
 // マップ上の吹き出し (マウスホバー時のツールチップ) の中身
@@ -2805,13 +5404,14 @@ export function spreadLegacyRadarMap(data) {
 let radarLoadGeneration = 0;
 
 export async function loadRadarData() {
+    // 未ログイン (デモ表示) ではAPIを呼ばない
+    if (!hasAccountSession()) return;
     const generation = ++radarLoadGeneration;
     const hud = document.getElementById('radar-map-hud');
     const statusBtn = document.getElementById('btn-vibe-radar');
     if (statusBtn) statusBtn.innerText = '読み込み中...';
-    if (hud) hud.textContent = '楽曲マップを読み込み中…';
+    if (hud && !vibeMapData.length) hud.textContent = '楽曲マップを読み込み中…';
     try {
-        // マップとおすすめを並列に取得する (おすすめは12時間キャッシュで即返る)。
         // マップをおすすめと並列に取得する (おすすめは12時間キャッシュで即返る)。
         const mapPromise = tunedropFetch('api.php?action=radar_map').then(r => r.json());
         const recPromise = fetchRadarRecommend();
@@ -2858,7 +5458,7 @@ export async function loadRadarData() {
                 hud.textContent = hud.textContent.split(' · おすすめ:')[0]
                     + (rec.taste ? ` · おすすめ: ${rec.taste}` : '');
             }
-            applyRadarFilter(false);
+            applyRadarFilter(true);
         }).catch(() => {});
     } catch (err) {
         if (generation !== radarLoadGeneration) return;
@@ -3156,6 +5756,15 @@ export function updateRadarCount() {
     const total = vibeMapData.length;
     const shown = vibeFiltered.length;
     el.textContent = total ? `${shown} / ${total}曲` : '';
+    el.title = radarDisplayLimit > 0
+        ? `地図の描画上限: ${radarDisplayLimit}点。拡大すると詳細が増えます。`
+        : 'すべての曲を地図に描画します。';
+    const note = document.getElementById('radar-display-note');
+    if (note) {
+        note.textContent = radarDisplayLimit > 0 && shown > radarDisplayLimit
+            ? `地図は最大${radarDisplayLimit}点（拡大で詳細）`
+            : '';
+    }
 }
 
 export function updateRadarClearButton() {
@@ -3268,13 +5877,276 @@ window.addEventListener('resize', () => {
     if (isRadarFiltersOpen() && !isRadarFiltersSheetViewport()) closeRadarFilters();
 });
 
+// ==========================================================
+// Radar → ブックマーク (保存) の操作
+// ----------------------------------------------------------
+// マップや一覧で選んだ曲を、その場で自分のリストへ保存する。
+// 保存先は毎回モーダルで選べるが、既定は「未整理」(先頭に表示)。
+// ==========================================================
+export function currentRadarTrack() {
+    if (!radarSelectedId) return null;
+    return vibeFiltered.find(t => t.youtube_id === radarSelectedId)
+        || vibeMapData.find(t => t.youtube_id === radarSelectedId)
+        || null;
+}
+
+export function radarTrackSaved(youtubeId) {
+    return Boolean(youtubeId) && radarSavedIds.has(String(youtubeId));
+}
+
+// 自分のブックマーク（全リスト）の youtube_id を取得して「保存済み」表示に使う。
+// 解析中は loadRadarData が連続で走るため、60秒はキャッシュする。
+export function loadRadarSavedTracks(force = false) {
+    if (!force && radarSavedLoadedAt && Date.now() - radarSavedLoadedAt < 60000) {
+        return Promise.resolve(radarSavedIds);
+    }
+    if (radarSavedRequest) return radarSavedRequest;
+    radarSavedRequest = (async () => {
+        try {
+            const response = await tunedropFetch('api.php?action=get_my_bookmarks&playlist_id=null');
+            const tracks = response.ok ? await response.json() : [];
+            radarSavedIds = new Set((Array.isArray(tracks) ? tracks : [])
+                .map(track => String((track && track.youtube_id) || ''))
+                .filter(Boolean));
+            radarSavedLoadedAt = Date.now();
+        } catch (error) {
+            // 保存状態が取れなくても保存自体はできるので、ここでは黙って諦める
+            radarSavedLoadedAt = Date.now();
+        } finally {
+            radarSavedRequest = null;
+        }
+        refreshRadarSavedUi();
+        return radarSavedIds;
+    })();
+    return radarSavedRequest;
+}
+
+// サイドバーの「ブックマークに保存」ボタンを選択中の曲に合わせる
+export function updateRadarSaveButton() {
+    const button = document.getElementById('btn-radar-save');
+    if (!button) return;
+    const track = currentRadarTrack();
+    const saved = track ? radarTrackSaved(track.youtube_id) : false;
+    button.disabled = !track;
+    button.classList.toggle('is-saved', saved);
+    button.textContent = !track
+        ? '🔖 曲を選んで保存'
+        : (saved ? '✓ 保存済み（別のリストにも保存）' : '🔖 ブックマークに保存');
+    button.title = !track
+        ? '曲を選ぶと押せます'
+        : '選択中の曲を自分のリストに保存します';
+}
+
+// サイドバーのボタン: 選択中の曲を保存する
+export function openRadarSaveForSelected() {
+    const track = currentRadarTrack();
+    if (!track) {
+        showToast('先にマップか一覧から曲を選んでください。', 'info');
+        return;
+    }
+    openRadarSaveModal(track.youtube_id);
+}
+
+// 保存先を選ぶモーダルを開く (Radar の曲 / 再生中の曲で共通)
+export async function openSaveTrackModal(track) {
+    if (!track || !track.youtube_id) return;
+    radarSaveTarget = { youtube_id: track.youtube_id, title: track.title || '', channel: track.channel || '' };
+    closeMobileMenu();   // モーダル表示中はドロワーを畳む
+    const titleEl = document.getElementById('radar-save-track');
+    if (titleEl) titleEl.textContent = track.title || track.youtube_id;
+    const listEl = document.getElementById('radar-save-playlists');
+    if (listEl) listEl.innerHTML = '<p class="radar-save-empty">リストを読み込み中…</p>';
+    const modal = document.getElementById('radar-save-modal');
+    if (modal) modal.style.display = 'flex';
+    if (!allPlaylists.length) {
+        try { await loadPlaylists(); } catch (error) { /* 開いたまま一覧を出す */ }
+    }
+    if (!radarSaveTarget) return;   // 読み込み中に閉じられた
+    renderRadarSaveChoices();
+}
+
+// Radar の youtube_id から保存先モーダルを開く
+export function openRadarSaveModal(youtubeId) {
+    const track = vibeFiltered.find(t => t.youtube_id === youtubeId)
+        || vibeMapData.find(t => t.youtube_id === youtubeId);
+    if (!track) return;
+    return openSaveTrackModal(track);
+}
+
+// youtube_id から曲情報を探して保存モーダルを開く (詳細・Managerの ⋮ メニュー用)
+export function openSaveTrackModalFor(youtubeId) {
+    if (!youtubeId) return;
+    const track = currentDetailTracks.find(t => t.youtube_id === youtubeId)
+        || currentTracks.find(t => t.youtube_id === youtubeId)
+        || currentQueue.find(t => t.youtube_id === youtubeId)
+        || vibeMapData.find(t => t.youtube_id === youtubeId)
+        || vibeFiltered.find(t => t.youtube_id === youtubeId)
+        || { youtube_id: youtubeId };
+    closeTrackMenus();
+    openSaveTrackModal(track);
+}
+
+// YouTube の動画ページを新しいタブで開く
+export function openYouTubeLink(youtubeId) {
+    if (!youtubeId) return;
+    closeTrackMenus();
+    window.open(`https://www.youtube.com/watch?v=${encodeURIComponent(youtubeId)}`, '_blank', 'noopener');
+}
+
+// Radar でこの曲を表示する (解析済みの曲のみ)
+export async function openInRadar(youtubeId) {
+    if (!youtubeId) return;
+    closeTrackMenus();
+    navigateView('radar');
+    const lookup = () => vibeFiltered.find(t => t.youtube_id === youtubeId)
+        || vibeMapData.find(t => t.youtube_id === youtubeId);
+    let track = lookup();
+    for (let i = 0; i < 60 && !track; i++) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        track = lookup();
+    }
+    if (!track) {
+        showToast('この曲はまだRadarにありません。Radarで解析すると表示されます。', 'info');
+        return;
+    }
+    // 検索・カテゴリで隠れている場合は解除して表示する
+    if (!vibeFiltered.some(t => t.youtube_id === youtubeId)) {
+        clearRadarFilters();
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    selectRadarTrack(youtubeId, { center: true });
+    showToast('Radarで表示しました。', 'info');
+}
+
+// プレイヤーの「保存」ボタン: 今聴いている曲をそのまま保存する
+export function saveCurrentTrackFromPlayer() {
+    const track = currentQueue[currentTrackIndex];
+    if (!track || !track.youtube_id) {
+        showToast('再生中の曲がありません。', 'info');
+        return;
+    }
+    openSaveTrackModal(track);
+}
+
+// 保存先リストの一覧を描画する (未整理を先頭に、押しやすい行ボタンで並べる)
+export function renderRadarSaveChoices() {
+    const container = document.getElementById('radar-save-playlists');
+    if (!container || !radarSaveTarget) return;
+    container.innerHTML = '';
+    const rank = list => (list.system_key === 'inbox' ? 0 : (isSystemPlaylist(list) ? 1 : 2));
+    const lists = [...allPlaylists].sort((a, b) => (rank(a) - rank(b))
+        || ((Number(a.sort_order) || 0) - (Number(b.sort_order) || 0)));
+    if (!lists.length) {
+        container.innerHTML = '<p class="radar-save-empty">保存先のリストがありません。Managerでリストを作成してください。</p>';
+        return;
+    }
+    lists.forEach(list => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'radar-save-choice';
+        button.dataset.playlistId = String(list.id);
+        const isInbox = list.system_key === 'inbox';
+        const count = Number(list.track_count) || 0;
+        button.innerHTML = `
+            <span class="material-symbols-rounded radar-save-choice-icon">${isInbox ? 'bookmark_add' : 'queue_music'}</span>
+            <span class="radar-save-choice-text">
+                <span class="radar-save-choice-name">${escapeHtml(list.name)}${isInbox ? '<span class="radar-save-choice-badge">おすすめ</span>' : ''}</span>
+                <span class="radar-save-choice-meta">${count}曲${isSystemPlaylist(list) ? ' · 固定タブ' : ''}${Number(list.is_public) === 1 ? ' · 公開中' : ''}</span>
+            </span>`;
+        button.onclick = (event) => { event.stopPropagation(); saveRadarTrackTo(list.id, button); };
+        container.appendChild(button);
+    });
+}
+
+// 選んだリストへ保存する
+export async function saveRadarTrackTo(playlistId, button) {
+    const target = radarSaveTarget;
+    if (!target || !target.youtube_id) return;
+    const list = allPlaylists.find(item => String(item.id) === String(playlistId));
+    if (button) { button.disabled = true; button.classList.add('is-saving'); }
+    try {
+        const response = await tunedropFetch('api.php?action=add_bookmark', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                youtube_id: target.youtube_id,
+                playlist_id: playlistId,
+                title: target.title,
+                channel: target.channel,
+            })
+        });
+        const data = await response.json();
+        if (data && data.success) {
+            radarSavedIds.add(String(target.youtube_id));
+            radarSavedLoadedAt = 0;   // 次回は最新の保存状態を取り直す
+            closeRadarSaveModal();
+            refreshRadarSavedUi();
+            showToast(`「${list ? list.name : 'リスト'}」に保存しました。`);
+            loadPlaylists().catch(() => {});   // サイドバーやカードの曲数を更新
+        } else {
+            const message = (data && data.error) || '保存できませんでした。';
+            // 同じリストに既にある場合も「保存済み」として扱う
+            if (message.includes('既に')) {
+                radarSavedIds.add(String(target.youtube_id));
+                refreshRadarSavedUi();
+            }
+            showToast(message, 'error');
+            if (button) { button.disabled = false; button.classList.remove('is-saving'); }
+        }
+    } catch (error) {
+        showToast('保存できませんでした。時間をおいてお試しください。', 'error');
+        if (button) { button.disabled = false; button.classList.remove('is-saving'); }
+    }
+}
+
+export function closeRadarSaveModal() {
+    const modal = document.getElementById('radar-save-modal');
+    if (modal) modal.style.display = 'none';
+    radarSaveTarget = null;
+}
+
+// 保存状態の表示を更新する (一覧の横スクロール位置は保つ)
+export function refreshRadarSavedUi() {
+    const strip = document.getElementById('vibe-track-strip');
+    const scrollLeft = strip ? strip.scrollLeft : 0;
+    updateRadarSelectedPanel();
+    renderVibeTracks(vibeFiltered, false);
+    if (strip) strip.scrollLeft = scrollLeft;
+    updateRadarSaveButton();
+}
+
+// 保存した曲 (すべてのブックマーク) を Manager で開く
+export function openAllBookmarks() {
+    navigateView('manager');
+    selectPlaylist(null);
+}
+
+// ==========================================================
+// ランダム発掘 (選択カードの「⏭ 次の発掘」/ N キー)
+// ----------------------------------------------------------
+// 表示中の曲からランダムに1曲を選んで再生し、選択カード
+// (再生 / 保存 / 次の発掘) をその場に出す。連打で次々に聴ける。
+// ==========================================================
+export function radarDigNext() {
+    const all = (vibeDisplayTracks() || []).filter(t => t && t.youtube_id);
+    if (!all.length) {
+        showToast('発掘できる曲がありません。絞り込みを変えてみてください。', 'info');
+        return null;
+    }
+    // 直前の曲は避けて、次々に新しい曲へ進む (1曲しか無ければその曲)
+    const pool = all.filter(t => t.youtube_id !== radarSelectedId);
+    const picks = pool.length ? pool : all;
+    const pick = picks[Math.floor(Math.random() * picks.length)];
+    selectRadarTrack(pick.youtube_id, { play: true, center: true });
+    return pick;
+}
+
 // マップ右上の選択中カード (再生・周辺再生・中央寄せを1か所に集約)
 export function updateRadarSelectedPanel() {
     const panel = document.getElementById('radar-selected-panel');
     if (!panel) return;
     const t = (vibeFiltered.find(t => t.youtube_id === radarSelectedId)
         || vibeMapData.find(t => t.youtube_id === radarSelectedId));
-    if (!t) { panel.hidden = true; panel.innerHTML = ''; return; }
+    if (!t) { panel.hidden = true; panel.innerHTML = ''; updateRadarSaveButton(); return; }
     const { category, tempo, vibe } = radarTrackLabels(t);
     const near = radarNeighbors(t.youtube_id, 8);
     panel.hidden = false;
@@ -3305,6 +6177,11 @@ export function updateRadarSelectedPanel() {
         return b;
     };
     row.appendChild(mkBtn('▶ 再生', 'この曲を再生', () => playFromRadar(t)));
+    const saved = radarTrackSaved(t.youtube_id);
+    row.appendChild(mkBtn(saved ? '🔖 保存済み' : '🔖 保存',
+        saved ? '自分のリストに保存済み（別のリストにも保存できます）' : 'この曲を自分のリストに保存',
+        () => openRadarSaveModal(t.youtube_id)));
+    row.appendChild(mkBtn('⏭ 次の発掘', '別の曲をランダムに選んで再生（連打で発掘）', () => radarDigNext()));
     row.appendChild(mkBtn(`周辺${near.length + 1}曲`, '近い雰囲気の曲と連続再生', () => playRadarNeighbors(t.youtube_id, 8)));
     row.appendChild(mkBtn('◎ 中央へ', 'マップの中央に寄せる', () => focusRadarTrack(t.youtube_id)));
     const close = document.createElement('button');
@@ -3320,6 +6197,7 @@ export function updateRadarSelectedPanel() {
     panel.appendChild(thumb);
     panel.appendChild(info);
     panel.appendChild(close);
+    updateRadarSaveButton();
 }
 
 // 点が重なったときの候補選択ポップアップ
@@ -3374,7 +6252,12 @@ export function bindRadarControls() {
     const zoomFit = document.getElementById('btn-radar-zoom-fit');
     if (zoomFit) zoomFit.onclick = () => fitRadarToFiltered();
     if (analyzeAll) analyzeAll.onclick = async () => {
-        if (!confirm("全曲を再解析します。\n\nGemini AI 推定に加えて、音源解析 (librosa/CLAP) で実測BPM・雰囲気を取得します。\nGemini で解析済みの曲は対象外です（上書きしません）。\n曲数が多いと数分〜数十分かかります。\n\n実行しますか？")) return;
+        const confirmed = await showConfirm({
+            title: '全曲を再解析',
+            message: '全曲を再解析します。\n\nGemini AI 推定に加えて、音源解析 (librosa/CLAP) で実測BPM・雰囲気を取得します。\nGemini で解析済みの曲は対象外です（上書きしません）。\n曲数が多いと数分〜数十分かかります。\n\n実行しますか？',
+            confirmLabel: '解析する',
+        });
+        if (!confirmed) return;
         analyzeAll.disabled = true; analyzeAll.innerText = '再解析開始...';
         // 全曲を Gemini(AI) + 音源解析(librosa/CLAP) で再解析する
         // (Gemini解析済みの曲はサーバー側で対象外にされる)
@@ -3595,10 +6478,19 @@ export function selectRadarTrack(youtubeId, opts) {
     radarSelectedId = youtubeId || null;
     radarNeighborIds = null;   // 別の曲を選び直したら周辺絞り込みを解除
     hideRadarOverlap();
+    if (youtubeId && o.center) {
+        const track = vibeFiltered.find(t => t.youtube_id === youtubeId);
+        const f = track && track.features;
+        if (f && typeof f.x === 'number' && typeof f.y === 'number') {
+            const x = Math.max(0, Math.min(1, f.x));
+            const y = Math.max(0, Math.min(1, f.y));
+            radarPan.x = -(x - 0.5) * radarZoom;
+            radarPan.y = -(y - 0.5) * radarZoom;
+        }
+    }
     drawRadarMap(vibeFiltered);
     renderVibeTracks(vibeFiltered);
     updateRadarSelectedPanel();
-    if (youtubeId && o.center) focusRadarTrack(youtubeId);
     if (youtubeId && o.play) {
         const t = vibeFiltered.find(t => t.youtube_id === youtubeId)
             || vibeMapData.find(t => t.youtube_id === youtubeId);
@@ -3623,25 +6515,26 @@ export function drawRadarMap(tracks) {
     const tooltip = document.getElementById('radar-map-tooltip');
     if (!canvas || !container) return;
 
-    // コンテナサイズに Canvas 解像度を合わせる (Retina対応)
-    const dpr = window.devicePixelRatio || 1;
+    // コンテナサイズに Canvas 解像度を合わせる (Retina対応)。
+    // DPR 3 のスマホで 3倍解像度にすると塗り面積が9倍になり重いため、2倍までに抑える。
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     const W = Math.max(1, container.clientWidth);
     const H = Math.max(1, container.clientHeight);
-    if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+    if (canvas.width !== W * dpr || canvas.height !== H * dpr || !canvas.style.height) {
         canvas.width = W * dpr;
         canvas.height = H * dpr;
+        canvas.style.width = W + 'px';
+        canvas.style.height = H + 'px';
     }
-    canvas.style.width = W + 'px';
-    canvas.style.height = H + 'px';
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
     // 背景 (淡いグラデーション)
     const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
-    bg.addColorStop(0, '#101018');
-    bg.addColorStop(1, '#050508');
+    bg.addColorStop(0, '#141414');
+    bg.addColorStop(1, '#080808');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -3668,63 +6561,122 @@ export function drawRadarMap(tracks) {
     }
 
     // 射影変換: 正規化座標(0..1) → キャンバス座標 (パン+ズーム)。座標なしは円配置
-    const plot = radarPlotPoints(tracks, W, H);
-    // 当たり判定 (ホバー/タップ) はこのキャッシュを使い、mousemove毎の再計算を避ける
-    radarPlotCache = (tracks === vibeFiltered) ? plot : null;
+    const allPlot = radarPlotPoints(tracks, W, H);
+    // 選択中の曲と周辺曲は、表示上限で間引かれても必ず残す (パン/ズーム中は周辺6曲を再ソートしない)
+    const selectedAll = allPlot.find(o => o.t.youtube_id === radarSelectedId) || null;
+    if (!selectedAll) {
+        radarNearCache = { source: tracks, selectedId: null, ids: new Set() };
+    } else if (radarNearCache.source !== tracks || radarNearCache.selectedId !== selectedAll.t.youtube_id) {
+        const nearTracks = radarNeighbors(selectedAll.t.youtube_id, 6)
+            .filter(t => t.youtube_id !== selectedAll.t.youtube_id);
+        radarNearCache = {
+            source: tracks,
+            selectedId: selectedAll.t.youtube_id,
+            ids: new Set(nearTracks.map(t => t.youtube_id)),
+        };
+    }
+    const nearIds = radarNearCache.ids;
+    const requiredIds = selectedAll ? [selectedAll.t.youtube_id, ...nearIds] : [];
+
+    // 全体表示では上限まで間引き、拡大すると予算を増やす (Kiite Radar 風の focus+context)
+    // パン中は同じ間引き結果を使い回す (選択・ズーム・データ変更時だけ再計算)
+    let plot;
+    const displayLimit = radarDisplayLimit;
+    if (displayLimit > 0 && allPlot.length > displayLimit) {
+        const zoomKey = Math.round(radarZoom * 20);
+        const requiredKey = [...requiredIds].sort().join(',');
+        if (radarSelectionCache.source !== tracks
+            || radarSelectionCache.limit !== displayLimit
+            || radarSelectionCache.zoom !== zoomKey
+            || radarSelectionCache.required !== requiredKey) {
+            const picked = radarSelectPlotPoints(allPlot, {
+                limit: displayLimit,
+                zoom: radarZoom,
+                requiredIds,
+            });
+            radarSelectionCache = {
+                source: tracks, limit: displayLimit, zoom: zoomKey, required: requiredKey,
+                ids: new Set(picked.map(o => o.t.youtube_id)),
+            };
+        }
+        plot = allPlot.filter(o => radarSelectionCache.ids.has(o.t.youtube_id));
+    } else {
+        plot = allPlot;
+        if (displayLimit <= 0) radarSelectionCache = { source: null, limit: null, zoom: null, required: '', ids: null };
+    }
+    // 画面外は描画も当たり判定もしない (パン中も一定のコストで済む)
+    const visiblePlot = plot.filter(o => o.px >= -20 && o.py >= -20 && o.px <= W + 20 && o.py <= H + 20);
+    radarPlotCache = (tracks === vibeFiltered) ? visiblePlot : null;
 
     // 選択中の楽曲をハイライト (選択時は他を減光)
-    const selected = plot.find(o => o.t.youtube_id === radarSelectedId);
+    const selected = visiblePlot.find(o => o.t.youtube_id === radarSelectedId) || null;
     const hasSelection = Boolean(selected);
     const baseR = 5 * Math.max(0.85, Math.min(1.5, Math.sqrt(radarZoom)));
 
-    // 各点を描画 (画面外はスキップ)
-    plot.forEach((o) => {
-        if (o.px < -20 || o.py < -20 || o.px > W + 20 || o.py > H + 20) return;
-        const isSel = radarSelectedId === o.t.youtube_id;
+    // カテゴリごとにまとめて fill/stroke する。1点ずつ色を変えて描くより大幅に速い。
+    const groups = new Map();
+    visiblePlot.forEach((o) => {
+        if (hasSelection && o.t.youtube_id === radarSelectedId) return;
         const color = radarCategoryColor(o.t.category);
-        const r = isSel ? baseR + 2 : baseR;
-        const glow = isSel ? 14 : 0;
-
-        if (glow) {
-            const g = ctx.createRadialGradient(o.px, o.py, 0, o.px, o.py, glow);
-            g.addColorStop(0, color + '99');
-            g.addColorStop(1, 'transparent');
-            ctx.fillStyle = g;
-            ctx.beginPath(); ctx.arc(o.px, o.py, glow, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.globalAlpha = hasSelection && !isSel ? 0.45 : 1;
+        if (!groups.has(color)) groups.set(color, []);
+        groups.get(color).push(o);
+    });
+    ctx.globalAlpha = hasSelection ? 0.45 : 1;
+    groups.forEach((list, color) => {
         ctx.beginPath();
-        ctx.arc(o.px, o.py, r, 0, Math.PI * 2);
+        list.forEach(o => {
+            ctx.moveTo(o.px + baseR, o.py);
+            ctx.arc(o.px, o.py, baseR, 0, Math.PI * 2);
+        });
         ctx.fillStyle = color;
         ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-        ctx.lineWidth = isSel ? 2 : 1;
+        ctx.lineWidth = 1;
         ctx.stroke();
-        ctx.globalAlpha = 1;
     });
+    ctx.globalAlpha = 1;
+
+    // 選択点は減光せず、光と太い枠で目立たせる
+    if (selected) {
+        const color = radarCategoryColor(selected.t.category);
+        const glow = 14;
+        const g = ctx.createRadialGradient(selected.px, selected.py, 0, selected.px, selected.py, glow);
+        g.addColorStop(0, color + '99');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(selected.px, selected.py, glow, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(selected.px, selected.py, baseR + 2, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
 
     // 選択曲と雰囲気が近い曲を細線で結ぶ (周辺発見の手がかり用)
-    if (selected) {
-        const nearIds = new Set(radarNeighbors(selected.t.youtube_id, 6).map(t => t.youtube_id));
-        if (nearIds.size) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 4]);
-            plot.forEach(o => {
-                if (!nearIds.has(o.t.youtube_id)) return;
-                ctx.beginPath();
-                ctx.moveTo(selected.px, selected.py);
-                ctx.lineTo(o.px, o.py);
-                ctx.stroke();
-            });
-            ctx.setLineDash([]);
-        }
+    if (selected && nearIds.size) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        visiblePlot.forEach(o => {
+            if (!nearIds.has(o.t.youtube_id)) return;
+            ctx.beginPath();
+            ctx.moveTo(selected.px, selected.py);
+            ctx.lineTo(o.px, o.py);
+            ctx.stroke();
+        });
+        ctx.setLineDash([]);
     }
 
     // 4軸ガイド（エネルギー×明るさ）: 上下左右端に4ラベルだけ出す。
     // 向きは全データの相関から決める（絞り込みで回転しないよう vibeMapData 基準）。
     // 点の上に重ねて描き、点が重なっても読めるようにする（ズーム/パンには追従させない）。
-    drawRadarAxes(ctx, W, H, radarAxisOrientation(vibeMapData));
+    // 相関計算は描画ごとに変わらないため、データが変わるまでキャッシュする。
+    if (radarAxisCache.source !== vibeMapData) {
+        radarAxisCache = { source: vibeMapData, value: radarAxisOrientation(vibeMapData) };
+    }
+    drawRadarAxes(ctx, W, H, radarAxisCache.value);
 
     // 選択ラベル（タイトル吹き出し）
     if (selected) {
@@ -3812,8 +6764,9 @@ export function roundRect(ctx, x, y, w, h, r) {
 export function renderVibeTracks(tracks, scrollToSelected) {
     const strip = document.getElementById('vibe-track-strip');
     if (!strip) return;
-    strip.innerHTML = '';
     if (!tracks || tracks.length === 0) {
+        strip.dataset.stripSig = '';
+        strip.innerHTML = '';
         const hasFilter = (document.getElementById('radar-title-search')?.value || '')
             || (document.getElementById('radar-category-filter')?.value || '')
             || (document.getElementById('radar-vibe-filter')?.value || '')
@@ -3826,12 +6779,54 @@ export function renderVibeTracks(tracks, scrollToSelected) {
         return;
     }
 
-    const visible = tracks.slice(0, radarStripLimit);
+    // 選択中の曲が一覧の表示範囲より後ろにあるときは、その曲が見える位置から表示する
+    // (「次の発掘」で遠くの曲を選んでも、下の一覧に今の曲が並ぶ)
+    let windowStart = 0;
+    if (radarSelectedId) {
+        const selectedIndex = tracks.findIndex(t => t.youtube_id === radarSelectedId);
+        if (selectedIndex >= radarStripLimit) windowStart = Math.max(0, selectedIndex - 2);
+    }
+    const visible = tracks.slice(windowStart, windowStart + radarStripLimit);
+    const nextSig = `${tracks.length}:${windowStart}:${visible.map(t => t.youtube_id).join(',')}`;
+
+    // 表示する曲の並びが変わっていない場合は DOM を破棄せず、選択状態と保存状態だけ差分更新する
+    if (strip.dataset && strip.dataset.stripSig === nextSig && typeof strip.querySelectorAll === 'function') {
+        const cards = strip.querySelectorAll('.strip-card');
+        if (cards.length === visible.length) {
+            cards.forEach((card, idx) => {
+                const t = visible[idx];
+                const isSel = radarSelectedId === t.youtube_id;
+                card.classList.toggle('selected', isSel);
+                const saved = radarTrackSaved(t.youtube_id);
+                const saveBtn = card.querySelector('.strip-save');
+                if (saveBtn) {
+                    saveBtn.classList.toggle('is-saved', saved);
+                    saveBtn.title = saved ? '保存済み（別のリストにも保存）' : 'ブックマークに保存';
+                    saveBtn.setAttribute('aria-label', saved ? '保存済み。別のリストにも保存' : 'ブックマークに保存');
+                    saveBtn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+                    const icon = saveBtn.querySelector('.material-symbols-rounded');
+                    if (icon) {
+                        icon.classList.toggle('is-filled', saved);
+                        icon.textContent = saved ? 'bookmark' : 'bookmark_add';
+                    }
+                }
+            });
+            if (scrollToSelected !== false) {
+                const sel = strip.querySelector('.strip-card.selected');
+                if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+            }
+            return;
+        }
+    }
+
+    if (strip.dataset) strip.dataset.stripSig = nextSig;
+    strip.innerHTML = '';
     visible.forEach(t => {
         const { category, tempo, bpmSource, vibe, engine } = radarTrackLabels(t);
         const color = radarCategoryColor(t.category);
         const card = document.createElement('div');
         card.className = 'strip-card';
+        card.dataset.ytid = t.youtube_id || '';
         card.style.borderLeftColor = color;
         if (radarSelectedId === t.youtube_id) card.classList.add('selected');
 
@@ -3839,7 +6834,12 @@ export function renderVibeTracks(tracks, scrollToSelected) {
             ? `<img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="thumb" loading="lazy" decoding="async">`
             : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:24px;">🎵</div>`;
 
+        const saved = radarTrackSaved(t.youtube_id);
         card.innerHTML = `
+            <button type="button" class="strip-save${saved ? ' is-saved' : ''}" data-ytid="${escapeHtml(t.youtube_id)}"
+                title="${saved ? '保存済み（別のリストにも保存）' : 'ブックマークに保存'}"
+                aria-label="${saved ? '保存済み。別のリストにも保存' : 'ブックマークに保存'}"
+                aria-pressed="${saved ? 'true' : 'false'}"><span class="material-symbols-rounded${saved ? ' is-filled' : ''}">${saved ? 'bookmark' : 'bookmark_add'}</span></button>
             <div class="strip-thumb">${coverHtml}<div class="card-hover-play"></div></div>
             <div class="strip-info">
                 <div class="strip-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
@@ -3847,6 +6847,13 @@ export function renderVibeTracks(tracks, scrollToSelected) {
                 <div class="strip-meta">${escapeHtml(category)} · <b>tempo</b> ${tempo}${bpmSource ? ' (' + bpmSource + ')' : ''}${vibe ? ' · <b>' + escapeHtml(vibe) + '</b>' : ''} · <b>${escapeHtml(engine)}</b></div>
             </div>
         `;
+        const saveBtn = card.querySelector('.strip-save');
+        if (saveBtn) {
+            saveBtn.onclick = (event) => {
+                event.stopPropagation();
+                openRadarSaveModal(t.youtube_id);
+            };
+        }
         card.onclick = () => {
             const wasSelected = radarSelectedId === t.youtube_id;
             const found = (radarPlotCache || []).find(o => o.t.youtube_id === t.youtube_id);
@@ -3995,6 +7002,7 @@ export function bindRadarPointer() {
         canvas.setPointerCapture(e.pointerId);
         radarDragging = true;
         tooltip.style.display = 'none';
+        tooltip.dataset.trackId = '';
         beginGesture();
     });
 
@@ -4025,9 +7033,13 @@ export function bindRadarPointer() {
         if (e.pointerType !== 'mouse') return;
         const o = findNearest(mx, my, 14);
         canvas.style.cursor = o ? 'pointer' : 'grab';
-        if (!o) { tooltip.style.display = 'none'; return; }
+        if (!o) { tooltip.style.display = 'none'; tooltip.dataset.trackId = ''; return; }
         tooltip.style.display = 'flex';
-        tooltip.innerHTML = radarTooltipHtml(o.t);
+        // 同じ曲の上を動いている間は innerHTML を作り直さない (mousemove の負荷対策)
+        if (tooltip.dataset.trackId !== o.t.youtube_id) {
+            tooltip.dataset.trackId = o.t.youtube_id;
+            tooltip.innerHTML = radarTooltipHtml(o.t);
+        }
         // 吹き出しが枠外にはみ出さないよう反対側へ折り返す
         const tw = tooltip.offsetWidth || 200;
         const th = tooltip.offsetHeight || 60;
@@ -4072,7 +7084,10 @@ export function bindRadarPointer() {
     canvas.addEventListener('pointerup', endGesture);
     canvas.addEventListener('pointercancel', endGesture);
     canvas.addEventListener('lostpointercapture', endGesture);
-    canvas.addEventListener('pointerleave', () => { tooltip.style.display = 'none'; });
+    canvas.addEventListener('pointerleave', () => {
+        tooltip.style.display = 'none';
+        tooltip.dataset.trackId = '';
+    });
 
     // ダブルクリック/ダブルタップでズームイン (Shift+はズームアウト)
     canvas.addEventListener('dblclick', (e) => {
@@ -4155,8 +7170,48 @@ export function radarZoomToPoint(mx, my, factor) {
 
 // プレイリスト詳細を開く (URLパスを履歴に積む)
 let pendingDetail = { id: null, name: '', cover: '' };
-export function openPlaylistDetail(playlistId, playlistName, coverId) {
+
+// ログイン中ユーザーのID (JWTの payload / ゲスト資格情報から読む。UIの出し分け専用)
+export function currentUserId() {
+    try {
+        const token = localStorage.getItem('tunedrop_token') || '';
+        const payload = token.split('.')[1];
+        if (payload) {
+            const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+            const json = JSON.parse(decodeURIComponent(escape(atob(base64))));
+            const id = Number(json.user_id) || 0;
+            if (id > 0) return id;
+        }
+    } catch (_) { /* 壊れたトークンはゲスト判定へ */ }
+    try {
+        // ゲストの資格情報は "ユーザーID.シークレット" 形式 (backend/app.py)
+        const guest = localStorage.getItem('tunedrop_guest_credential') || '';
+        const id = Number(guest.split('.')[0]) || 0;
+        if (id > 0) return id;
+    } catch (_) { /* 未初期化 */ }
+    return 0;
+}
+
+// 詳細画面の「戻る」ラベルを、開いた場所 (Share / Manager) に合わせる
+export function renderDetailBackLabel() {
+    const label = document.getElementById('detail-back-label');
+    if (label) label.textContent = detailReturnView === 'manager' ? 'Managerへ戻る' : 'Shareへ戻る';
+}
+
+export function goBackFromDetail() {
+    if (detailReturnView === 'manager') {
+        const id = Number(pendingDetail.id) || 0;
+        navigateView('manager');
+        if (id) selectPlaylist(id);
+        return;
+    }
+    navigateView('share');
+}
+
+export function openPlaylistDetail(playlistId, playlistName, coverId, options = {}) {
     pendingDetail = { id: Number(playlistId), name: playlistName || '', cover: coverId || '' };
+    detailReturnView = options.from === 'manager' ? 'manager' : 'share';
+    renderDetailBackLabel();
     // クリック直後に前のリスト名が見えないよう、名前だけ先に反映しておく
     // (描画本体は navigateView → applyPathView 側)
     if (playlistName) {
@@ -4164,6 +7219,25 @@ export function openPlaylistDetail(playlistId, playlistName, coverId) {
         if (titleEl) titleEl.innerText = playlistName;
     }
     navigateView('playlist-detail', playlistId);
+}
+
+// Manager から Share と同じレイアウトの詳細画面を開く
+export function openPlaylistShareView(playlistId) {
+    const id = Number(playlistId);
+    if (!id) return;
+    closeMobileMenu();
+    const list = allPlaylists.find(p => p.id === id);
+    openPlaylistDetail(id, list ? list.name : '', list ? list.cover_id : '', { from: 'manager' });
+}
+
+// Manager のプレイリスト画面 (開いているリスト) を詳細画面で開く
+export function openCurrentListShareView() {
+    const id = Number(currentPlaylistId);
+    if (!id) {
+        showToast('リストを開いてから使えます。', 'info');
+        return;
+    }
+    openPlaylistShareView(id);
 }
 
 // プレイリスト詳細のメタ行: 「3曲 · 作成者名」。
@@ -4202,7 +7276,10 @@ export function renderDetailMeta(trackCount, listData) {
 // ----------------------------------------------------------
 export function playlistShareUrl(playlistId) {
     try {
-        const url = new URL('ogp.php', window.location.href);
+        // /playlist/12 から相対解決すると /playlist/ogp.php になってしまうため、
+        // サイトの basePath (/tunedrop/ など) を基準にする。
+        const { basePath } = parseLocationPath();
+        const url = new URL('ogp.php', window.location.origin + basePath);
         url.searchParams.set('playlist', playlistId);
         return url.href;
     } catch (_) {
@@ -4269,6 +7346,11 @@ export async function renderPlaylistDetail(playlistId, playlistName, coverId) {
         }
     }
     renderDetailMeta(tracks.length, listData);
+    // 自分のリストかどうか (移動・削除を出すか) と、戻り先のラベルを反映する
+    const myId = currentUserId();
+    currentDetailIsMine = Boolean(listData && myId && Number(listData.user_id) === myId);
+    renderDetailBackLabel();
+    updatePlaylistViewSwitch();
     // 存在しないリスト (直リンク・古い履歴) は「読み込み中…」のままにしない
     if (!listData && tracks.length === 0 && detailTitleEl && !effName) {
         detailTitleEl.innerText = 'リストが見つかりません';
@@ -4316,14 +7398,18 @@ export async function renderPlaylistDetail(playlistId, playlistName, coverId) {
             try {
                 if (navigator.share) {
                     await navigator.share(shareData);
-                } else if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(shareUrl);
+                } else if (await copyTextToClipboard(shareUrl)) {
                     showToast('共有URLをコピーしました。');
                 } else {
-                    window.prompt('このURLをコピーしてください', shareUrl);
+                    showToast('共有URLをコピーできませんでした。ブラウザのURL欄からコピーしてください。', 'error');
                 }
             } catch (err) {
-                console.log("共有がキャンセルされたかエラーが発生しました:", err);
+                // ユーザーが共有シートを閉じただけなら何もしない。
+                // それ以外の失敗はコピーへフォールバックする。
+                if (!(err && err.name === 'AbortError')) {
+                    if (await copyTextToClipboard(shareUrl)) showToast('共有URLをコピーしました。');
+                    else showToast('共有に失敗しました。ブラウザのURL欄からコピーしてください。', 'error');
+                }
             }
         };
     }
@@ -4336,10 +7422,25 @@ export async function renderPlaylistDetail(playlistId, playlistName, coverId) {
     renderDetailTracks(currentDetailTracks);
 }
 
-export function renderDetailTracks(tracks) {
-    const listContainer = document.getElementById('detail-track-list');
-    listContainer.innerHTML = '';
-    if (tracks.length === 0) return listContainer.innerHTML = '<p style="padding:20px; color:var(--text-sub);">このプレイリストは空です。</p>';
+// 曲を「プレイリスト風の行」で描画する (プレイリスト詳細 / Manager のプレイリストビュー共通)
+// opts:
+//   emptyText    … 0件のときの案内
+//   list         … ドラッグで並び替える対象の配列 (既定: tracks)
+//   sortSelectId … 並び替え時に「カスタム順」へ切り替える select
+//   menu         … (track) => メニューHTML
+//   rerender     … 並び替え後に再描画する関数
+//   onReorder    … 並び替え後に呼ぶ保存処理 (ids)
+//   pointerDrop  … タッチ並び替え後の保存処理
+export function renderTrackRows(container, tracks, opts = {}) {
+    if (!container) return;
+    const list = Array.isArray(opts.list) ? opts.list : tracks;
+    const menu = typeof opts.menu === 'function' ? opts.menu : detailTrackMenuHtml;
+    const sortSelectId = opts.sortSelectId || 'manager-track-sort-select';
+    container.innerHTML = '';
+    if (tracks.length === 0) {
+        container.innerHTML = `<p class="track-list-empty">${opts.emptyText || '曲が見つかりません。'}</p>`;
+        return;
+    }
 
     // ソート適用 (カスタム順 = sort_order 順)
     const displayTracks = sortTracks(tracks, trackSortMode);
@@ -4354,20 +7455,19 @@ export function renderDetailTracks(tracks) {
         item.onclick = () => {
             if (item._dragged || item._pointerDragged) return;
             playTrackFromQueue(index, displayTracks);
-            document.querySelectorAll('.track-list-item').forEach(el => el.classList.remove('playing'));
+            container.querySelectorAll('.track-list-item').forEach(el => el.classList.remove('playing'));
             item.classList.add('playing');
+            if (typeof opts.onPlaying === 'function') opts.onPlaying(track, index, displayTracks);
         };
 
         item.innerHTML = `
             <div class="drag-handle drag-handle-inline" title="ドラッグで並び替え"><span class="material-symbols-rounded">drag_indicator</span></div>
             <div class="track-index">${index + 1}</div>
             <div class="track-thumb"><img src="https://img.youtube.com/vi/${track.youtube_id}/mqdefault.jpg" alt="thumb"></div>
-            <div class="track-info"><div class="title">${track.title}</div><div class="artist">${track.channel}</div></div>
+            <div class="track-info"><div class="title">${escapeHtml(track.title)}</div><div class="artist">${escapeHtml(track.channel)}</div></div>
             <div class="track-actions detail-menu" onclick="event.stopPropagation()">
                 <button type="button" class="track-menu-btn" onclick="toggleTrackMenu(event, this)" aria-label="曲のメニュー" aria-expanded="false"><span class="material-symbols-rounded">more_vert</span></button>
-                <div class="track-dropdown-menu">
-                    <button type="button" onclick="toggleTrackFavorite(${track.id}, event)"><span class="material-symbols-rounded">${track.is_favorite == 1 ? 'heart_broken' : 'favorite'}</span>${track.is_favorite == 1 ? 'お気に入り解除' : 'お気に入り追加'}</button>
-                </div>
+                <div class="track-dropdown-menu">${menu(track)}</div>
             </div>
         `;
 
@@ -4380,7 +7480,7 @@ export function renderDetailTracks(tracks) {
         item.addEventListener('dragend', () => {
             lastPointerDragEndedAt = Date.now();
             item.classList.remove('dragging');
-            document.querySelectorAll('#detail-track-list .track-list-item').forEach(el => el.classList.remove('drag-over'));
+            container.querySelectorAll('.track-list-item').forEach(el => el.classList.remove('drag-over'));
             setTimeout(() => { item._dragged = false; }, 0);
         });
         item.addEventListener('dragover', (e) => {
@@ -4394,30 +7494,57 @@ export function renderDetailTracks(tracks) {
             item.classList.remove('drag-over');
             const draggedId = parseInt(e.dataTransfer.getData('text/plain'), 10);
             if (!draggedId || draggedId === track.id) return;
-            const dragIdx = currentDetailTracks.findIndex(t => t.id === draggedId);
-            const targetIdx = currentDetailTracks.findIndex(t => t.id === track.id);
+            const dragIdx = list.findIndex(t => t.id === draggedId);
+            const targetIdx = list.findIndex(t => t.id === track.id);
             if (dragIdx === -1 || targetIdx === -1) return;
-            // カスタム順へ切替し、並びを確定
+            // カスタム順へ切り替えて並びを確定
             trackSortMode = 'custom';
-            const sel = document.getElementById('track-sort-select');
+            const sel = document.getElementById(sortSelectId);
             if (sel) sel.value = 'custom';
-            currentDetailTracks.splice(targetIdx, 0, currentDetailTracks.splice(dragIdx, 1)[0]);
-            // sort_order を並び順に合わせて更新 (以降の再描画で正しく保たれる)
-            currentDetailTracks.forEach((t, i) => { t.sort_order = i; });
-            renderDetailTracks(currentDetailTracks);
-            reorderBookmarks(currentDetailTracks.map(t => t.id));
+            list.splice(targetIdx, 0, list.splice(dragIdx, 1)[0]);
+            list.forEach((t, i) => { t.sort_order = i; });
+            if (typeof opts.rerender === 'function') opts.rerender();
+            if (typeof opts.onReorder === 'function') opts.onReorder(list.map(t => t.id));
         });
 
         // タッチ端末ではつまみ (drag-handle) を Pointer Events で並び替える
-        enablePointerReorder({
-            handle: item.querySelector('.drag-handle'),
-            item,
-            container: listContainer,
-            itemSelector: '.track-list-item',
-            onDrop: persistDetailTrackOrderFromDom
-        });
+        if (typeof opts.pointerDrop === 'function') {
+            enablePointerReorder({
+                handle: item.querySelector('.drag-handle'),
+                item,
+                container,
+                itemSelector: '.track-list-item',
+                onDrop: opts.pointerDrop
+            });
+        }
 
-        listContainer.appendChild(item);
+        container.appendChild(item);
+    });
+}
+
+// プレイリスト詳細の行メニュー (自分のリストのときだけ移動・削除を出す)
+export function detailTrackMenuHtml(track) {
+    const mine = currentDetailIsMine;
+    return `
+        <button type="button" onclick="toggleTrackFavorite(${track.id}, event)"><span class="material-symbols-rounded">${track.is_favorite == 1 ? 'heart_broken' : 'favorite'}</span>${track.is_favorite == 1 ? 'お気に入り解除' : 'お気に入り追加'}</button>
+        <button type="button" onclick="openSaveTrackModalFor('${track.youtube_id}')"><span class="material-symbols-rounded">playlist_add</span>自分のリストに追加</button>
+        ${mine ? `<button type="button" onclick="openMoveModalFromMenu(event, ${track.id})"><span class="material-symbols-rounded">drive_file_move</span>別のリストへ移動</button>` : ''}
+        <button type="button" onclick="openInRadar('${track.youtube_id}')"><span class="material-symbols-rounded">radar</span>Radarで見る</button>
+        <button type="button" onclick="openYouTubeLink('${track.youtube_id}')"><span class="material-symbols-rounded">play_arrow</span>YouTubeで開く</button>
+        ${mine ? `<button type="button" onclick="deleteTrackFromMenu(event, ${track.id})"><span class="material-symbols-rounded">close</span>削除</button>` : ''}
+    `;
+}
+
+// プレイリスト詳細の曲一覧 (Share と同じ見た目)
+export function renderDetailTracks(tracks) {
+    renderTrackRows(document.getElementById('detail-track-list'), tracks, {
+        emptyText: 'このプレイリストは空です。',
+        list: currentDetailTracks,
+        sortSelectId: 'track-sort-select',
+        menu: detailTrackMenuHtml,
+        rerender: () => renderDetailTracks(currentDetailTracks),
+        onReorder: (ids) => reorderBookmarks(ids),
+        pointerDrop: persistDetailTrackOrderFromDom,
     });
 }
 
@@ -4459,20 +7586,24 @@ export function exportPlaylistUrls(playlistName, tracks) {
 }
 
 export function closeExportModal() { document.getElementById('export-preview-modal').style.display = 'none'; }
-export function copyExportText() {
+export async function copyExportText() {
     const textarea = document.getElementById('export-textarea');
     textarea.select();
-    navigator.clipboard.writeText(textarea.value).then(() => {
-        const copyBtn = document.getElementById('btn-copy-export');
-        copyBtn.innerText = '✅ Copied!';
-        copyBtn.style.background = '#444';
-        copyBtn.style.color = '#fff';
-        setTimeout(() => {
-            copyBtn.innerText = 'Copy to clipboard';
-            copyBtn.style.background = 'var(--accent-color)';
-            copyBtn.style.color = '#000';
-        }, 2000);
-    }).catch(err => { showToast('クリップボードへのコピーに失敗しました。', 'error'); });
+    const copied = await copyTextToClipboard(textarea.value);
+    if (!copied) {
+        showToast('クリップボードへのコピーに失敗しました。テキストを選択してコピーしてください。', 'error');
+        return;
+    }
+    const copyBtn = document.getElementById('btn-copy-export');
+    if (!copyBtn) { showToast('コピーしました。'); return; }
+    copyBtn.innerText = '✅ Copied!';
+    copyBtn.style.background = '#444';
+    copyBtn.style.color = '#fff';
+    setTimeout(() => {
+        copyBtn.innerText = 'Copy to clipboard';
+        copyBtn.style.background = 'var(--accent-color)';
+        copyBtn.style.color = '#000';
+    }, 2000);
 }
 
 export function playRadarRandomThree() {
@@ -4505,6 +7636,8 @@ export function playRadarRandomThree() {
 // Share: みんなの公開プレイリスト一覧
 // ==========================================================
 export async function loadSharePlaylists() {
+    // 未ログイン (デモ表示) ではAPIを呼ばない
+    if (!hasAccountSession()) return;
     const grid = document.getElementById('share-playlists-grid');
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';
@@ -4513,13 +7646,16 @@ export async function loadSharePlaylists() {
             tunedropFetch('api.php?action=get_public_playlists'),
             tunedropFetch('api.php?action=get_recommended_playlists&limit=6').catch(() => null),
         ]);
-        sharePlaylists = await pubRes.json();
+        const publicLists = await pubRes.json();
+        if (!pubRes.ok || !Array.isArray(publicLists)) throw new Error('公開リストを取得できませんでした。');
+        sharePlaylists = publicLists;
         try {
-            shareRecommended = recRes && recRes.ok ? await recRes.json() : [];
+            const recommended = recRes && recRes.ok ? await recRes.json() : [];
+            shareRecommended = Array.isArray(recommended) ? recommended : [];
         } catch (_) { shareRecommended = []; }
         renderSharePlaylists();
     } catch (err) {
-        grid.innerHTML = '<p style="color:var(--text-sub); grid-column: 1 / -1;">読み込みに失敗しました。</p>';
+        grid.innerHTML = '<div class="ui-load-error" role="status"><strong>公開リストを読み込めませんでした</strong><p>接続を確認して、もう一度お試しください。</p><button type="button" onclick="loadSharePlaylists()">再試行</button></div>';
         console.error(err);
     }
 }
@@ -4839,6 +7975,8 @@ export function openRandomSharePlaylist() {
 
 export function playTrackFromQueue(index, queue) {
     closeMobileMenu();   // 再生 (他操作) でメニューが残らないようにする
+    // ユーザーが新しい曲を選んだら、閉じる操作の自動送り抑止は解除する
+    ignorePlayerEndedUntil = 0;
     currentQueue = queue;
     currentTrackIndex = index;
     const track = currentQueue[index];
@@ -4859,6 +7997,8 @@ export function playTrackFromQueue(index, queue) {
 
     updatePlayerFavButton(track.is_favorite);
     syncPlayerFavorite(track);
+    const playerSave = document.getElementById('btn-player-save');
+    if (playerSave) playerSave.disabled = false;
     if (playerReady && player && player.loadVideoById) {
         const loadedVideoId = player.getVideoData?.().video_id;
         if (loadedVideoId !== track.youtube_id) {
@@ -4939,6 +8079,7 @@ export function onYouTubePlayerReady() {
 let ytErrorStreak = 0;   // 連続再生エラー数 (全滅時の無限ループ防止用)
 
 export function onYouTubePlayerError(event) {
+    if (Date.now() < ignorePlayerEndedUntil) return;
     console.error('YouTube player error:', event.data);
     // 再生できない動画 (埋め込み不可・削除済み等) は飛ばして次の曲へ。
     // キュー全曲が再生不可のときは止める (無限に回さない)。
@@ -4959,12 +8100,27 @@ export function onPlayerStateChange(event) {
         playBtn.classList.remove('is-playing');
         clearInterval(progressInterval);
     }
-    if (event.data === YT.PlayerState.ENDED) skipTrack(1);
+    if (event.data === YT.PlayerState.ENDED) {
+        // 閉じるボタン経由の ENDED では次の曲へ進まない
+        if (Date.now() < ignorePlayerEndedUntil) {
+            ignorePlayerEndedUntil = 0;
+            return;
+        }
+        skipTrack(1);
+    }
 }
 
 export function togglePlay() {
     if (!player) return;
-    isPlaying ? player.pauseVideo() : player.playVideo();
+    if (isPlaying) {
+        player.pauseVideo();
+        return;
+    }
+    // 閉じたあとに下部プレイヤーから再生したら、動画も再表示する
+    ignorePlayerEndedUntil = 0;
+    const popup = document.getElementById('youtube-popup');
+    if (popup && !popup.classList.contains('is-active')) popup.classList.add('is-active');
+    player.playVideo();
 }
 
 export function updateProgressBar() {
@@ -4998,21 +8154,29 @@ document.addEventListener('click', (event) => {
     if (!link) return;
     event.preventDefault();
     const target = document.getElementById(link.getAttribute('href').slice(1));
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (target) target.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
 });
 
 // ==========================================================
 // 更新通知
 // ----------------------------------------------------------
-// JS/CSS は ?v= でキャッシュを切っているが、タブを開いたままの場合は
-// 古い画面が残り続ける (SPA内の画面移動では HTML/JS を取り直さない)。
-// タブに戻ってきたときに index.html の ?v= だけ確認し、変わっていたら
-// 再読み込みを促す。
+// Vite のビルド成果物はファイル名に内容のハッシュが入る
+// (/assets/index-XXXX.js / .css)。タブを開いたままの場合は SPA 内の
+// 画面移動では JS/HTML を取り直さないため、古い画面が残り続ける。
+// タブに戻ってきたときに index.html を取得し、参照している資産が
+// 変わっていたら再読み込みを促す。
 // ==========================================================
-const APP_ASSET_PATTERN = /(?:app\.js|style\.css)\?v=([\w.-]+)/g;
+const APP_ASSET_PATTERN = /assets\/([A-Za-z0-9_-]+\.(?:js|css))|(?:app\.js|style\.css)\?v=([\w.-]+)/g;
 
 export function loadedAssetVersions() {
     const versions = new Set();
+    // 現在の構成: ハッシュ付きの /assets/index-XXXX.js|css
+    document.querySelectorAll('script[src*="/assets/"], link[href*="/assets/"]').forEach(el => {
+        const value = el.getAttribute('src') || el.getAttribute('href') || '';
+        const match = value.match(/assets\/([A-Za-z0-9_-]+\.(?:js|css))/);
+        if (match) versions.add(match[1]);
+    });
+    // 旧構成 (?v=) との互換
     document.querySelectorAll('script[src*="app.js"], link[href*="style.css"]').forEach(el => {
         const value = el.getAttribute('src') || el.getAttribute('href') || '';
         const match = value.match(/\?v=([\w.-]+)/);
@@ -5028,10 +8192,11 @@ export async function checkForAppUpdate() {
         const response = await fetch(new URL('index.html', window.location.href), { cache: 'no-store' });
         if (!response.ok) return;
         const html = await response.text();
-        const latest = new Set([...html.matchAll(APP_ASSET_PATTERN)].map(m => m[1]));
+        const latest = new Set([...html.matchAll(APP_ASSET_PATTERN)].map(m => m[1] || m[2]));
         const current = loadedAssetVersions();
         // 読み込み済みの版がすべて最新側に含まれていれば更新不要
-        if (!latest.size || [...current].every(version => latest.has(version))) return;
+        if (!latest.size || !current.size) return;
+        if ([...current].every(version => latest.has(version))) return;
         banner.hidden = false;
     } catch (_) {
         // オフライン等では何もしない (次回の表示時に再確認する)
@@ -5059,6 +8224,62 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.__ytApiReadyQueued) { window.__ytApiReadyQueued = false; onYouTubeIframeAPIReady(); }
     else if (window.YT?.Player && !player) onYouTubeIframeAPIReady();
     checkLoginStatus();
+    // ログインモーダル: Tabのフォーカスをモーダル内に留め、
+    // 入力し直したらエラー表示を消す (毎回同じエラーが残らないように)。
+    const loginModal = document.getElementById('login-modal');
+    if (loginModal) {
+        // モーダル内だけでなく document で受ける: Googleボタン等から
+        // フォーカスが外へ抜けた場合も、次のTabでモーダルへ戻せるようにする。
+        document.addEventListener('keydown', trapModalFocus);
+    }
+    for (const id of ['auth-username', 'auth-password']) {
+        const input = document.getElementById(id);
+        if (input) input.addEventListener('input', clearAuthError);
+    }
+    const authUsernameInput = document.getElementById('auth-username');
+    if (authUsernameInput) {
+        authUsernameInput.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.isComposing) return;
+            const passwordField = document.getElementById('auth-password');
+            const usernameValue = String(authUsernameInput.value || '').trim();
+            const passwordValue = String((passwordField && passwordField.value) || '').trim();
+            // IDだけ入力した状態でEnterを押したら、パスワード欄へ移動する
+            if (usernameValue && !passwordValue && passwordField) {
+                event.preventDefault();
+                if (typeof passwordField.focus === 'function') passwordField.focus();
+            }
+        });
+    }
+    // 検索欄の×ボタンは、入力があるときだけ表示する
+    syncManagerSearchClear();
+    syncTrackSearchClear();
+    // リスト名・曲名などの検索サジェスト
+    setupSearchSuggestions();
+    // プロフィールの統計カード (保存曲 / プレイリスト / お気に入り / フォロー) を
+    // クリックすると、下のパネルを簡易ログへ切り替える。
+    const profileStats = document.getElementById('profile-stats');
+    if (profileStats) {
+        profileStats.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-profile-panel]');
+            if (button) selectProfilePanel(button.dataset.profilePanel);
+        });
+    }
+
+    // モーダル内の入力欄で Enter を押したら決定する (いちいちボタンへ移動しない)
+    const enterSubmits = [
+        ['new-playlist-title', () => submitNewPlaylist()],
+        ['edit-playlist-title', () => submitEditPlaylist()],
+        ['youtube-url', () => addTrack()],
+    ];
+    for (const [id, submit] of enterSubmits) {
+        const input = document.getElementById(id);
+        if (!input) continue;
+        input.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.isComposing) return;
+            event.preventDefault();
+            submit();
+        });
+    }
     // Google ボタンはログインモーダルを開いたときに初期化する。
     // ページ表示直後に initialize すると、未登録 origin の環境では
     // Google 側の [GSI_LOGGER] エラーがコンソールに出続けるため。
@@ -5066,6 +8287,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bindRadarControls();
     bindRadarPointer();
     bindRadarStripScroll();
+    syncRadarDisplayLimitControl();
     // Keep the canvas aligned while the mobile workspace slides below the player.
     const radarContainer = document.getElementById('radar-map-container');
     if (radarContainer) {

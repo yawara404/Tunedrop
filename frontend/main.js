@@ -12,6 +12,7 @@
 import './config.js';
 import * as app from './app.js';
 import './style.css';
+import './mobile.css';
 
 // app.js は元々 classic script で、トップレベル関数がそのまま window に載っていた。
 // ES モジュールではモジュールスコープに入ってしまうため、以下の呼び出し元から

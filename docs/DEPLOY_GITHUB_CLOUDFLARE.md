@@ -295,7 +295,24 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 
 `database.sqlite` は **WALジャーナル**（`PRAGMA journal_mode = WAL`）で運用されます（PHPとPythonが同じDBを共有するため、読み書きが互いをブロックしないようにする設定です）。`-wal` / `-shm` の一時ファイルは正常な動作で作られるもので、`.gitignore` によりGit管理外です。バックアップは上の `.backup` コマンド（またはサービス停止後のコピー）を使ってください。
 
-常時運用には、Macのスリープを無効にし、Apache・Python・cloudflaredの3つを再起動後も起動するよう設定します。`./backend/start.sh --mamp` はターミナルを閉じると停止するため、常駐化する場合はmacOSのlaunchd、Linuxならsystemdで管理します。Pythonは `.venv/bin/python app.py` を起動し、`.env` またはサービスの環境変数に `PORT=5001` と `GOOGLE_CLIENT_ID` を設定します。Linuxへ移す場合はMAMP用パスをその環境に置き換えてください。今回サービス登録・DNS変更・GitHub送信は自動実行していません。
+### 常時運用と自動復旧（watchdog）
+
+`./backend/watchdog.sh` が Web（PHP + `router.php`）・認証/解析サーバー（`app.py`）・公開トンネルを30秒ごとに確認し、落ちていれば自動で起動し直します。
+
+```bash
+./backend/watchdog.sh check      # 1回だけ確認（再起動しない）
+./backend/watchdog.sh status     # 状態と直近のログ
+./backend/watchdog.sh install --prevent-sleep   # ログイン時起動＋常時監視（macOS launchd）
+./backend/watchdog.sh uninstall  # 解除
+```
+
+- 状態とログは `~/.tunedrop/`（リポジトリ外）に置きます。スタックの標準出力は `~/.tunedrop/stack.log`、トンネルのログは `~/.cloudflared/tunedrop-tunnel.log` です。
+- ローカルが落ちていれば `backend/start.sh` を、ローカルは正常で公開URLだけ落ちていれば `backend/tunnel.sh` を再起動します。インターネット自体が切れている場合はトンネルを再起動しません（無駄な再起動を避けるため）。
+- `maintenance.flag`（`./backend/maintenance.sh on`）がある間はメンテナンス中として扱い、再起動しません。
+- ヘルスチェックは `/api.php?action=health&deep=1` を使い、DB（MySQL / SQLite）へ接続できるかまで確認します。
+- `--prevent-sleep` は `caffeinate -s` で **AC電源接続中のみ** スリープを抑止します。バッテリー駆動時はアイドルスリープ（既定1分のことが多い）で公開が止まるため、常時公開するなら電源接続＋フタを開けたまま運用してください（スリープ中は Cloudflare Tunnel が切断されます）。`./backend/watchdog.sh status` の `power` 行で給電状態を確認でき、バッテリー駆動時は起動ログにも警告を残します。
+- メモリ/スワップが80%を超えると30分に1回、警告をログへ出します。サーバー自身（PHP/Python）は数百MBですが、同じマシンのブラウザやIDEが大量にメモリを使うとスワップ逼迫で応答が遅くなります。不要なアプリを閉じるか、サーバーを別マシンへ移してください。
+- 不安定な Wi-Fi / NAT で QUIC の idle timeout が繰り返す場合は、`TUNEDROP_TUNNEL_PROTOCOL=http2 ./backend/tunnel.sh restart` で TCP 接続に切り替えられます（`./backend/tunnel.sh check` で公開URLの確認だけもできます）。
 
 ## 9. 回帰テスト
 

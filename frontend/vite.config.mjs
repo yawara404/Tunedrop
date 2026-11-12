@@ -3,24 +3,35 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
-// OGPカード画像 (favicon-card.png = ファビコンと同じ意匠の512x512) の ?v= を、
-// ファイル内容のハッシュ (sha256 の先頭10文字) に揃えるプラグイン。
+// SNSカード画像 (ogp-card.png = 1200x630) と apple-touch-icon (favicon-card.png) の
+// ?v= を、ファイル内容のハッシュ (sha256 の先頭10文字) に揃えるプラグイン。
 //
 // なぜ必要か:
-//   この画像は <meta property="og:image"> に絶対URLで書くため、Vite の
+//   これらの画像は <meta property="og:image"> に絶対URLで書くため、Vite の
 //   ハッシュ付き出力 (assets/*) にできない (frontend/ から直接配信している)。
 //   URL が固定だと、画像を差し替えても前段の Cloudflare (7日キャッシュ) と
 //   SNS 側のキャッシュに古い画像が残る。中身のハッシュを ?v= に入れておけば、
 //   差し替えたときに URL が変わるので必ず新しい画像が使われる。
 //   (以前は独立したスクリプト (bump_assets.sh) が同じことをしていたが、CSS/JS は
 //    Vite のファイル名ハッシュへ移行したため、このプラグインへ統合してスクリプトは削除した)
-function faviconCardVersion() {
-    const image = resolve(import.meta.dirname, 'favicon-card.png');
+function socialCardVersions() {
+    const images = ['favicon-card.png', 'ogp-card.png'];
     return {
-        name: 'tunedrop-favicon-card-version',
+        name: 'tunedrop-social-card-version',
         transformIndexHtml(html) {
-            const hash = createHash('sha256').update(readFileSync(image)).digest('hex').slice(0, 10);
-            return html.replace(/favicon-card\.png\?v=[0-9a-z]*/g, `favicon-card.png?v=${hash}`);
+            let result = html;
+            for (const name of images) {
+                const image = resolve(import.meta.dirname, name);
+                let hash = '';
+                try {
+                    hash = createHash('sha256').update(readFileSync(image)).digest('hex').slice(0, 10);
+                } catch (_) {
+                    continue;   // 画像が無い環境では ?v= をそのままにする
+                }
+                const pattern = new RegExp(name.replace('.', '[.]') + '[?]v=[0-9a-z]*', 'g');
+                result = result.replace(pattern, `${name}?v=${hash}`);
+            }
+            return result;
         },
     };
 }
@@ -57,7 +68,7 @@ const frontendDir = import.meta.dirname;
 export default defineConfig({
     root: frontendDir,
     base: './',
-    plugins: [faviconCardVersion()],
+    plugins: [socialCardVersions()],
     // 開発用 (npm run dev): 画面は Vite が HMR 付きで配信し、PHP 側 (API / OGP /
     // 管理画面) は backend/start.sh のPHPビルトインサーバーへプロキシする。
     // これで `./backend/start.sh` + `npm run dev` の2つだけで開発できる。

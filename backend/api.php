@@ -30,6 +30,9 @@ $maintenance_flag = getenv('TUNEDROP_MAINTENANCE_FLAG') ?: (dirname(__DIR__) . '
 $maintenance = is_file($maintenance_flag) || getenv('TUNEDROP_MAINTENANCE') === '1';
 $maintenance_message = $maintenance ? trim((string)@file_get_contents($maintenance_flag)) : '';
 
+// DB の場所は health (deep=1) でも使うため、他の処理より先に決めておく。
+$db_path = getenv('TUNEDROP_DB') ?: dirname(__DIR__) . '/database.sqlite';
+
 if (($_GET['action'] ?? '') === 'health') {
     // features: フロントの接続先自動検出 (frontend/app.js の resolveTunedropApi) が
     // 「別フォルダに残った古い api.php」を接続先に選ばないための目印。
@@ -49,11 +52,44 @@ if (($_GET['action'] ?? '') === 'health') {
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
-    echo json_encode([
+    // deep=1: DB へ実際に接続できるかまで確認する (watchdog / 監視用)。
+    // 既定の health は従来どおり軽量な JSON を返し、フロントの接続先検出を変えない。
+    $database = null;
+    if (($_GET['deep'] ?? '') === '1') {
+        try {
+            if (tunedrop_mysql_enabled()) {
+                $health_db = tunedrop_mysql_db();
+            } else {
+                $health_db = new PDO('sqlite:' . $db_path, null, null, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_TIMEOUT => 5,
+                ]);
+            }
+            $health_db->query('SELECT 1');
+            $health_db = null;
+            $database = 'ok';
+        } catch (Throwable $error) {
+            http_response_code(503);
+            header('Cache-Control: no-store');
+            echo json_encode([
+                'status' => 'error',
+                'service' => 'TuneDrop PHP API',
+                'features' => ['auth_proxy', 'auth_guest'],
+                'database' => 'error',
+                'error' => 'database unavailable',
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+    $health = [
         'status' => 'ok',
         'service' => 'TuneDrop PHP API',
         'features' => ['auth_proxy', 'auth_guest'],
-    ]);
+    ];
+    if ($database !== null) {
+        $health['database'] = $database;
+    }
+    echo json_encode($health, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -69,8 +105,6 @@ if ($maintenance) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
-
-$db_path = getenv('TUNEDROP_DB') ?: dirname(__DIR__) . '/database.sqlite';
 
 /**
  * Flask 認証/解析サーバー (app.py) の稼働ポートを動的検出する。
@@ -241,7 +275,7 @@ const TUNEDROP_SYSTEM_PLAYLISTS = [
  * テーブル作成・列追加・重複整理 (書き込み) を実行する。
  * 列や索引を追加したときはここを +1 する。
  */
-const TUNEDROP_SCHEMA_VERSION = 2;
+const TUNEDROP_SCHEMA_VERSION = 3;
 
 /** SQLite のロック待ち時間 (ミリ秒)。FastCGI の idle timeout (30秒) より十分短くする。 */
 const TUNEDROP_BUSY_TIMEOUT_MS = 5000;
@@ -429,6 +463,123 @@ function public_favorite_state(PDO $db, int $user_id, string $kind, int $id): in
     return $stmt->fetchColumn() ? 1 : 0;
 }
 
+/* ==========================================================
+   Manager の複数選択 (一括操作)
+   ----------------------------------------------------------
+   画面から渡された bookmarks.id を正規化し、SQL の IN (...) が
+   長くなりすぎないよう 400 件ずつに分ける。
+   ========================================================== */
+function normalize_bookmark_ids(mixed $value): array {
+    if (!is_array($value)) return [];
+    $ids = [];
+    foreach ($value as $id) {
+        if (is_int($id) || (is_string($id) && ctype_digit($id))) {
+            $id = (int)$id;
+            if ($id > 0) $ids[$id] = $id;
+        }
+    }
+    return array_values($ids);
+}
+
+function bookmark_id_chunks(array $ids, int $size = 400): array {
+    return $ids ? array_chunk($ids, max(1, $size)) : [];
+}
+
+/* ==========================================================
+   フォロー (フォロー中 / フォロワー)
+   ----------------------------------------------------------
+   user_follows は SQLite / MySQL の両方で使う。既存の MySQL DB でも
+   フォロー関連のリクエスト時に IF NOT EXISTS で追加する。
+   ========================================================== */
+function ensure_follow_schema(PDO $db): void {
+    if (tunedrop_mysql_enabled()) {
+        $db->exec("CREATE TABLE IF NOT EXISTS user_follows (
+            follower_id BIGINT UNSIGNED NOT NULL,
+            followee_id BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (follower_id, followee_id),
+            KEY user_follows_followee_idx (followee_id),
+            CONSTRAINT user_follows_follower_fk FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+            CONSTRAINT user_follows_followee_fk FOREIGN KEY (followee_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin");
+        return;
+    }
+    $db->exec("CREATE TABLE IF NOT EXISTS user_follows (
+        follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(follower_id, followee_id)
+    )");
+    $db->exec("CREATE INDEX IF NOT EXISTS user_follows_followee_idx ON user_follows(followee_id)");
+}
+
+/** フォロー機能は端末ゲストではなくアカウント登録済みユーザーだけに許可する。 */
+function require_account(PDO $db): int {
+    $uid = require_user_or_guest($db);
+    $stmt = $db->prepare('SELECT username FROM users WHERE id = ?');
+    $stmt->execute([$uid]);
+    $username = (string)$stmt->fetchColumn();
+    if (substr($username, 0, 6) === 'guest_') {
+        http_response_code(403);
+        echo json_encode(['error' => 'フォローにはアカウント登録（ログイン）が必要です。'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    return $uid;
+}
+
+/** フォロー中 / フォロワーの件数 (ゲストアカウントは数えない)。 */
+function follow_counts(PDO $db, int $user_id): array {
+    $stmt = $db->prepare(
+        "SELECT
+            (SELECT COUNT(*) FROM user_follows f JOIN users u ON u.id = f.followee_id
+              WHERE f.follower_id = ? AND substr(u.username, 1, 6) <> 'guest_') AS following,
+            (SELECT COUNT(*) FROM user_follows f JOIN users u ON u.id = f.follower_id
+              WHERE f.followee_id = ? AND substr(u.username, 1, 6) <> 'guest_') AS followers"
+    );
+    $stmt->execute([$user_id, $user_id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    return [
+        'following' => (int)($row['following'] ?? 0),
+        'followers' => (int)($row['followers'] ?? 0),
+    ];
+}
+
+/** ビューアがフォローしている相手の ID を引く (一覧のボタン表示用)。 */
+function follow_states(PDO $db, int $viewer, array $ids): array {
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    if (!$ids) return [];
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $db->prepare("SELECT followee_id FROM user_follows WHERE follower_id = ? AND followee_id IN ($placeholders)");
+    $stmt->execute(array_merge([$viewer], $ids));
+    $states = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $states[(int)$id] = 1;
+    }
+    return $states;
+}
+
+/** フォロー中 / フォロワー一覧 (新しい順、最大100件、ゲストは除外)。 */
+function follow_rows(PDO $db, int $target, string $kind, ?int $viewer): array {
+    $matchColumn = $kind === 'followers' ? 'f.followee_id' : 'f.follower_id';
+    $userColumn = $kind === 'followers' ? 'f.follower_id' : 'f.followee_id';
+    $stmt = $db->prepare(
+        "SELECT u.id, COALESCE(u.display_name, u.username) AS name, f.created_at AS followed_at
+         FROM user_follows f JOIN users u ON u.id = $userColumn
+         WHERE $matchColumn = ? AND substr(u.username, 1, 6) <> 'guest_'
+         ORDER BY f.created_at DESC, u.id DESC LIMIT 100"
+    );
+    $stmt->execute([$target]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $states = $viewer ? follow_states($db, $viewer, array_map(fn($row) => (int)$row['id'], $rows)) : [];
+    foreach ($rows as &$row) {
+        $row['id'] = (int)$row['id'];
+        $row['is_following'] = isset($states[$row['id']]) ? 1 : 0;
+    }
+    unset($row);
+    return $rows;
+}
+
+
 function toggle_public_favorite(PDO $db, int $user_id, string $kind, int $id): int {
     $db->beginTransaction();
     try {
@@ -523,6 +674,15 @@ function ensure_schema(PDO $db): void {
         target_id INTEGER NOT NULL,
         PRIMARY KEY(user_id,kind,target_id)
     )");
+
+    // フォロー (フォロー中 / フォロワー)。統計カードの切替表示とプロフィールで使う。
+    $db->exec("CREATE TABLE IF NOT EXISTS user_follows (
+        follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(follower_id, followee_id)
+    )");
+    $db->exec("CREATE INDEX IF NOT EXISTS user_follows_followee_idx ON user_follows(followee_id)");
 
     // 解析結果キャッシュ用テーブル（AI推定 + 音源実測。存在しなければ作成）
     $db->exec("CREATE TABLE IF NOT EXISTS analysis_cache (
@@ -960,6 +1120,36 @@ try {
             }
             break;
 
+        case 'bulk_delete_bookmarks':
+            if ($method !== 'POST') {
+                echo json_encode(['success' => false, 'error' => 'Invalid method']);
+                break;
+            }
+            $user_id = require_user_or_guest($db);
+            $ids = normalize_bookmark_ids($input['ids'] ?? null);
+            if (!$ids) {
+                echo json_encode(['success' => true, 'deleted' => 0]);
+                break;
+            }
+            $deleted = 0;
+            $db->beginTransaction();
+            try {
+                foreach (bookmark_id_chunks($ids) as $chunk) {
+                    $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                    $stmt = $db->prepare("DELETE FROM bookmarks
+                        WHERE id IN ({$placeholders})
+                          AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
+                    $stmt->execute(array_merge($chunk, [$user_id]));
+                    $deleted += $stmt->rowCount();
+                }
+                $db->commit();
+            } catch (Throwable $error) {
+                $db->rollBack();
+                throw $error;
+            }
+            echo json_encode(['success' => true, 'deleted' => $deleted]);
+            break;
+
         case 'move_bookmark':
             if ($method === 'POST' && !empty($input['id']) && isset($input['target_playlist_id'])) {
                 $user_id = require_user_or_guest($db);
@@ -999,7 +1189,142 @@ try {
             }
             break;
 
-        case 'get_track_favorite':
+        case 'bulk_move_bookmarks':
+            if ($method !== 'POST' || empty($input['target_playlist_id'])) {
+                echo json_encode(['success' => false, 'error' => 'Invalid input']);
+                break;
+            }
+            $user_id = require_user_or_guest($db);
+            $target_playlist_id = (int)$input['target_playlist_id'];
+            $ids = normalize_bookmark_ids($input['ids'] ?? null);
+            $targetCheck = $db->prepare("SELECT 1 FROM playlists WHERE id = ? AND user_id = ?");
+            $targetCheck->execute([$target_playlist_id, $user_id]);
+            if ($target_playlist_id <= 0 || !$targetCheck->fetchColumn()) {
+                echo json_encode(['success' => false, 'error' => '移動先プレイリストが見つかりません'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            if (!$ids) {
+                echo json_encode(['success' => true, 'moved' => 0, 'skipped' => 0]);
+                break;
+            }
+
+            // 選択した曲をまとめて取得する (他ユーザーの行は操作しない)
+            $selected = [];
+            foreach (bookmark_id_chunks($ids) as $chunk) {
+                $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                $stmt = $db->prepare("SELECT b.id, b.youtube_id, b.playlist_id
+                    FROM bookmarks b JOIN playlists p ON p.id = b.playlist_id
+                    WHERE b.id IN ({$placeholders}) AND p.user_id = ?");
+                $stmt->execute(array_merge($chunk, [$user_id]));
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    $selected[] = $row;
+                }
+            }
+            if (!$selected) {
+                echo json_encode(['success' => true, 'moved' => 0, 'skipped' => 0]);
+                break;
+            }
+
+            // 移動先に既にある曲は、同じリスト内の重複になるためスキップする。
+            $existing = [];
+            $stmt = $db->prepare("SELECT youtube_id FROM bookmarks WHERE playlist_id = ?");
+            $stmt->execute([$target_playlist_id]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $youtube_id) {
+                $existing[(string)$youtube_id] = true;
+            }
+
+            $moved = 0;
+            $skipped = 0;
+            $timestamp_sql = tunedrop_mysql_enabled() ? 'CURRENT_TIMESTAMP(3)' : "strftime('%Y-%m-%d %H:%M:%f', 'now')";
+            $db->beginTransaction();
+            try {
+                $update = $db->prepare("UPDATE bookmarks
+                    SET added_at = CASE WHEN playlist_id != ? THEN {$timestamp_sql} ELSE added_at END,
+                        playlist_id = ?
+                    WHERE id = ? AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
+                foreach ($selected as $row) {
+                    $youtube_id = (string)$row['youtube_id'];
+                    $current_playlist_id = (int)$row['playlist_id'];
+                    if ($current_playlist_id !== $target_playlist_id && isset($existing[$youtube_id])) {
+                        $skipped++;
+                        continue;
+                    }
+                    try {
+                        $update->execute([$target_playlist_id, $target_playlist_id, (int)$row['id'], $user_id]);
+                        $moved++;
+                        if ($current_playlist_id !== $target_playlist_id) $existing[$youtube_id] = true;
+                    } catch (PDOException $error) {
+                        // 同時リクエストで移動先に同じ曲が入った場合も重複を作らない
+                        $skipped++;
+                    }
+                }
+                $db->commit();
+            } catch (Throwable $error) {
+                $db->rollBack();
+                throw $error;
+            }
+            echo json_encode(['success' => true, 'moved' => $moved, 'skipped' => $skipped]);
+            break;
+
+        case 'bulk_set_favorite_bookmarks':
+            if ($method !== 'POST') {
+                echo json_encode(['success' => false, 'error' => 'Invalid method']);
+                break;
+            }
+            $user_id = require_user_or_guest($db);
+            $ids = normalize_bookmark_ids($input['ids'] ?? null);
+            $state = !empty($input['is_favorite']) ? 1 : 0;
+            if (!$ids) {
+                echo json_encode(['success' => true, 'is_favorite' => $state, 'youtube_ids' => []]);
+                break;
+            }
+
+            $youtube_ids = [];
+            foreach (bookmark_id_chunks($ids) as $chunk) {
+                $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                $stmt = $db->prepare("SELECT DISTINCT b.youtube_id
+                    FROM bookmarks b JOIN playlists p ON p.id = b.playlist_id
+                    WHERE b.id IN ({$placeholders}) AND p.user_id = ?");
+                $stmt->execute(array_merge($chunk, [$user_id]));
+                foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $youtube_id) {
+                    $youtube_ids[(string)$youtube_id] = (string)$youtube_id;
+                }
+            }
+            $youtube_ids = array_values($youtube_ids);
+            if (!$youtube_ids) {
+                echo json_encode(['success' => true, 'is_favorite' => $state, 'youtube_ids' => []]);
+                break;
+            }
+
+            $db->beginTransaction();
+            try {
+                foreach (bookmark_id_chunks($youtube_ids) as $chunk) {
+                    $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                    // 自分の各リストにある同じ曲の★をまとめて揃える
+                    $stmt = $db->prepare("UPDATE bookmarks SET is_favorite = ?
+                        WHERE youtube_id IN ({$placeholders})
+                          AND playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)");
+                    $stmt->execute(array_merge([$state], $chunk, [$user_id]));
+
+                    if ($state === 0) {
+                        $stmt = $db->prepare("DELETE FROM public_favorites
+                            WHERE user_id = ? AND kind = 'track'
+                              AND target_id IN (SELECT id FROM bookmarks WHERE youtube_id IN ({$placeholders}))");
+                        $stmt->execute(array_merge([$user_id], $chunk));
+                    }
+                }
+                $db->commit();
+            } catch (Throwable $error) {
+                $db->rollBack();
+                throw $error;
+            }
+            echo json_encode([
+                'success' => true,
+                'is_favorite' => $state,
+                'youtube_ids' => $youtube_ids,
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
         case 'toggle_favorite_bookmark':
             $user_id = require_user_or_guest($db);
             $params = $action === 'get_track_favorite' ? $_GET : ($input ?? []);
@@ -1209,15 +1534,222 @@ try {
             echo json_encode($playlists, JSON_UNESCAPED_UNICODE);
             break;
 
+        case 'get_profile_activity': {
+            // プロフィールの統計カードをクリックしたときの「簡易ログ」。
+            header('Cache-Control: no-store');
+            //   tracks    … 最近保存した曲 (youtube_id ごとに最新の1件)
+            //   playlists … 最近作成したプレイリスト (固定タブを除く)
+            //   favorites … お気に入りにした曲とリスト
+            $user_id = require_user_or_guest($db);
+            $type = (string)($_GET['type'] ?? 'tracks');
+            if (!in_array($type, ['tracks', 'playlists', 'favorites'], true)) $type = 'tracks';
+            $limit = max(1, min(50, (int)($_GET['limit'] ?? 20)));
+
+            if ($type === 'tracks') {
+                $stmt = $db->prepare(
+                    "SELECT b.id, b.youtube_id, b.title, b.channel, b.is_favorite, b.added_at, p.name AS playlist_name
+                     FROM bookmarks b
+                     JOIN playlists p ON p.id = b.playlist_id
+                     JOIN (
+                         SELECT MAX(x.id) AS id FROM bookmarks x
+                         JOIN playlists px ON px.id = x.playlist_id
+                         WHERE px.user_id = ?
+                         GROUP BY x.youtube_id
+                     ) latest ON latest.id = b.id
+                     ORDER BY b.added_at DESC, b.id DESC
+                     LIMIT ?"
+                );
+                $stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+                $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+                $stmt->execute();
+                $tracks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($tracks as &$track) {
+                    $track['id'] = (int)$track['id'];
+                    $track['is_favorite'] = track_favorite_state($db, $user_id, (string)$track['youtube_id']);
+                }
+                unset($track);
+                echo json_encode(['type' => 'tracks', 'tracks' => $tracks], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            if ($type === 'playlists') {
+                $stmt = $db->prepare(
+                    "SELECT p.id, p.name, p.category, p.is_public, p.cover_id, p.created_at,
+                            (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count
+                     FROM playlists p
+                     WHERE p.user_id = ? AND p.system_key IS NULL
+                     ORDER BY p.created_at DESC, p.id DESC
+                     LIMIT ?"
+                );
+                $stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+                $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+                $stmt->execute();
+                $playlists = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($playlists as &$playlist) {
+                    $playlist['id'] = (int)$playlist['id'];
+                    $playlist['track_count'] = (int)$playlist['track_count'];
+                    $playlist['is_public'] = (int)$playlist['is_public'];
+                }
+                unset($playlist);
+                echo json_encode(['type' => 'playlists', 'playlists' => $playlists], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            // favorites: 自分の★と、公開曲/公開リストに付けたお気に入りの両方
+            $track_stmt = $db->prepare(
+                "SELECT b.id, b.youtube_id, b.title, b.channel, b.is_favorite, b.added_at, p.name AS playlist_name
+                 FROM bookmarks b JOIN playlists p ON p.id = b.playlist_id
+                 WHERE b.id IN (
+                     SELECT MAX(x.id) FROM bookmarks x JOIN playlists px ON px.id = x.playlist_id
+                     WHERE (x.is_favorite = 1 AND px.user_id = ?)
+                        OR (px.is_public = 1 AND EXISTS(
+                              SELECT 1 FROM public_favorites f
+                              WHERE f.user_id = ? AND f.kind = 'track' AND f.target_id = x.id))
+                     GROUP BY x.youtube_id
+                 )
+                 ORDER BY b.added_at DESC, b.id DESC
+                 LIMIT ?"
+            );
+            $track_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+            $track_stmt->bindValue(2, $user_id, PDO::PARAM_INT);
+            $track_stmt->bindValue(3, $limit, PDO::PARAM_INT);
+            $track_stmt->execute();
+            $favorite_tracks = $track_stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($favorite_tracks as &$favorite_track) {
+                $favorite_track['id'] = (int)$favorite_track['id'];
+                $favorite_track['is_favorite'] = 1;
+            }
+            unset($favorite_track);
+
+            $list_stmt = $db->prepare(
+                "SELECT p.id, p.name, p.category, p.is_public, p.cover_id, p.created_at,
+                        COALESCE(u.display_name, u.username) AS author,
+                        (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count
+                 FROM playlists p JOIN users u ON u.id = p.user_id
+                 WHERE (p.is_favorite = 1 AND p.user_id = ?)
+                    OR (p.is_public = 1 AND EXISTS(
+                          SELECT 1 FROM public_favorites f
+                          WHERE f.user_id = ? AND f.kind = 'playlist' AND f.target_id = p.id))
+                 ORDER BY p.created_at DESC, p.id DESC
+                 LIMIT ?"
+            );
+            $list_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+            $list_stmt->bindValue(2, $user_id, PDO::PARAM_INT);
+            $list_stmt->bindValue(3, $limit, PDO::PARAM_INT);
+            $list_stmt->execute();
+            $favorite_lists = $list_stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($favorite_lists as &$favorite_list) {
+                $favorite_list['id'] = (int)$favorite_list['id'];
+                $favorite_list['track_count'] = (int)$favorite_list['track_count'];
+                $favorite_list['is_public'] = (int)$favorite_list['is_public'];
+            }
+            unset($favorite_list);
+
+            echo json_encode([
+                'type' => 'favorites',
+                'tracks' => $favorite_tracks,
+                'playlists' => $favorite_lists,
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        case 'get_follow_overview': {
+            // 自分のプロフィール (user_id 未指定) または公開プロフィール (user_id 指定) の
+            // フォロー中 / フォロワー一覧。閲覧者がログインしていれば is_following を付ける。
+            header('Cache-Control: no-store');
+            ensure_follow_schema($db);
+            $viewer = current_user_id();
+            $target = (int)($_GET['user_id'] ?? 0);
+            if ($target <= 0) {
+                if (!$viewer) {
+                    http_response_code(401);
+                    echo json_encode(['error' => 'フォロー一覧の取得にはログインが必要です。'], JSON_UNESCAPED_UNICODE);
+                    break;
+                }
+                $target = $viewer;
+            }
+            $user_stmt = $db->prepare(
+                "SELECT id, COALESCE(display_name, username) AS name FROM users
+                 WHERE id = ? AND substr(username, 1, 6) <> 'guest_'"
+            );
+            $user_stmt->execute([$target]);
+            $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$user) {
+                echo json_encode(['error' => 'ユーザーが見つかりません。'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            $payload = [
+                'user' => ['id' => (int)$user['id'], 'name' => $user['name']],
+                'is_self' => $viewer === $target,
+                'counts' => follow_counts($db, $target),
+            ];
+            // summary=1 は件数だけ (プロフィールを開いたときの軽い取得)。
+            if ((string)($_GET['summary'] ?? '') !== '1') {
+                $payload['following'] = follow_rows($db, $target, 'following', $viewer);
+                $payload['followers'] = follow_rows($db, $target, 'followers', $viewer);
+            }
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
+        case 'follow_user':
+        case 'unfollow_user': {
+            header('Cache-Control: no-store');
+            if ($method !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['error' => 'POST で送信してください。'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            ensure_follow_schema($db);
+            $viewer = require_account($db);
+            $target = (int)($input['user_id'] ?? 0);
+            if ($target <= 0 || $target === $viewer) {
+                http_response_code(400);
+                echo json_encode(['error' => 'フォローするユーザーが正しくありません。'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            $exists = $db->prepare("SELECT 1 FROM users WHERE id = ? AND substr(username, 1, 6) <> 'guest_'");
+            $exists->execute([$target]);
+            if (!$exists->fetchColumn()) {
+                http_response_code(404);
+                echo json_encode(['error' => 'ユーザーが見つかりません。'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            if ($action === 'follow_user') {
+                $sql = tunedrop_mysql_enabled()
+                    ? "INSERT IGNORE INTO user_follows (follower_id, followee_id) VALUES (?, ?)"
+                    : "INSERT OR IGNORE INTO user_follows (follower_id, followee_id) VALUES (?, ?)";
+            } else {
+                $sql = "DELETE FROM user_follows WHERE follower_id = ? AND followee_id = ?";
+            }
+            $db->prepare($sql)->execute([$viewer, $target]);
+
+            $viewer_counts = follow_counts($db, $viewer);
+            $target_counts = follow_counts($db, $target);
+            echo json_encode([
+                'success' => true,
+                'is_following' => $action === 'follow_user' ? 1 : 0,
+                'following' => $viewer_counts['following'],
+                'followers' => $target_counts['followers'],
+                'target' => ['id' => $target, 'following' => $target_counts['following'], 'followers' => $target_counts['followers']],
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
         case 'get_user_profile': {
             // 他ユーザーのプロフィール (Shareの作成者名から開く)。
             // 公開情報のみ返し、非公開リストや固定タブは含めない。
+            ensure_follow_schema($db);
+            $viewer = current_user_id();
             $target = (int)($_GET['user_id'] ?? 0);
             if ($target <= 0) {
                 echo json_encode(['error' => 'ユーザーが指定されていません。'], JSON_UNESCAPED_UNICODE);
                 break;
             }
-            $user_stmt = $db->prepare("SELECT id, COALESCE(display_name, username) AS name, created_at FROM users WHERE id = ?");
+            $user_stmt = $db->prepare(
+                "SELECT id, COALESCE(display_name, username) AS name, username, created_at
+                 FROM users WHERE id = ?"
+            );
             $user_stmt->execute([$target]);
             $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
             if (!$user) {
@@ -1238,15 +1770,26 @@ try {
             $tracks_stmt = $db->prepare("SELECT COUNT(*) FROM bookmarks b JOIN playlists p ON p.id = b.playlist_id
                 WHERE p.user_id = ? AND p.is_public = 1 AND p.system_key IS NULL");
             $tracks_stmt->execute([$target]);
+            $follow_counts = follow_counts($db, $target);
+            $is_following = 0;
+            if ($viewer && $viewer !== $target) {
+                $states = follow_states($db, $viewer, [$target]);
+                $is_following = isset($states[$target]) ? 1 : 0;
+            }
             echo json_encode([
                 'user' => [
                     'id' => (int)$user['id'],
                     'name' => $user['name'],
                     'created_at' => $user['created_at'],
+                    'is_self' => $viewer === $target,
+                    'is_guest' => substr((string)$user['username'], 0, 6) === 'guest_',
+                    'is_following' => $is_following,
                     'stats' => [
                         'public_playlists' => count($playlists),
                         'public_tracks' => (int)$tracks_stmt->fetchColumn(),
                         'favorites' => array_sum(array_map(fn($p) => (int)$p['favorite_count'], $playlists)),
+                        'following' => $follow_counts['following'],
+                        'followers' => $follow_counts['followers'],
                     ],
                 ],
                 'playlists' => $playlists,
@@ -1416,6 +1959,22 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Invalid input']);
             }
             break;
+
+        // ==========================================
+        // 未ログインのデモ用: 公開Radarからランダム5曲
+        // (UMAPを待たず、解析済みの公開曲を抽選する)
+        // ==========================================
+        case 'demo_tracks': {
+            // 毎回ランダムに5曲を選ぶため、CDN/ブラウザに固定結果を持たせない。
+            header('Cache-Control: no-store');
+            $raw = flask_proxy_request('/radar/demo', [
+                'timeout' => 15,
+                'error' => 'デモ曲サーバー(app.py)に接続できません。',
+            ]);
+            if ($raw === null) break;
+            echo $raw;
+            break;
+        }
 
         // ==========================================
         // UMAP 楽曲マップ (Flask /radar/map をプロキシ)
