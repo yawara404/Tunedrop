@@ -480,6 +480,7 @@ let progressInterval;
 let currentPlaylistId = 'home';
 let currentQueue = [];
 let currentTrackIndex = -1;
+export let currentUser = null;
 
 let allPlaylists = [];
 let allBookmarks = [];
@@ -1726,6 +1727,11 @@ export function checkLoginStatus() {
     const guestBadge = document.getElementById('guest-badge');
     if (guestBadge) guestBadge.hidden = loggedIn;
     if (loggedIn) {
+        currentUser = {
+            id: currentUserId(),
+            username: username,
+            display_name: username
+        };
         // ログイン後はデモの音を止める (モーダルを閉じても裏で鳴り続けないように)
         pauseWelcomeDemo();
         // display は CSS 側 (inline-flex) に任せる。'inline-block' を直接入れると
@@ -1736,6 +1742,7 @@ export function checkLoginStatus() {
         document.getElementById('profile-avatar').innerText = username.charAt(0).toUpperCase();
         renderProfileLoginId(localStorage.getItem('tunedrop_login_id'));
     } else {
+        currentUser = null;
         document.getElementById('nav-login').style.display = '';
         document.getElementById('nav-profile').style.display = 'none';
         renderProfileLoginId('');
@@ -1744,6 +1751,7 @@ export function checkLoginStatus() {
 
 // ログインセッションを破棄し、ヘッダー等を未ログイン表示へ戻す
 export function clearSession() {
+    currentUser = null;
     localStorage.removeItem('tunedrop_token');
     localStorage.removeItem('tunedrop_username');
     localStorage.removeItem('tunedrop_login_id');
@@ -8687,7 +8695,7 @@ export function playReplayTrack(idx) {
                     id: `user-fav-${i}`,
                     youtube_id: b.youtube_id,
                     title: b.title || 'Untitled',
-                    artist: `曲 • ${b.channel || currentUser?.display_name || 'You'}`,
+                    artist: `曲 • ${b.channel || currentUsername() || currentUser?.display_name || 'You'}`,
                     thumbnail: `https://img.youtube.com/vi/${b.youtube_id}/mqdefault.jpg`,
                     type: 'track'
                 });
@@ -8717,10 +8725,11 @@ export function renderYTMReplayShelf() {
     container.innerHTML = '';
 
     const handleEl = document.getElementById('ytm-user-handle');
-    if (handleEl) handleEl.textContent = currentUser?.display_name || 'WAWA404';
+    const username = currentUsername() || currentUser?.display_name || 'WAWA404';
+    if (handleEl) handleEl.textContent = username;
     const avatarEl = document.getElementById('ytm-user-avatar');
     if (avatarEl) {
-        avatarEl.textContent = 'ZZZ';
+        avatarEl.innerHTML = '<span class="material-symbols-rounded">person</span>';
     }
 
     const playAllBtn = document.getElementById('btn-ytm-replay-all');
@@ -8742,7 +8751,7 @@ export function renderYTMReplayShelf() {
                     id: `user-fav-${idx}`,
                     youtube_id: b.youtube_id,
                     title: b.title || 'Untitled',
-                    artist: `曲 • ${b.channel || currentUser?.display_name || 'You'}`,
+                    artist: `曲 • ${b.channel || currentUsername() || currentUser?.display_name || 'You'}`,
                     thumbnail: `https://img.youtube.com/vi/${b.youtube_id}/mqdefault.jpg`,
                     type: 'track'
                 });

@@ -10474,16 +10474,19 @@ button:disabled { cursor: not-allowed; }
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: #000;
-    border: 2px solid #fff;
-    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: var(--text-main);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
-    font-weight: 900;
-    letter-spacing: 0.5px;
     flex-shrink: 0;
+    overflow: hidden;
+}
+
+.ytm-user-avatar-badge .material-symbols-rounded {
+    font-size: 24px;
+    color: var(--text-sub);
 }
 
 .ytm-user-hero-titles {
