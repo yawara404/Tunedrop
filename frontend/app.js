@@ -1660,7 +1660,10 @@ export function switchView(viewName) {
         // 保存済み (自分のブックマーク) の曲を✓表示にする。60秒キャッシュなので連続遷移でも重くならない。
         loadRadarSavedTracks();
     }
-    else if (viewName === 'share') loadSharePlaylists();
+    else if (viewName === 'share') {
+        try { updateShareSidebarActive('home'); } catch (_) {}
+        loadSharePlaylists();
+    }
     else if (viewName === 'profile') loadProfile();
 }
 
@@ -7996,6 +7999,43 @@ export const YTM_REPLAY_PICKS = [
     }
 ];
 
+export function updateShareSidebarActive(tab = 'home') {
+    const homeBtn = document.getElementById('ytm-nav-home');
+    const exploreBtn = document.getElementById('ytm-nav-explore');
+    if (homeBtn) homeBtn.classList.toggle('active', tab === 'home');
+    if (exploreBtn) exploreBtn.classList.toggle('active', tab === 'explore');
+}
+if (typeof window !== 'undefined') window.updateShareSidebarActive = updateShareSidebarActive;
+
+export function goToShareHome() {
+    updateShareSidebarActive('home');
+    const strip = document.getElementById('share-mood-chips');
+    if (strip) {
+        strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
+        strip.querySelector('.ytm-chip[data-chip="all"]')?.classList.add('is-active');
+    }
+    const searchInput = document.getElementById('share-search');
+    if (searchInput && searchInput.value) {
+        searchInput.value = '';
+        if (typeof onShareSearchInput === 'function') onShareSearchInput();
+    }
+    const cat = document.getElementById('share-category');
+    if (cat) cat.value = '';
+    renderSharePlaylists();
+    const mainArea = document.querySelector('.ytm-main-area');
+    if (mainArea) mainArea.scrollTo({ top: 0, behavior: 'smooth' });
+}
+if (typeof window !== 'undefined') window.goToShareHome = goToShareHome;
+
+export function goToShareExplore() {
+    updateShareSidebarActive('explore');
+    const weekendSec = document.getElementById('ytm-weekend-section');
+    if (weekendSec) {
+        weekendSec.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+if (typeof window !== 'undefined') window.goToShareExplore = goToShareExplore;
+
 export function renderShareSidebarPlaylists() {
     const nav = document.getElementById('share-playlist-nav');
     if (!nav) return;
@@ -8250,6 +8290,7 @@ export async function loadSharePlaylists() {
         } catch (_) { shareQuickPicks = []; }
 
         bindShareMoodChips();
+        updateShareSidebarActive('home');
         renderShareSidebarPlaylists();
         renderYTMReplayShelf();
         renderYTMWeekend();
