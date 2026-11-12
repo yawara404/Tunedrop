@@ -10240,6 +10240,7 @@ button:disabled { cursor: not-allowed; }
     text-transform: uppercase;
     letter-spacing: 0.8px;
     padding: 0 10px 8px;
+    text-align: left;
 }
 
 .ytm-playlist-nav {
@@ -10251,9 +10252,15 @@ button:disabled { cursor: not-allowed; }
     gap: 2px;
 }
 
+.ytm-playlist-nav .ytm-playlist-item,
 .ytm-playlist-item {
-    display: flex;
-    flex-direction: column;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
     gap: 2px;
     padding: 8px 12px;
     border-radius: 6px;
@@ -10274,6 +10281,10 @@ button:disabled { cursor: not-allowed; }
 .ytm-playlist-item-name {
     font-size: 13px;
     font-weight: 600;
+    color: var(--text-main);
+    width: 100%;
+    text-align: left;
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -10282,6 +10293,9 @@ button:disabled { cursor: not-allowed; }
 .ytm-playlist-item-sub {
     font-size: 11px;
     color: var(--text-sub);
+    width: 100%;
+    text-align: left;
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
