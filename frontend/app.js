@@ -8338,6 +8338,18 @@ export function playAllSavedTracks() {
 }
 if (typeof window !== 'undefined') window.playAllSavedTracks = playAllSavedTracks;
 
+export function openManagerSavedTracks() {
+    navigateView('manager');
+    selectPlaylist(null);
+}
+if (typeof window !== 'undefined') window.openManagerSavedTracks = openManagerSavedTracks;
+
+export function openManagerFavorites() {
+    navigateView('manager');
+    selectPlaylist('fav_tracks');
+}
+if (typeof window !== 'undefined') window.openManagerFavorites = openManagerFavorites;
+
 export function renderShareLibrary(filter = 'all') {
     const grid = document.getElementById('ytm-library-grid');
     if (!grid) return;
@@ -8440,11 +8452,11 @@ export function renderShareLibrary(filter = 'all') {
         likedCard.className = 'ytm-square-card';
         likedCard.setAttribute('role', 'button');
         likedCard.setAttribute('tabindex', '0');
-        likedCard.title = '高く評価した音楽 を再生';
+        likedCard.title = 'お気に入り曲 を開く';
         likedCard.innerHTML = `
             <div class="ytm-card-cover-wrap" style="background: linear-gradient(135deg, rgba(212, 225, 87, 0.25) 0%, rgba(30, 32, 22, 0.95) 100%); display:flex; align-items:center; justify-content:center;">
                 <span class="material-symbols-rounded" style="font-size: 52px; color: var(--accent-color);">favorite</span>
-                <div class="ytm-card-center-play">
+                <div class="ytm-card-center-play" onclick="event.stopPropagation(); playAllLikedTracks();">
                     <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
                 </div>
             </div>
@@ -8453,8 +8465,8 @@ export function renderShareLibrary(filter = 'all') {
                 <div class="ytm-card-artist">自動再生リスト • ${likedTracks.length}曲</div>
             </div>
         `;
-        likedCard.onclick = () => playAllLikedTracks();
-        likedCard.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playAllLikedTracks(); } };
+        likedCard.onclick = () => openManagerFavorites();
+        likedCard.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openManagerFavorites(); } };
         return likedCard;
     };
 
@@ -8463,11 +8475,11 @@ export function renderShareLibrary(filter = 'all') {
         allCard.className = 'ytm-square-card';
         allCard.setAttribute('role', 'button');
         allCard.setAttribute('tabindex', '0');
-        allCard.title = 'すべての保存楽曲 を再生';
+        allCard.title = 'すべての保存楽曲 を開く';
         allCard.innerHTML = `
             <div class="ytm-card-cover-wrap" style="background: linear-gradient(135deg, rgba(90, 80, 140, 0.35) 0%, rgba(20, 18, 30, 0.95) 100%); display:flex; align-items:center; justify-content:center;">
                 <span class="material-symbols-rounded" style="font-size: 52px; color: var(--text-main);">library_music</span>
-                <div class="ytm-card-center-play">
+                <div class="ytm-card-center-play" onclick="event.stopPropagation(); playAllSavedTracks();">
                     <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
                 </div>
             </div>
@@ -8476,8 +8488,8 @@ export function renderShareLibrary(filter = 'all') {
                 <div class="ytm-card-artist">自動再生リスト • ${totalTracks}曲</div>
             </div>
         `;
-        allCard.onclick = () => playAllSavedTracks();
-        allCard.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playAllSavedTracks(); } };
+        allCard.onclick = () => openManagerSavedTracks();
+        allCard.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openManagerSavedTracks(); } };
         return allCard;
     };
 
@@ -8583,20 +8595,18 @@ export function renderShareSidebarPlaylists() {
         <span class="ytm-playlist-item-sub">自動再生リスト</span>
     `;
     quickFav.onclick = () => {
-        goToShareLibrary();
-        filterShareLibrary('liked');
+        openManagerFavorites();
     };
     nav.appendChild(quickFav);
 
     const quickNew = document.createElement('li');
     quickNew.className = 'ytm-playlist-item';
     quickNew.innerHTML = `
-        <span class="ytm-playlist-item-name">新エピソード</span>
+        <span class="ytm-playlist-item-name">すべての保存楽曲</span>
         <span class="ytm-playlist-item-sub">自動再生リスト</span>
     `;
     quickNew.onclick = () => {
-        goToShareLibrary();
-        filterShareLibrary('all');
+        openManagerSavedTracks();
     };
     nav.appendChild(quickNew);
 
