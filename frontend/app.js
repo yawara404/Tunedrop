@@ -1662,7 +1662,7 @@ export function switchView(viewName) {
         loadRadarSavedTracks();
     }
     else if (viewName === 'share') {
-        try { updateShareSidebarActive('home'); } catch (_) {}
+        goToShareHome();
         loadSharePlaylists();
     }
     else if (viewName === 'profile') loadProfile();
@@ -8232,6 +8232,11 @@ export function goToShareHome() {
     }
     const cat = document.getElementById('share-category');
     if (cat) cat.value = '';
+
+    try { renderShareSidebarPlaylists(); } catch (_) {}
+    try { renderYTMReplayShelf(); } catch (_) {}
+    try { renderYTMWeekend(); } catch (_) {}
+    try { renderShareMixes(); } catch (_) {}
     renderSharePlaylists();
     const mainArea = document.querySelector('.ytm-main-area');
     if (mainArea) mainArea.scrollTo({ top: 0, behavior: 'smooth' });
@@ -8251,6 +8256,11 @@ export function goToShareExplore() {
 
     const chips = document.getElementById('share-mood-chips');
     if (chips) chips.style.display = '';
+
+    try { renderShareSidebarPlaylists(); } catch (_) {}
+    try { renderYTMReplayShelf(); } catch (_) {}
+    try { renderYTMWeekend(); } catch (_) {}
+    try { renderShareMixes(); } catch (_) {}
 
     const weekendSec = document.getElementById('ytm-weekend-section');
     if (weekendSec) {
@@ -8666,6 +8676,41 @@ export function playAllReplayTracks() {
     showToast(`「もう一度聴く」の再生を開始しました（${queue.length}曲）`);
 }
 
+export function playReplayTrack(idx) {
+    const items = [...YTM_REPLAY_PICKS];
+    if (allBookmarks && allBookmarks.length) {
+        const seen = new Set(items.map(it => it.youtube_id).filter(Boolean));
+        allBookmarks.filter(b => b.is_favorite == 1).forEach((b, i) => {
+            if (items.length < 10 && b.youtube_id && !seen.has(b.youtube_id)) {
+                seen.add(b.youtube_id);
+                items.push({
+                    id: `user-fav-${i}`,
+                    youtube_id: b.youtube_id,
+                    title: b.title || 'Untitled',
+                    artist: `曲 • ${b.channel || currentUser?.display_name || 'You'}`,
+                    thumbnail: `https://img.youtube.com/vi/${b.youtube_id}/mqdefault.jpg`,
+                    type: 'track'
+                });
+            }
+        });
+    }
+    const target = items[idx];
+    if (!target) return;
+    if (target.is_playlist) {
+        playUserPlaylistDirect(target.playlist_id || 206, target.title);
+        return;
+    }
+    const queue = items.filter(it => it.youtube_id).map(it => ({
+        youtube_id: it.youtube_id,
+        title: it.title,
+        channel: it.artist.replace(/^(曲|アルバム)\s*•\s*/, '')
+    }));
+    const qIdx = queue.findIndex(it => it.youtube_id === target.youtube_id);
+    playTrackFromQueue(Math.max(0, qIdx), queue);
+    showToast(`「${target.title}」の再生を開始しました`);
+}
+if (typeof window !== 'undefined') window.playReplayTrack = playReplayTrack;
+
 export function renderYTMReplayShelf() {
     const container = document.getElementById('ytm-replay-shelf');
     if (!container) return;
@@ -8705,7 +8750,7 @@ export function renderYTMReplayShelf() {
         });
     }
 
-    items.forEach((item) => {
+    items.forEach((item, idx) => {
         const card = document.createElement('div');
         card.className = 'ytm-square-card';
         card.setAttribute('role', 'button');
@@ -8730,12 +8775,12 @@ export function renderYTMReplayShelf() {
 
         const centerPlayAction = item.is_playlist
             ? `playUserPlaylistDirect(${item.playlist_id || 206}, '${escapeHtml(item.title)}')`
-            : '';
+            : `playReplayTrack(${idx})`;
 
         card.innerHTML = `
             <div class="ytm-card-cover-wrap">
                 ${coverContent}
-                <div class="ytm-card-center-play"${centerPlayAction ? ` onclick="event.stopPropagation(); ${centerPlayAction}"` : ''}>
+                <div class="ytm-card-center-play" onclick="event.stopPropagation(); ${centerPlayAction}">
                     <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
                 </div>
             </div>
@@ -8749,13 +8794,7 @@ export function renderYTMReplayShelf() {
             if (item.is_playlist) {
                 openPlaylistDetail(item.playlist_id || 206, item.title, item.cover_id || 'pxbDd8GA7GA');
             } else if (item.youtube_id) {
-                const queue = items.filter(it => it.youtube_id).map(it => ({
-                    youtube_id: it.youtube_id,
-                    title: it.title,
-                    channel: it.artist.replace(/^(曲|アルバム)\s*•\s*/, '')
-                }));
-                const qIdx = queue.findIndex(it => it.youtube_id === item.youtube_id);
-                playTrackFromQueue(Math.max(0, qIdx), queue);
+                playReplayTrack(idx);
             }
         };
 
@@ -8775,6 +8814,16 @@ export function bindShareMoodChips() {
     if (!strip) return;
     strip.querySelectorAll('.ytm-chip').forEach(chip => {
         chip.onclick = () => {
+            const libSection = document.getElementById('ytm-library-section');
+            if (libSection && libSection.style.display !== 'none') {
+                libSection.style.display = 'none';
+                ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section', 'ytm-community-section'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = '';
+                });
+                updateShareSidebarActive('home');
+            }
+
             strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
             chip.classList.add('is-active');
             const target = chip.dataset.chip;
@@ -8815,6 +8864,14 @@ export function bindShareMoodChips() {
 }
 
 export async function loadSharePlaylists() {
+    // ネットワーク待機前にシェルフを即時同期レンダリング（ゼロレイテンシで表示）
+    try { bindShareMoodChips(); } catch (e) { console.warn('bindShareMoodChips error:', e); }
+    try { updateShareSidebarActive('home'); } catch (e) { console.warn('updateShareSidebarActive error:', e); }
+    try { renderShareSidebarPlaylists(); } catch (e) { console.warn('renderShareSidebarPlaylists error:', e); }
+    try { renderYTMReplayShelf(); } catch (e) { console.warn('renderYTMReplayShelf error:', e); }
+    try { renderYTMWeekend(); } catch (e) { console.warn('renderYTMWeekend error:', e); }
+    try { renderShareMixes(); } catch (e) { console.warn('renderShareMixes error:', e); }
+
     const grid = document.getElementById('share-playlists-grid');
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';

@@ -97,8 +97,8 @@
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer
         onload="if (window.isModalVisible && window.isModalVisible('login-modal')) window.initGoogleAuth()"></script>
-  <script type="module" crossorigin src="./assets/index-C4At5fVD.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DYGO3rEg.css">
+  <script type="module" crossorigin src="./assets/index-N4idAUns.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-C5jqrAbJ.css">
 </head>
 
 <body>
@@ -859,10 +859,12 @@
                 <!-- 1. 「もう一度聴く」 (Listen again / Quick replay - YTM screenshot match) -->
                 <div class="ytm-shelf-block" id="ytm-replay-section">
                     <div class="ytm-user-hero-header">
-                        <div class="ytm-user-avatar-badge" id="ytm-user-avatar">ZZZ</div>
-                        <div class="ytm-user-hero-titles">
-                            <span class="ytm-user-handle" id="ytm-user-handle">WAWA404</span>
-                            <h2 class="ytm-shelf-title">もう一度聴く</h2>
+                        <div class="ytm-user-hero-left">
+                            <div class="ytm-user-avatar-badge" id="ytm-user-avatar">ZZZ</div>
+                            <div class="ytm-user-hero-titles">
+                                <span class="ytm-user-handle" id="ytm-user-handle">WAWA404</span>
+                                <h2 class="ytm-shelf-title">もう一度聴く</h2>
+                            </div>
                         </div>
                         <div class="ytm-shelf-actions-right">
                             <button type="button" class="ytm-shelf-more-btn" id="btn-ytm-replay-all" title="全曲を連続再生">もっと見る</button>
@@ -905,9 +907,9 @@
                     <div class="ytm-cards-shelf" id="ytm-mixes-shelf"></div>
                 </div>
 
-                <!-- 4. あなたへのおすすめ & ランキング -->
-                <div id="share-recommend" class="share-recommend ytm-shelf-block" hidden></div>
-                <div id="share-ranking" class="share-ranking ytm-shelf-block" hidden></div>
+                <!-- 4. あなたへのおすすめ & ランキング (YTMシェルフ形式に統一するため非表示) -->
+                <div id="share-recommend" class="share-recommend ytm-shelf-block" style="display:none !important;" hidden></div>
+                <div id="share-ranking" class="share-ranking ytm-shelf-block" style="display:none !important;" hidden></div>
 
                 <!-- 5. みんなの公開プレイリスト (Community Playlists) -->
                 <div class="ytm-shelf-block ytm-community-section" id="ytm-community-section">
@@ -916,7 +918,7 @@
                             <h3 class="ytm-shelf-title">みんなのプレイリスト</h3>
                             <span class="share-count-badge ytm-count-badge" id="share-count-badge"></span>
                         </div>
-                        <div class="radar-map-controls ytm-filter-controls">
+                        <div class="ytm-filter-controls">
                             <div class="share-search-wrap ytm-search-wrap ytm-community-search">
                                 <span class="material-symbols-rounded ytm-search-icon">search</span>
                                 <input type="text" id="share-search" class="ctrl-search ytm-search-input" placeholder="曲名、作成者を検索..."
