@@ -839,16 +839,8 @@
 
             <!-- Main Content Area -->
             <section class="content-area share-content-area ytm-main-area">
-                <!-- Top Bar & Search -->
+                <!-- Top Bar & Mood Chips -->
                 <div class="ytm-top-bar">
-                    <div class="share-search-wrap ytm-search-wrap">
-                        <span class="material-symbols-rounded ytm-search-icon">search</span>
-                        <input type="text" id="share-search" class="ctrl-search ytm-search-input" placeholder="曲、アルバム、アーティストを検索..."
-                            oninput="onShareSearchInput()" onkeydown="onShareSearchKey(event)"
-                            aria-label="曲、アルバム、アーティストを検索">
-                        <button class="share-search-clear" id="btn-share-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearShareSearch()">×</button>
-                    </div>
-
                     <!-- 気分・ジャンル タグ (YTM Filter Chips) -->
                     <div class="ytm-chips-strip" id="share-mood-chips" role="tablist" aria-label="気分・ジャンルフィルター">
                         <button type="button" class="ytm-chip is-active" data-chip="all">すべて</button>
@@ -895,6 +887,7 @@
                             <div class="ytm-weekend-actions">
                                 <button type="button" class="ytm-hero-btn ytm-btn-play" id="btn-ytm-weekend-play" title="フェス全曲を連続再生"><span class="material-symbols-rounded">play_arrow</span> 全ステージ再生</button>
                                 <button type="button" class="ytm-hero-btn ytm-btn-sub" id="btn-ytm-weekend-shuffle" title="シャッフル再生"><span class="material-symbols-rounded">shuffle</span> シャッフル</button>
+                                <button type="button" class="ytm-hero-btn ytm-btn-sub" id="btn-ytm-weekend-open-pl" onclick="openWeekendFeaturePlaylist()" title="特集プレイリストを開く"><span class="material-symbols-rounded">queue_music</span> 特集リストを開く</button>
                                 <a href="https://music.youtube.com/search?q=YouTube+Music+Weekend" target="_blank" rel="noopener noreferrer" class="ytm-hero-btn ytm-btn-ytm" title="YouTube Music で開く">
                                     <span class="material-symbols-rounded">open_in_new</span> YouTube Music で開く
                                 </a>
@@ -946,6 +939,13 @@
                             <span class="share-count-badge ytm-count-badge" id="share-count-badge"></span>
                         </div>
                         <div class="radar-map-controls ytm-filter-controls">
+                            <div class="share-search-wrap ytm-search-wrap ytm-community-search">
+                                <span class="material-symbols-rounded ytm-search-icon">search</span>
+                                <input type="text" id="share-search" class="ctrl-search ytm-search-input" placeholder="曲名、作成者を検索..."
+                                    oninput="onShareSearchInput()" onkeydown="onShareSearchKey(event)"
+                                    aria-label="プレイリスト、作成者を検索">
+                                <button class="share-search-clear" id="btn-share-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearShareSearch()">×</button>
+                            </div>
                             <select aria-label="公開リストのカテゴリ" id="share-category" class="ctrl-select ytm-select" onchange="renderSharePlaylists()">
                                 <option value="">すべてのジャンル</option>
                                 <option value="Vocaloid">Vocaloid</option>

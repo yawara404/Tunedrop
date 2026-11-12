@@ -7706,65 +7706,66 @@ export const YTM_WEEKEND_STAGES = [
     {
         id: 'main',
         title: 'STAGE 1: メガヒット・メインステージ',
-        subtitle: 'YOASOBI、米津玄師、King Gnu、LiSA、Vaundy',
+        subtitle: 'YOASOBI、米津玄師、Vaundy、LiSA',
         badge: 'MAIN STAGE',
-        description: 'フェスを沸かせる国内最高峰のアンセム＆スタジアムライブ',
+        description: 'YouTube Music Weekend 特集！スタジアムを沸かせた熱狂のアンセム＆ライブステージ',
         coverGradient: 'linear-gradient(135deg, rgba(229, 9, 20, 0.45) 0%, rgba(32, 12, 16, 0.95) 100%)',
         accentColor: '#ff4d4d',
         tracks: [
-            { youtube_id: 'x8VYWazR5mE', title: 'YOASOBI「夜に駆ける」', channel: 'YOASOBI', category: 'J-POP' },
-            { youtube_id: 'SX_ViT4Ra7k', title: '米津玄師 - Lemon', channel: 'Kenshi Yonezu 米津玄師', category: 'J-POP' },
-            { youtube_id: 'ony539T074w', title: 'King Gnu - 白日', channel: 'King Gnu official', category: 'J-POP' },
-            { youtube_id: 'MpYy6wwqxoo', title: 'LiSA - 紅蓮華', channel: 'THE FIRST TAKE', category: 'J-POP' },
-            { youtube_id: 'cZYYwtnUarU', title: '東京真中 - レムニスケート feat. 初音ミク', channel: '東京真中', category: 'Other' },
+            { youtube_id: 'IvMFMA89Yi8', title: 'YOASOBI「アイドル」(Live from 『YOASOBI ARENA TOUR "電光石火"』)', channel: 'Ayase / YOASOBI', category: 'J-POP' },
+            { youtube_id: 'M2cckDmNLMI', title: '米津玄師 - KICK BACK', channel: 'Kenshi Yonezu 米津玄師', category: 'J-POP' },
+            { youtube_id: 'ci2lGX16f7Y', title: 'Vaundy - 怪獣の花唄 (Live)', channel: 'Vaundy', category: 'J-POP' },
+            { youtube_id: 'MpYy6wwqxoo', title: 'LiSA - 紅蓮華 / THE FIRST TAKE', channel: 'THE FIRST TAKE', category: 'J-POP' },
+            { youtube_id: 'j1hFt9WjqRE', title: 'YOASOBI「夜に駆ける」/ THE HOME TAKE', channel: 'THE FIRST TAKE', category: 'J-POP' },
         ]
     },
     {
         id: 'vocaloid_net',
         title: 'STAGE 2: インターネット・ネクスト',
-        subtitle: 'Kanaria、DECO*27、ピノキオピー、kz、higma',
+        subtitle: '初音ミク、DECO*27、ピノキオピー、まふまふ、Kanaria',
         badge: 'NET POP',
-        description: 'ボーカロイド＆ネットカルチャーの先端を走るクリエイター達',
+        description: 'YouTube Music Weekend 8.0 ヘッドライナー！初音ミク×マジカルミライ＆ネット発トップクリエイター',
         coverGradient: 'linear-gradient(135deg, rgba(0, 198, 255, 0.35) 0%, rgba(10, 24, 38, 0.95) 100%)',
         accentColor: '#00d2ff',
         tracks: [
-            { youtube_id: 'cm-l2h6GB8Q', title: '【GUMI】KING【Kanaria】', channel: 'Kanaria', category: 'Vocaloid' },
+            { youtube_id: 'b4D1zG4-Q78', title: '初音ミク「マジカルミライ 2023」 Ayase feat. 初音ミク「HERO」', channel: 'HatsuneMiku', category: 'Vocaloid' },
+            { youtube_id: 'e1xCOsgWG0M', title: 'DECO*27 - ヴァンパイア feat. 初音ミク', channel: 'DECO*27', category: 'Vocaloid' },
+            { youtube_id: 'EHBFKhLUVig', title: 'ピノキオピー - 神っぽいな', channel: 'ピノキオピー PINOCCHIOP OFFICIAL CHANNEL', category: 'Vocaloid' },
+            { youtube_id: 'eq8r1ZTma08', title: 'まふまふ - 命に嫌われている。[Cover] Live at 東京ドーム', channel: 'まふまふちゃんねる', category: 'Vocaloid' },
+            { youtube_id: 'vB8cxY3KGRY', title: 'Kanaria - 酔いどれ知らず', channel: 'Kanaria', category: 'Vocaloid' },
             { youtube_id: 'ecU_uJRzhfk', title: 'sasakure.UK x DECO*27 - 39 feat. 初音ミク', channel: 'U/M/A/A Inc.', category: 'Vocaloid' },
-            { youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'kz (livetune)', category: 'Vocaloid' },
-            { youtube_id: '86LKuj-DK04', title: 'higma - echo feat. 初音ミク', channel: 'higma', category: 'Vocaloid' },
-            { youtube_id: '_UyCmkC64zk', title: 'KAIRUI & higma - ネバーエンド', channel: 'KAIRUI', category: 'Vocaloid' },
-            { youtube_id: 'qH0_nPqcQvk', title: 'バックヤード / 初音ミク', channel: '佐藤乃子', category: 'Vocaloid' },
         ]
     },
     {
         id: 'midnight_chill',
         title: 'STAGE 3: ミッドナイト・チル＆メロウ',
-        subtitle: 'ずっと真夜中でいいのに。、笹川真生、初星学園、Lo-Fi',
+        subtitle: 'ずっと真夜中でいいのに。、Eve、キタニタツヤ、笹川真生',
         badge: 'CHILL & NIGHT',
-        description: '深夜の静寂に寄り添う、エモーショナルで心地よいグルーヴ',
+        description: 'YouTube Music Weekend 8.0 "JAPANIQUE" ステージ！深夜の静寂と心揺さぶるグルーヴ',
         coverGradient: 'linear-gradient(135deg, rgba(138, 35, 135, 0.4) 0%, rgba(28, 14, 36, 0.95) 100%)',
         accentColor: '#e94057',
         tracks: [
-            { youtube_id: 'GJI4Gv7NbmE', title: 'ずっと真夜中でいいのに。『秒針を噛む』MV', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
+            { youtube_id: '0ad7f0H5wmY', title: 'ずっと真夜中でいいのに。『秒針を噛む』(Live from ROAD GAME『テクノプア』)', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
+            { youtube_id: '1tk1pqWROys', title: 'Eve - 廻廻奇譚 (Live Film / Official MV)', channel: 'Eve', category: 'J-POP' },
+            { youtube_id: 'sY7l26F_6dM', title: 'キタニタツヤ - 青のすみか / THE FIRST TAKE', channel: 'THE FIRST TAKE', category: 'J-POP' },
+            { youtube_id: '258qUAI7rL4', title: 'ずっと真夜中でいいのに。『正しくなれない』MV', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
             { youtube_id: '4cArp-fgrOU', title: '笹川真生 - サニーサイドへようこそ', channel: '笹川真生 - Mao Sasagawa', category: 'Lo-Fi' },
-            { youtube_id: 'X1xcOhkgc4c', title: '初星学園 「ヨルニテ」Official Music Video', channel: '初星学園', category: 'Anime' },
-            { youtube_id: 'LzvR25RZUE8', title: 'ぎゅる子 - 天使だったんだよ', channel: 'ぎゅる子', category: 'Lo-Fi' },
-            { youtube_id: 'XLwmEuM0dIw', title: '初星学園 「サンフェーデッド」Official MV', channel: '初星学園', category: 'Anime' },
         ]
     },
     {
         id: 'rock_alt',
         title: 'STAGE 4: 爆音オルタナティブ・ロック',
-        subtitle: 'LiSA、King Gnu、kz (livetune)、バンドサウンド',
+        subtitle: 'Ado、King Gnu、LiSA',
         badge: 'ROCK STAGE',
-        description: '心拍数を引き上げる、疾走感あふれるハイエナジーなステージ',
+        description: 'スタジアムを圧倒するボーカルと爆音アンセム！YouTube Music Weekend 屈指のハイエナジーステージ',
         coverGradient: 'linear-gradient(135deg, rgba(241, 39, 17, 0.4) 0%, rgba(36, 16, 12, 0.95) 100%)',
         accentColor: '#f5af19',
         tracks: [
-            { youtube_id: 'MpYy6wwqxoo', title: 'LiSA - 紅蓮華', channel: 'THE FIRST TAKE', category: 'Anime' },
+            { youtube_id: 'pgXpM4l_MwI', title: 'Ado - 唱 (Live at 国立競技場 2024「心臓」)', channel: 'Ado', category: 'J-POP' },
+            { youtube_id: 'icc8LOwp_Y0', title: 'King Gnu - SPECIALZ (Dome Tour THE GREATEST UNKNOWN at TOKYO DOME)', channel: 'King Gnu official', category: 'J-POP' },
+            { youtube_id: 'Qp3b-RXtz4w', title: 'Ado - うっせぇわ (Live Special)', channel: 'Ado', category: 'J-POP' },
             { youtube_id: 'ony539T074w', title: 'King Gnu - 白日', channel: 'King Gnu official', category: 'J-POP' },
-            { youtube_id: 'bPI0_YzOiEw', title: 'i wanna be your world', channel: 'kz (livetune)', category: 'J-POP' },
-            { youtube_id: 'x8VYWazR5mE', title: 'YOASOBI「夜に駆ける」', channel: 'YOASOBI', category: 'J-POP' },
+            { youtube_id: '4Q9DWZHepAA', title: 'LiSA - 炎 / THE FIRST TAKE', channel: 'THE FIRST TAKE', category: 'Anime' },
         ]
     }
 ];
@@ -7862,12 +7863,27 @@ export function playTrackFromStage(stageIndex, trackIndex) {
 if (typeof window !== 'undefined') window.playTrackFromStage = playTrackFromStage;
 
 export function selectYTMStage(stageIndex) {
-    selectedWeekendStage = stageIndex;
+    if (selectedWeekendStage === stageIndex) {
+        selectedWeekendStage = null;
+    } else {
+        selectedWeekendStage = stageIndex;
+    }
     const cards = document.querySelectorAll('.ytm-stage-card');
-    cards.forEach((c, idx) => c.classList.toggle('selected', idx === stageIndex));
-    renderYTMStageDetail(stageIndex);
+    cards.forEach((c, idx) => c.classList.toggle('selected', idx === selectedWeekendStage));
+    renderYTMStageDetail(selectedWeekendStage);
 }
 if (typeof window !== 'undefined') window.selectYTMStage = selectYTMStage;
+
+export function openWeekendFeaturePlaylist() {
+    const pl = (sharePlaylists || []).find(p => p.name.includes('Weekend'))
+        || (allPlaylists || []).find(p => p.name.includes('Weekend'));
+    if (pl) {
+        openPlaylistDetail(pl.id, pl.name, pl.cover_id);
+    } else {
+        openPlaylistDetail(441, 'YouTube Music Weekend 8.0 特集', 'IvMFMA89Yi8');
+    }
+}
+if (typeof window !== 'undefined') window.openWeekendFeaturePlaylist = openWeekendFeaturePlaylist;
 
 export function saveTrackFromShare(youtubeId, title, channel) {
     if (!youtubeId) return;
@@ -7989,6 +8005,9 @@ export function renderYTMStageDetail(stageIndex) {
                     <a href="https://music.youtube.com/search?q=${encodeURIComponent(stage.subtitle)}" target="_blank" rel="noopener noreferrer" class="ytm-action-btn ytm-action-link" title="YouTube Music でアーティストを検索">
                         <span class="material-symbols-rounded">open_in_new</span> YouTube Music
                     </a>
+                    <button type="button" class="ytm-action-btn ytm-action-secondary" onclick="selectYTMStage(${stageIndex})" title="閉じる">
+                        <span class="material-symbols-rounded">close</span> 閉じる
+                    </button>
                 </div>
             </div>
             <div class="ytm-stage-tracklist">
@@ -9036,19 +9055,6 @@ export function renderSharePlaylists() {
     updateShareClearButton();
     const { query, category, sortMode, filtered, sorted } = getShareFiltered();
     const all = sharePlaylists || [];
-
-    // 検索語が入力されているときは上部のWeekend・Mixes・Replayを非表示にして検索結果に集中させる
-    const searching = Boolean(query);
-    const replaySec = document.getElementById('ytm-replay-section');
-    const weekendSec = document.getElementById('ytm-weekend-section');
-    const mixesSec = document.getElementById('ytm-mixes-section');
-    const stageDetail = document.getElementById('ytm-stage-detail-area');
-    const mixDetail = document.getElementById('ytm-mix-detail-area');
-    if (replaySec) replaySec.style.display = searching ? 'none' : '';
-    if (weekendSec) weekendSec.style.display = searching ? 'none' : '';
-    if (mixesSec) mixesSec.style.display = searching ? 'none' : '';
-    if (stageDetail) stageDetail.style.display = searching ? 'none' : (selectedWeekendStage !== null ? 'block' : 'none');
-    if (mixDetail && searching) mixDetail.style.display = 'none';
 
     const { sorted: popularSorted } = sharePopularRanks(all);
     renderShareRanking(popularSorted);
