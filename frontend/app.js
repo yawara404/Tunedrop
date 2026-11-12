@@ -8022,7 +8022,6 @@ export function getMixTracks(mixId) {
     }
     const history = typeof getPlaybackHistory === 'function' ? getPlaybackHistory() : [];
     history.forEach(h => pool.push(h));
-    (YTM_REPLAY_PICKS || []).forEach(p => { if (p.youtube_id) pool.push(p); });
     const seen = new Set();
     const uniquePool = pool.filter(t => {
         if (!t?.youtube_id || seen.has(t.youtube_id)) return false;
@@ -8189,59 +8188,7 @@ export function renderShareMixes() {
     });
 }
 
-export const YTM_REPLAY_PICKS = [
-    {
-        id: 'replay-1',
-        youtube_id: '4cArp-fgrOU',
-        title: 'we are friends',
-        artist: 'アルバム • mao sasagawa',
-        thumbnail: 'https://img.youtube.com/vi/4cArp-fgrOU/mqdefault.jpg',
-        type: 'track'
-    },
-    {
-        id: 'replay-2',
-        youtube_id: 'm2O_b7qS0Gg',
-        title: 'モニタリング',
-        artist: '曲 • DECO*27',
-        thumbnail: 'https://img.youtube.com/vi/m2O_b7qS0Gg/mqdefault.jpg',
-        type: 'track'
-    },
-    {
-        id: 'replay-3',
-        youtube_id: 'i1D9aU_8tFw',
-        title: 'いのちが見たい (feat. 重音テト)',
-        artist: '曲 • ぬゆり、重音テト',
-        thumbnail: 'https://img.youtube.com/vi/i1D9aU_8tFw/mqdefault.jpg',
-        type: 'track'
-    },
-    {
-        id: 'replay-4',
-        youtube_id: 'u_n-k1L_0Lg',
-        title: 'スノードロップ',
-        artist: '曲 • ちいたな、初音ミク',
-        thumbnail: 'https://img.youtube.com/vi/u_n-k1L_0Lg/mqdefault.jpg',
-        type: 'track'
-    },
-    {
-        id: 'replay-5',
-        title: 'AT358選 Ver.6.02ds',
-        artist: 'Wawa404 • 358トラック',
-        thumbnail: '',
-        is_playlist: true,
-        playlist_id: 206,
-        cover_id: 'pxbDd8GA7GA',
-        thumbs: ['4cArp-fgrOU', '_UyCmkC64zk', 'u_n-k1L_0Lg', 'bPI0_YzOiEw'],
-        type: 'playlist'
-    },
-    {
-        id: 'replay-6',
-        youtube_id: '7C6d0p7iT-Q',
-        title: '思念の揺曳する箱庭。',
-        artist: 'qlaywo • 184回視聴',
-        thumbnail: 'https://img.youtube.com/vi/7C6d0p7iT-Q/mqdefault.jpg',
-        type: 'track'
-    }
-];
+export const YTM_REPLAY_PICKS = [];
 
 export function updateShareSidebarActive(tab = 'home') {
     const homeBtn = document.getElementById('ytm-nav-home');
@@ -8719,13 +8666,19 @@ export function renderShareSidebarPlaylists() {
 
 export const PLAYBACK_HISTORY_STORAGE_KEY = 'tunedrop_playback_history';
 export const MAX_PLAYBACK_HISTORY = 30;
+export const INVALID_DUMMY_IDS = new Set(['4cArp-fgrOU', 'm2O_b7qS0Gg', 'i1D9aU_8tFw', 'u_n-k1L_0Lg', '7C6d0p7iT-Q']);
 
 export function getPlaybackHistory() {
     try {
         const raw = localStorage.getItem(PLAYBACK_HISTORY_STORAGE_KEY);
         if (!raw) return [];
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
+        if (!Array.isArray(parsed)) return [];
+        const valid = parsed.filter(item => item && item.youtube_id && !INVALID_DUMMY_IDS.has(item.youtube_id));
+        if (valid.length !== parsed.length) {
+            try { localStorage.setItem(PLAYBACK_HISTORY_STORAGE_KEY, JSON.stringify(valid)); } catch (_) {}
+        }
+        return valid;
     } catch (_) {
         return [];
     }
@@ -8795,16 +8748,22 @@ export function getReplayShelfItems() {
         });
     }
 
-    // 3. それでも少なければ YTM_REPLAY_PICKS を補完
-    YTM_REPLAY_PICKS.forEach(p => {
-        if (items.length < 10) {
-            const idKey = p.youtube_id || p.playlist_id;
-            if (idKey && !seen.has(idKey)) {
-                seen.add(idKey);
-                items.push(p);
+    // 3. それでも少なければ実在する公開曲 (shareQuickPicks) を補完
+    if (shareQuickPicks && shareQuickPicks.length) {
+        shareQuickPicks.forEach((p, idx) => {
+            if (items.length < 10 && p.youtube_id && !seen.has(p.youtube_id) && !INVALID_DUMMY_IDS.has(p.youtube_id)) {
+                seen.add(p.youtube_id);
+                items.push({
+                    id: `quick-${idx}`,
+                    youtube_id: p.youtube_id,
+                    title: p.title || 'Untitled',
+                    artist: `曲 • ${p.channel || 'Artist'}`,
+                    thumbnail: `https://img.youtube.com/vi/${p.youtube_id}/mqdefault.jpg`,
+                    type: 'track'
+                });
             }
-        }
-    });
+        });
+    }
 
     return items;
 }
