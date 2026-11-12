@@ -7981,10 +7981,17 @@ export function getMixTracks(mixId) {
     const mix = YTM_MIXES.find(m => m.id === mixId);
     if (!mix) return [];
     const pool = [...(shareQuickPicks || [])];
-    YTM_WEEKEND_STAGES.forEach(s => s.tracks.forEach(t => pool.push(t)));
+    YTM_WEEKEND_STAGES.forEach(s => {
+        if (Array.isArray(s.tracks)) {
+            s.tracks.forEach(t => pool.push(t));
+        }
+    });
     if (allBookmarks && allBookmarks.length) {
         allBookmarks.forEach(b => pool.push(b));
     }
+    const history = typeof getPlaybackHistory === 'function' ? getPlaybackHistory() : [];
+    history.forEach(h => pool.push(h));
+    (YTM_REPLAY_PICKS || []).forEach(p => { if (p.youtube_id) pool.push(p); });
     const seen = new Set();
     const uniquePool = pool.filter(t => {
         if (!t?.youtube_id || seen.has(t.youtube_id)) return false;
@@ -8219,11 +8226,16 @@ export function goToShareHome() {
     const libSection = document.getElementById('ytm-library-section');
     if (libSection) libSection.style.display = 'none';
 
-    const homeShelves = ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section', 'ytm-community-section'];
+    // ホーム画面: 「もう一度聴く」「YouTube Music Weekend 特集」「おすすめ」を表示
+    const homeShelves = ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section'];
     homeShelves.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = '';
     });
+
+    // 「みんなのプレイリスト」は「探索」専用画面で表示するためホームでは非表示
+    const communitySection = document.getElementById('ytm-community-section');
+    if (communitySection) communitySection.style.display = 'none';
 
     const chips = document.getElementById('share-mood-chips');
     if (chips) chips.style.display = '';
@@ -8233,46 +8245,51 @@ export function goToShareHome() {
         strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
         strip.querySelector('.ytm-chip[data-chip="all"]')?.classList.add('is-active');
     }
-    const searchInput = document.getElementById('share-search');
-    if (searchInput && searchInput.value) {
-        searchInput.value = '';
-        if (typeof onShareSearchInput === 'function') onShareSearchInput();
-    }
-    const cat = document.getElementById('share-category');
-    if (cat) cat.value = '';
 
     try { renderShareSidebarPlaylists(); } catch (_) {}
     try { renderYTMReplayShelf(); } catch (_) {}
     try { renderYTMWeekend(); } catch (_) {}
     try { renderShareMixes(); } catch (_) {}
-    renderSharePlaylists();
+
     const mainArea = document.querySelector('.ytm-main-area');
     if (mainArea) mainArea.scrollTo({ top: 0, behavior: 'smooth' });
 }
 if (typeof window !== 'undefined') window.goToShareHome = goToShareHome;
 
-export function goToShareExplore() {
+export function goToShareExplore(initialCategory = '') {
     updateShareSidebarActive('explore');
     const libSection = document.getElementById('ytm-library-section');
     if (libSection) libSection.style.display = 'none';
 
-    const homeShelves = ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section', 'ytm-community-section'];
+    // ホームシェルフは非表示
+    const homeShelves = ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section'];
     homeShelves.forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.style.display = '';
+        if (el) el.style.display = 'none';
     });
 
     const chips = document.getElementById('share-mood-chips');
-    if (chips) chips.style.display = '';
+    if (chips) chips.style.display = 'none';
+
+    // 「探索」専用画面: 「みんなのプレイリスト」をフル表示
+    const communitySection = document.getElementById('ytm-community-section');
+    if (communitySection) communitySection.style.display = '';
+
+    const catSelect = document.getElementById('share-category');
+    if (catSelect && initialCategory !== undefined) {
+        catSelect.value = initialCategory;
+    }
 
     try { renderShareSidebarPlaylists(); } catch (_) {}
-    try { renderYTMReplayShelf(); } catch (_) {}
-    try { renderYTMWeekend(); } catch (_) {}
-    try { renderShareMixes(); } catch (_) {}
+    try { renderSharePlaylists(); } catch (_) {}
 
-    const weekendSec = document.getElementById('ytm-weekend-section');
-    if (weekendSec) {
-        weekendSec.scrollIntoView({ behavior: 'smooth' });
+    const mainArea = document.querySelector('.ytm-main-area');
+    if (mainArea) mainArea.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // 検索入力欄にフォーカス
+    const searchInput = document.getElementById('share-search');
+    if (searchInput) {
+        setTimeout(() => searchInput.focus(), 80);
     }
 }
 if (typeof window !== 'undefined') window.goToShareExplore = goToShareExplore;
@@ -8881,20 +8898,30 @@ export function bindShareMoodChips() {
     if (!strip) return;
     strip.querySelectorAll('.ytm-chip').forEach(chip => {
         chip.onclick = () => {
+            const target = chip.dataset.chip;
+            shareMood = target;
+
+            // カテゴリチップの場合は「探索」画面へ遷移して該当カテゴリを表示
+            if (target === 'vocaloid') {
+                goToShareExplore('Vocaloid');
+                return;
+            } else if (target === 'jpop') {
+                goToShareExplore('J-POP');
+                return;
+            } else if (target === 'anime') {
+                goToShareExplore('Anime');
+                return;
+            }
+
+            // それ以外のチップ（all, weekend, replay, mixes, relax, energy）はホーム画面を表示
             const libSection = document.getElementById('ytm-library-section');
-            if (libSection && libSection.style.display !== 'none') {
-                libSection.style.display = 'none';
-                ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section', 'ytm-community-section'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.style.display = '';
-                });
-                updateShareSidebarActive('home');
+            const commSection = document.getElementById('ytm-community-section');
+            if ((libSection && libSection.style.display !== 'none') || (commSection && commSection.style.display !== 'none')) {
+                goToShareHome();
             }
 
             strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
             chip.classList.add('is-active');
-            const target = chip.dataset.chip;
-            shareMood = target;
 
             if (target === 'weekend') {
                 document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
@@ -8908,22 +8935,7 @@ export function bindShareMoodChips() {
             } else if (target === 'energy') {
                 selectYTMMix('energy');
                 document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
-            } else if (target === 'vocaloid') {
-                selectYTMStage(1);
-                const cat = document.getElementById('share-category');
-                if (cat) { cat.value = 'Vocaloid'; renderSharePlaylists(); }
-                document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
-            } else if (target === 'jpop') {
-                selectYTMStage(0);
-                const cat = document.getElementById('share-category');
-                if (cat) { cat.value = 'J-POP'; renderSharePlaylists(); }
-                document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
-            } else if (target === 'anime') {
-                selectYTMStage(3);
-                document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
             } else {
-                const cat = document.getElementById('share-category');
-                if (cat) { cat.value = ''; renderSharePlaylists(); }
                 document.querySelector('.ytm-main-area')?.scrollTo({ top: 0, behavior: 'smooth' });
             }
         };

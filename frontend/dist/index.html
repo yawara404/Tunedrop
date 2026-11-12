@@ -97,7 +97,7 @@
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer
         onload="if (window.isModalVisible && window.isModalVisible('login-modal')) window.initGoogleAuth()"></script>
-  <script type="module" crossorigin src="./assets/index-B7PdslEt.js"></script>
+  <script type="module" crossorigin src="./assets/index-BwehE2EY.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-B5uuf572.css">
 </head>
 
@@ -911,11 +911,14 @@
                 <div id="share-recommend" class="share-recommend ytm-shelf-block" style="display:none !important;" hidden></div>
                 <div id="share-ranking" class="share-ranking ytm-shelf-block" style="display:none !important;" hidden></div>
 
-                <!-- 5. みんなの公開プレイリスト (Community Playlists) -->
-                <div class="ytm-shelf-block ytm-community-section" id="ytm-community-section">
+                <!-- 5. 探索 / みんなの公開プレイリスト (Community Playlists - Explore View) -->
+                <div class="ytm-shelf-block ytm-community-section" id="ytm-community-section" style="display:none;">
                     <div class="ytm-community-head">
                         <div class="ytm-community-title-area">
-                            <h3 class="ytm-shelf-title">みんなのプレイリスト</h3>
+                            <div>
+                                <h3 class="ytm-shelf-title">探索</h3>
+                                <span class="ytm-shelf-sub" style="font-size:12px; color:var(--text-sub);">みんなの公開プレイリスト</span>
+                            </div>
                             <span class="share-count-badge ytm-count-badge" id="share-count-badge"></span>
                         </div>
                         <div class="ytm-filter-controls">
