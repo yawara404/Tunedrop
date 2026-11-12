@@ -7704,7 +7704,7 @@ export function playRadarRandomThree() {
 
 // ==========================================================
 // Share: YouTube Music 風 エクスプローラー
-// (YouTube Music Weekend 特集, ミックスリスト, クイック ピック, 公開リスト)
+// (YouTube Music Weekend 特集, おすすめ, クイック ピック, 公開リスト)
 // ==========================================================
 
 export function scrollShelf(shelfId, direction) {
