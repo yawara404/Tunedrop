@@ -50,3 +50,7 @@ backups/
 
 # メンテナンスモードのフラグ (backend/maintenance.sh が作成)
 maintenance.flag
+# 動画・画像の制作素材 (HL2026 提出動画や ProtoPedia 用素材。GitHub へは載せない)
+/media/
+# プロセスIDファイル
+*.pid
