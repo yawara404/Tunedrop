@@ -11174,6 +11174,31 @@ button:disabled { cursor: not-allowed; }
     margin-bottom: 24px;
 }
 
+.ytm-library-section-title {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 4px 10px 4px;
+    margin-top: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ytm-library-section-title h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ytm-library-section-title .ytm-shelf-sub {
+    font-size: 13px;
+    color: var(--text-sub);
+}
+
 /* Selected State for Stage & Mix Cards */
 .ytm-stage-card.selected {
     border-color: var(--accent-color) !important;

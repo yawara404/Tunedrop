@@ -804,15 +804,24 @@ try {
             // 全ユーザー共通の固定タブ (未整理 / 公開用お気に入り) を必ず用意する
             ensure_system_playlists($db, $user_id);
             $stmt = $db->prepare("SELECT p.*,
+                    COALESCE(u.display_name, u.username) AS author,
+                    COALESCE(u.display_name, u.username) AS author_name,
                     (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
                     ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
-                     + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
-                FROM playlists p WHERE p.user_id = ? OR (p.system_key IS NULL AND p.is_public=1 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id))
+                     + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count,
+                    CASE
+                        WHEN p.user_id = ? THEN p.is_favorite
+                        ELSE (CASE WHEN EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id) THEN 1 ELSE 0 END)
+                    END AS is_favorite,
+                    CASE WHEN p.user_id = ? THEN 1 ELSE 0 END AS is_own
+                FROM playlists p
+                LEFT JOIN users u ON u.id = p.user_id
+                WHERE p.user_id = ? OR (p.system_key IS NULL AND p.is_public=1 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id))
                 -- 固定タブ (未整理 / 公開用お気に入り) を必ず先頭2件にし、その後にユーザー作成リストを並べる。
                 -- sort_order だけで並べると、ユーザーリストの 0,1,2... と固定タブの 0,1 が衝突して
                 -- 固定タブが1・2番目から外れる (画面上でリストが入れ替わって見える)。
                 ORDER BY (p.system_key IS NULL) ASC, p.sort_order ASC, p.id ASC");
-            $stmt->execute([$user_id, $user_id]);
+            $stmt->execute([$user_id, $user_id, $user_id, $user_id, $user_id]);
             $playlists = with_default_playlist_covers($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
             // 固定タブ (未整理 / 公開用お気に入り) にはフロント制御用のフラグを付ける
             foreach ($playlists as &$playlist) {
@@ -1527,19 +1536,26 @@ try {
 
         case 'get_public_playlists':
             // 固定タブ (未整理 / 公開用お気に入り) は各ユーザー専用のタブなので、
-            // ユーザーが作成した公開リストだけを共有一覧に出す (同名タブの重複表示を防ぐ)。
+            // ユーザーが作成した公開リストだけを共共有覧に出す (同名タブの重複表示を防ぐ)。
             // favorite_count = みんなのお気に入り数 (public_favorites) + 作成者自身の★。
             // Share画面の人気ランキング・お気に入りバッジ表示用。
-            $stmt = $db->query(
+            $viewer_id = (int)(current_user_id() ?? 0);
+            $stmt = $db->prepare(
                 "SELECT p.*, COALESCE(u.display_name, u.username) AS author, COALESCE(u.display_name, u.username) AS author_name,
                         (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
                         ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
-                         + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
+                         + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count,
+                        CASE
+                            WHEN ? > 0 AND p.user_id = ? THEN p.is_favorite
+                            WHEN ? > 0 AND EXISTS(SELECT 1 FROM public_favorites f WHERE f.user_id=? AND f.kind='playlist' AND f.target_id=p.id) THEN 1
+                            ELSE 0
+                        END AS is_favorite
                  FROM playlists p
                  JOIN users u ON u.id = p.user_id
                  WHERE p.is_public = 1 AND p.system_key IS NULL
                  ORDER BY p.created_at DESC, p.id DESC"
             );
+            $stmt->execute([$viewer_id, $viewer_id, $viewer_id, $viewer_id]);
             $playlists = with_default_playlist_covers($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
             echo json_encode($playlists, JSON_UNESCAPED_UNICODE);
             break;
