@@ -11077,6 +11077,26 @@ button:disabled { cursor: not-allowed; }
     color: var(--accent-color);
 }
 
+/* YTM Library Section (Inside Share) */
+.ytm-library-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.ytm-lib-create-btn {
+    width: auto !important;
+    margin: 0 !important;
+    padding: 8px 18px !important;
+}
+
+.ytm-library-chips {
+    margin-bottom: 24px;
+}
+
 @media (max-width: 900px) {
     .ytm-sidebar {
         display: none;

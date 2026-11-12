@@ -8002,13 +8002,27 @@ export const YTM_REPLAY_PICKS = [
 export function updateShareSidebarActive(tab = 'home') {
     const homeBtn = document.getElementById('ytm-nav-home');
     const exploreBtn = document.getElementById('ytm-nav-explore');
+    const libBtn = document.getElementById('ytm-nav-library');
     if (homeBtn) homeBtn.classList.toggle('active', tab === 'home');
     if (exploreBtn) exploreBtn.classList.toggle('active', tab === 'explore');
+    if (libBtn) libBtn.classList.toggle('active', tab === 'library');
 }
 if (typeof window !== 'undefined') window.updateShareSidebarActive = updateShareSidebarActive;
 
 export function goToShareHome() {
     updateShareSidebarActive('home');
+    const libSection = document.getElementById('ytm-library-section');
+    if (libSection) libSection.style.display = 'none';
+
+    const homeShelves = ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section', 'ytm-community-section'];
+    homeShelves.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+    });
+
+    const chips = document.getElementById('share-mood-chips');
+    if (chips) chips.style.display = '';
+
     const strip = document.getElementById('share-mood-chips');
     if (strip) {
         strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
@@ -8029,12 +8043,239 @@ if (typeof window !== 'undefined') window.goToShareHome = goToShareHome;
 
 export function goToShareExplore() {
     updateShareSidebarActive('explore');
+    const libSection = document.getElementById('ytm-library-section');
+    if (libSection) libSection.style.display = 'none';
+
+    const homeShelves = ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section', 'ytm-community-section'];
+    homeShelves.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+    });
+
+    const chips = document.getElementById('share-mood-chips');
+    if (chips) chips.style.display = '';
+
     const weekendSec = document.getElementById('ytm-weekend-section');
     if (weekendSec) {
         weekendSec.scrollIntoView({ behavior: 'smooth' });
     }
 }
 if (typeof window !== 'undefined') window.goToShareExplore = goToShareExplore;
+
+export function goToShareLibrary() {
+    updateShareSidebarActive('library');
+    const homeShelves = ['ytm-replay-section', 'ytm-weekend-section', 'ytm-mixes-section', 'ytm-community-section'];
+    homeShelves.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    const chips = document.getElementById('share-mood-chips');
+    if (chips) chips.style.display = 'none';
+
+    const libSection = document.getElementById('ytm-library-section');
+    if (libSection) libSection.style.display = '';
+
+    renderShareLibrary('all');
+    const mainArea = document.querySelector('.ytm-main-area');
+    if (mainArea) mainArea.scrollTo({ top: 0, behavior: 'smooth' });
+}
+if (typeof window !== 'undefined') window.goToShareLibrary = goToShareLibrary;
+
+export function filterShareLibrary(tab = 'all') {
+    const strip = document.getElementById('ytm-library-chips');
+    if (strip) {
+        strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
+        strip.querySelector(`.ytm-chip[data-lib-tab="${tab}"]`)?.classList.add('is-active');
+    }
+    renderShareLibrary(tab);
+}
+if (typeof window !== 'undefined') window.filterShareLibrary = filterShareLibrary;
+
+export async function playUserPlaylistDirect(playlistId, playlistName) {
+    try {
+        const res = await tunedropFetch(`api.php?action=get_playlist_tracks&playlist_id=${playlistId}`);
+        if (!res.ok) throw new Error('楽曲を取得できませんでした');
+        const tracks = await res.json();
+        if (!Array.isArray(tracks) || !tracks.length) {
+            showToast('このプレイリストには曲がありません', 'info');
+            return;
+        }
+        playTrackFromQueue(0, tracks);
+        showToast(`「${playlistName || 'プレイリスト'}」の再生を開始しました（${tracks.length}曲）`);
+    } catch (_) {
+        showToast('再生を開始できませんでした', 'error');
+    }
+}
+if (typeof window !== 'undefined') window.playUserPlaylistDirect = playUserPlaylistDirect;
+
+export function playAllLikedTracks() {
+    const liked = (allBookmarks || []).filter(b => b.is_favorite == 1);
+    if (!liked.length) {
+        showToast('高評価した音楽がまだありません', 'info');
+        return;
+    }
+    playTrackFromQueue(0, liked);
+    showToast(`「高く評価した音楽」の再生を開始しました（${liked.length}曲）`);
+}
+if (typeof window !== 'undefined') window.playAllLikedTracks = playAllLikedTracks;
+
+export function playAllSavedTracks() {
+    const list = (allBookmarks || []);
+    if (!list.length) {
+        showToast('保存した楽曲がまだありません', 'info');
+        return;
+    }
+    playTrackFromQueue(0, list);
+    showToast(`「すべての保存楽曲」の再生を開始しました（${list.length}曲）`);
+}
+if (typeof window !== 'undefined') window.playAllSavedTracks = playAllSavedTracks;
+
+export function renderShareLibrary(filter = 'all') {
+    const grid = document.getElementById('ytm-library-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    const subEl = document.getElementById('ytm-library-sub');
+    const userLists = (allPlaylists || []).filter(l => !isSystemPlaylist(l));
+    const likedTracks = (allBookmarks || []).filter(b => b.is_favorite == 1);
+    const totalTracks = (allBookmarks || []).length;
+
+    if (subEl) {
+        subEl.textContent = `${currentUser?.display_name || 'あなた'}のライブラリ • ${userLists.length}プレイリスト • ${totalTracks}曲保存`;
+    }
+
+    // 1. 高く評価した音楽カード
+    if (filter === 'all' || filter === 'playlists' || filter === 'liked') {
+        const likedCard = document.createElement('div');
+        likedCard.className = 'ytm-square-card';
+        likedCard.setAttribute('role', 'button');
+        likedCard.setAttribute('tabindex', '0');
+        likedCard.title = '高く評価した音楽 を再生';
+        likedCard.innerHTML = `
+            <div class="ytm-card-cover-wrap" style="background: linear-gradient(135deg, rgba(212, 225, 87, 0.25) 0%, rgba(30, 32, 22, 0.95) 100%); display:flex; align-items:center; justify-content:center;">
+                <span class="material-symbols-rounded" style="font-size: 52px; color: var(--accent-color);">favorite</span>
+                <div class="ytm-card-center-play">
+                    <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                </div>
+            </div>
+            <div class="ytm-card-text">
+                <h4 class="ytm-card-title">高く評価した音楽</h4>
+                <div class="ytm-card-artist">自動再生リスト • ${likedTracks.length}曲</div>
+            </div>
+        `;
+        likedCard.onclick = () => playAllLikedTracks();
+        likedCard.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playAllLikedTracks(); } };
+        grid.appendChild(likedCard);
+    }
+
+    // 2. すべての保存楽曲カード
+    if (filter === 'all' || filter === 'playlists') {
+        const allCard = document.createElement('div');
+        allCard.className = 'ytm-square-card';
+        allCard.setAttribute('role', 'button');
+        allCard.setAttribute('tabindex', '0');
+        allCard.title = 'すべての保存楽曲 を再生';
+        allCard.innerHTML = `
+            <div class="ytm-card-cover-wrap" style="background: linear-gradient(135deg, rgba(90, 80, 140, 0.35) 0%, rgba(20, 18, 30, 0.95) 100%); display:flex; align-items:center; justify-content:center;">
+                <span class="material-symbols-rounded" style="font-size: 52px; color: var(--text-main);">library_music</span>
+                <div class="ytm-card-center-play">
+                    <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                </div>
+            </div>
+            <div class="ytm-card-text">
+                <h4 class="ytm-card-title">すべての保存楽曲</h4>
+                <div class="ytm-card-artist">自動再生リスト • ${totalTracks}曲</div>
+            </div>
+        `;
+        allCard.onclick = () => playAllSavedTracks();
+        allCard.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playAllSavedTracks(); } };
+        grid.appendChild(allCard);
+    }
+
+    // 3. ユーザーのプレイリスト
+    let targetLists = userLists;
+    if (filter === 'public') {
+        targetLists = userLists.filter(l => l.is_public == 1);
+    } else if (filter === 'liked') {
+        targetLists = [];
+    }
+
+    targetLists.forEach(pl => {
+        const card = document.createElement('div');
+        card.className = 'ytm-square-card';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.title = `${pl.name} を開く`;
+
+        let coverHtml = '';
+        if (pl.cover_id) {
+            coverHtml = `<img src="https://img.youtube.com/vi/${pl.cover_id}/mqdefault.jpg" alt="" loading="lazy">`;
+        } else {
+            coverHtml = `
+                <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background: #1a1a1f;">
+                    <span class="material-symbols-rounded" style="font-size:48px; color: #555;">music_note</span>
+                </div>
+            `;
+        }
+
+        const publicBadge = pl.is_public == 1 ? ' • 公開中' : '';
+        card.innerHTML = `
+            <div class="ytm-card-cover-wrap">
+                ${coverHtml}
+                <div class="ytm-card-center-play" onclick="event.stopPropagation(); playUserPlaylistDirect(${pl.id}, '${escapeHtml(pl.name)}')">
+                    <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                </div>
+            </div>
+            <div class="ytm-card-text">
+                <h4 class="ytm-card-title">${escapeHtml(pl.name)}</h4>
+                <div class="ytm-card-artist">${escapeHtml(currentUser?.display_name || '自分')} • ${pl.track_count ?? 0}曲${publicBadge}</div>
+            </div>
+        `;
+        card.onclick = () => {
+            openPlaylistDetail(pl.id, pl.name, pl.cover_id);
+        };
+        card.onkeydown = (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openPlaylistDetail(pl.id, pl.name, pl.cover_id);
+            }
+        };
+        grid.appendChild(card);
+    });
+
+    // 高評価楽曲一覧（'liked' タブ選択時）
+    if (filter === 'liked' && likedTracks.length > 0) {
+        likedTracks.forEach((track, idx) => {
+            const card = document.createElement('div');
+            card.className = 'ytm-square-card';
+            card.setAttribute('role', 'button');
+            card.setAttribute('tabindex', '0');
+            card.title = `${track.title} を再生`;
+            card.innerHTML = `
+                <div class="ytm-card-cover-wrap">
+                    <img src="https://img.youtube.com/vi/${track.youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                    <div class="ytm-card-center-play">
+                        <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                    </div>
+                </div>
+                <div class="ytm-card-text">
+                    <h4 class="ytm-card-title">${escapeHtml(track.title || '')}</h4>
+                    <div class="ytm-card-artist">${escapeHtml(track.channel || 'Artist')}</div>
+                </div>
+            `;
+            card.onclick = () => {
+                playTrackFromQueue(idx, likedTracks);
+            };
+            grid.appendChild(card);
+        });
+    }
+
+    if (grid.children.length === 0) {
+        grid.innerHTML = '<div class="share-empty-state" style="grid-column: 1 / -1; padding: 48px; text-align: center; color: var(--text-sub);">該当するプレイリストや楽曲がありません。<br><button type="button" class="add-btn ytm-add-btn" style="width:auto; margin: 16px auto 0;" onclick="openCreatePlaylistModal()">+ 新しい再生リストを作成</button></div>';
+    }
+}
+if (typeof window !== 'undefined') window.renderShareLibrary = renderShareLibrary;
 
 export function renderShareSidebarPlaylists() {
     const nav = document.getElementById('share-playlist-nav');
@@ -8049,8 +8290,8 @@ export function renderShareSidebarPlaylists() {
         <span class="ytm-playlist-item-sub">自動再生リスト</span>
     `;
     quickFav.onclick = () => {
-        selectPlaylist('fav_tracks');
-        navigateView('manager');
+        goToShareLibrary();
+        filterShareLibrary('liked');
     };
     nav.appendChild(quickFav);
 
@@ -8061,8 +8302,8 @@ export function renderShareSidebarPlaylists() {
         <span class="ytm-playlist-item-sub">自動再生リスト</span>
     `;
     quickNew.onclick = () => {
-        selectPlaylist(null);
-        navigateView('manager');
+        goToShareLibrary();
+        filterShareLibrary('all');
     };
     nav.appendChild(quickNew);
 
@@ -8100,7 +8341,7 @@ export function renderShareSidebarPlaylists() {
                 <span class="ytm-playlist-item-sub">${escapeHtml(item.sub)}</span>
             `;
             li.onclick = () => {
-                navigateView('manager');
+                goToShareLibrary();
             };
             nav.appendChild(li);
         });

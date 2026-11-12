@@ -822,7 +822,7 @@
                 <ul class="ytm-side-nav">
                     <li onclick="goToShareHome()" class="ytm-side-item active" id="ytm-nav-home" title="ホーム"><span class="material-symbols-rounded">home</span>ホーム</li>
                     <li onclick="goToShareExplore()" class="ytm-side-item" id="ytm-nav-explore" title="探索"><span class="material-symbols-rounded">explore</span>探索</li>
-                    <li onclick="navigateView('manager')" class="ytm-side-item" title="ライブラリ"><span class="material-symbols-rounded">library_music</span>ライブラリ</li>
+                    <li onclick="goToShareLibrary()" class="ytm-side-item" id="ytm-nav-library" title="ライブラリ"><span class="material-symbols-rounded">library_music</span>ライブラリ</li>
                 </ul>
 
                 <button type="button" class="add-btn ytm-add-btn" onclick="openCreatePlaylistModal()">
@@ -962,6 +962,28 @@
                         <h3 class="share-grid-title" id="share-grid-title">すべて</h3>
                     </div>
                     <div class="grid-container share-grid ytm-grid" id="share-playlists-grid"></div>
+                </div>
+
+                <!-- 6. ライブラリ (Library inside Share) -->
+                <div class="ytm-shelf-block ytm-library-section" id="ytm-library-section" style="display:none;">
+                    <div class="ytm-library-head">
+                        <div class="ytm-library-title-area">
+                            <h2 class="ytm-shelf-title">ライブラリ</h2>
+                            <span class="ytm-shelf-sub" id="ytm-library-sub">プレイリストと保存した楽曲</span>
+                        </div>
+                        <button type="button" class="add-btn ytm-add-btn ytm-lib-create-btn" onclick="openCreatePlaylistModal()">
+                            <span class="material-symbols-rounded">add</span> 新しい再生リスト
+                        </button>
+                    </div>
+
+                    <div class="ytm-chips-strip ytm-library-chips" id="ytm-library-chips">
+                        <button type="button" class="ytm-chip is-active" data-lib-tab="all" onclick="filterShareLibrary('all')">すべて</button>
+                        <button type="button" class="ytm-chip" data-lib-tab="playlists" onclick="filterShareLibrary('playlists')">再生リスト</button>
+                        <button type="button" class="ytm-chip" data-lib-tab="liked" onclick="filterShareLibrary('liked')">高評価した音楽</button>
+                        <button type="button" class="ytm-chip" data-lib-tab="public" onclick="filterShareLibrary('public')">公開中</button>
+                    </div>
+
+                    <div class="grid-container share-grid ytm-grid" id="ytm-library-grid"></div>
                 </div>
             </section>
         </div>
