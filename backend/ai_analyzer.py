@@ -37,16 +37,18 @@ load_environment()
 # APIキーは環境変数から取得。Python起動時に非公開の .env を読み込みます。
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
-# Gemini API (Legacy generateContent) REST エンドポイント
-#   https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent
+# Gemini API (generateContent) REST エンドポイント
+#   https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-# モデルは上から順に試す。旧モデル (gemini-2.0-flash / gemini-1.5-flash / gemini-2.5-flash) は廃止済み。
+# Antigravity標準の最新Geminiモデル群 (上から順に試行)。
+# 既定最優先は gemini-3.8-flash。高速・軽量フォールバックに gemini-4-argon / gemini-3.5-flash-lite / gemini-3.1-flash-lite。
+# 旧モデル (gemini-2.0-flash / gemini-1.5-flash / gemini-2.5-flash / gemini-3.6-flash) は廃止または非推奨。
 GEMINI_MODELS = [m for m in [
     os.environ.get("GEMINI_MODEL", ""),
-    "gemini-flash-latest",
     "gemini-3.8-flash",
-    "gemini-3.6-flash",
-    "gemini-flash-lite-latest",
+    "gemini-4-argon",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
 ] if m]
 # 出力トークン上限。思考トークン込みで消費されるため 256 では JSON が返らない。
 GEMINI_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_TOKENS", "1024") or "1024")
@@ -630,10 +632,19 @@ def _call_llm_genre(title, channel, engine):
     if engine == "gemini":
         last_err = ""
         for model in GEMINI_MODELS:
-            try:
-                return _extract_json(_gemini_generate(prompt, model, False))
-            except Exception as exc:
-                last_err = f"{model}: {str(exc)[:120]}"
+            for with_thinking in (True, False):
+                if not with_thinking and GEMINI_THINKING_BUDGET < 0:
+                    continue
+                try:
+                    return _extract_json(_gemini_generate(prompt, model, with_thinking))
+                except urllib.error.HTTPError as e:
+                    if e.code in (400, 404) and with_thinking:
+                        continue
+                    last_err = f"{model}: HTTP {e.code}"
+                    break
+                except Exception as exc:
+                    last_err = f"{model}: {str(exc)[:120]}"
+                    break
         raise RuntimeError("Gemini genre call failed: " + last_err)
 
     return _ollama_json_call(prompt, temperature=0.1, num_predict=96)
@@ -659,10 +670,19 @@ def _call_llm_bpm(title, channel, engine):
     if engine == "gemini":
         last_err = ""
         for model in GEMINI_MODELS:
-            try:
-                return _extract_json(_gemini_generate(prompt, model, False))
-            except Exception as exc:
-                last_err = f"{model}: {str(exc)[:120]}"
+            for with_thinking in (True, False):
+                if not with_thinking and GEMINI_THINKING_BUDGET < 0:
+                    continue
+                try:
+                    return _extract_json(_gemini_generate(prompt, model, with_thinking))
+                except urllib.error.HTTPError as e:
+                    if e.code in (400, 404) and with_thinking:
+                        continue
+                    last_err = f"{model}: HTTP {e.code}"
+                    break
+                except Exception as exc:
+                    last_err = f"{model}: {str(exc)[:120]}"
+                    break
         raise RuntimeError("Gemini BPM call failed: " + last_err)
     return _ollama_json_call(prompt, temperature=0.1, num_predict=48)
 
