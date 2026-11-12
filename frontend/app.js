@@ -7704,82 +7704,54 @@ if (typeof window !== 'undefined') window.scrollShelf = scrollShelf;
 
 export const YTM_WEEKEND_STAGES = [
     {
+        id: 445,
+        badge: 'OFFICIAL · 100曲',
+        title: 'YouTube Music Weekend 12.0 公式',
+        subtitle: 'YouTube公式プレイリスト全100曲',
+        playlistId: 445,
+        cover_id: 'mYJshNOfv_w',
+        trackCount: 100,
+        thumbs: ['mYJshNOfv_w', 'NWEFuDQCccA', 'vrnKlp_epOQ', 'oKzabm8TNWE']
+    },
+    {
         id: 442,
-        badge: 'DAY 1 · DECO*27',
-        title: 'Day 1: ボカロ＆ネットカルチャー',
-        subtitle: 'PLAVE、DECO*27、いよわ、花譜、柊マグネタイト、すりぃ',
+        badge: 'HEADLINERS',
+        title: 'YTM 12.0: ヘッドライナーズ',
+        subtitle: 'Ado、ピノキオピー、いよわ、Reol、Kizuna AI',
         playlistId: 442,
-        cover_id: 'm2O_b7qS0Gg',
-        trackCount: 6,
-        thumbs: ['m2O_b7qS0Gg', '2b1IexhKPz4', '243pG7v8Q4w', 'c3t_465i74I'],
-        tracks: [
-            { youtube_id: 'm2O_b7qS0Gg', title: 'DECO*27 - モニタリング', channel: 'DECO*27', category: 'Vocaloid' },
-            { youtube_id: '2b1IexhKPz4', title: 'いよわ - きゅうくらりん feat.可不', channel: 'いよわ/iyowa', category: 'Vocaloid' },
-            { youtube_id: '243pG7v8Q4w', title: '柊マグネタイト - マーシャル・マキシマイザー', channel: '柊マグネタイト', category: 'Vocaloid' },
-            { youtube_id: 'i-DZukWFR64', title: 'すりぃ - テレキャスタービーボーイ', channel: 'すりぃ', category: 'Vocaloid' },
-            { youtube_id: 'c3t_465i74I', title: '花譜 - 過去を喰らう', channel: '花譜 -KAF-', category: 'J-POP' },
-            { youtube_id: 'e1xCOsgWG0M', title: 'DECO*27 - ヴァンパイア feat. 初音ミク', channel: 'DECO*27', category: 'Vocaloid' },
-        ]
+        cover_id: 'mYJshNOfv_w',
+        trackCount: 8,
+        thumbs: ['mYJshNOfv_w', 'NWEFuDQCccA', 'vrnKlp_epOQ', 'qa43WMCgRi8']
     },
     {
         id: 443,
-        badge: 'DAY 2 · Ado / ポケモンミク',
-        title: 'Day 2: ポケモン×ミク & Ado',
-        subtitle: 'ポケモン feat. 初音ミク、Ado、ずっと真夜中でいいのに。、Aiobahn',
+        badge: 'VOCALOID & NET',
+        title: 'YTM 12.0: ボカロ & ネット発',
+        subtitle: 'はるまきごはん、higma、なみぐる、椎乃味醂、椎名もた',
         playlistId: 443,
-        cover_id: 'C-7TIDIKB2M',
-        trackCount: 7,
-        thumbs: ['C-7TIDIKB2M', 'pgXpM4l_MwI', '0ad7f0H5wmY', 'vQ_NFqtGDgo'],
-        tracks: [
-            { youtube_id: 'C-7TIDIKB2M', title: 'DECO*27 - ボルテッカー feat. 初音ミク (Project VOLTAGE)', channel: 'DECO*27', category: 'Vocaloid' },
-            { youtube_id: 'pgXpM4l_MwI', title: 'Ado - 唱 (Live at 国立競技場 2024「心臓」)', channel: 'Ado', category: 'J-POP' },
-            { youtube_id: '0ad7f0H5wmY', title: 'ずっと真夜中でいいのに。『秒針を噛む』(Live from テクノプア)', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
-            { youtube_id: 'vQ_NFqtGDgo', title: 'Aiobahn & TAK feat. 初音ミク - DIVA', channel: 'Aiobahn', category: 'Vocaloid' },
-            { youtube_id: 'T0k5_4h8QZs', title: 'Mitchie M - ミライどんなだろう (Project VOLTAGE)', channel: 'Mitchie M', category: 'Vocaloid' },
-            { youtube_id: '4bpcpeq3k8E', title: 'Reol - 第六感', channel: 'Reol Official', category: 'J-POP' },
-            { youtube_id: 'Y4nEQlwt618', title: 'Ado - クラクラ (TVアニメ『SPY×FAMILY』OP)', channel: 'Ado', category: 'Anime' },
-        ]
+        cover_id: 'ymFPJfMCAKQ',
+        trackCount: 8,
+        thumbs: ['ymFPJfMCAKQ', 'fiC_MdCm_qA', 'kLstaqZomS4', 'XvEmdB9L5lk']
     },
     {
         id: 444,
-        badge: 'DAY 3 · BLEACH / レジェンド',
-        title: 'Day 3: BLEACH & レジェンド',
-        subtitle: 'BLEACH×jo0ji×9Lana、細野晴臣、キタニタツヤ、tuki.、Eve',
+        badge: 'VIRTUAL LIVE',
+        title: 'YTM 12.0: バーチャル・ライブ',
+        subtitle: 'しぐれうい、さくらみこ、ReGLOSS、長瀬有花、KMNZ',
         playlistId: 444,
-        cover_id: '5fW0bO4mSlo',
-        trackCount: 5,
-        thumbs: ['5fW0bO4mSlo', 'oxb48kR3U0M', '94lW2nKq7qE', '1tk1pqWROys'],
-        tracks: [
-            { youtube_id: '5fW0bO4mSlo', title: 'キタニタツヤ - 永遠 (TVアニメ『BLEACH 千年血戦篇』挿入歌)', channel: 'キタニタツヤ / Tatsuya Kitani', category: 'Anime' },
-            { youtube_id: 'oxb48kR3U0M', title: 'tuki. - 晩餐歌', channel: 'tuki.', category: 'J-POP' },
-            { youtube_id: '94lW2nKq7qE', title: 'SawanoHiroyuki[nZk] - Avid (TVアニメ『86―エイティシックス―』ED)', channel: 'SawanoHiroyuki[nZk]', category: 'Anime' },
-            { youtube_id: 'd9g3-nK1Y38', title: '長瀬有花 - 近くて、遠くて', channel: '長瀬有花 / YUKA NAGASE', category: 'J-POP' },
-            { youtube_id: '1tk1pqWROys', title: 'Eve - 廻廻奇譚 (Live Film / Official MV)', channel: 'Eve', category: 'Anime' },
-        ]
+        cover_id: 'hIaPsEjWuSU',
+        trackCount: 8,
+        thumbs: ['hIaPsEjWuSU', 'giIyOrQO8rc', 'KufKV-1plg4', 'WpyG4YN6En4']
     },
     {
-        id: 445,
-        badge: 'ALL-STARS',
-        title: 'YouTube Music Weekend 12.0 オールスターズ',
-        subtitle: '参加全113組から凝縮した公式ベストセレクション',
-        playlistId: 445,
-        cover_id: 'C-7TIDIKB2M',
-        trackCount: 12,
-        thumbs: ['C-7TIDIKB2M', 'pgXpM4l_MwI', 'm2O_b7qS0Gg', '0ad7f0H5wmY'],
-        tracks: [
-            { youtube_id: 'C-7TIDIKB2M', title: 'DECO*27 - ボルテッカー feat. 初音ミク (Project VOLTAGE)', channel: 'DECO*27', category: 'Vocaloid' },
-            { youtube_id: 'pgXpM4l_MwI', title: 'Ado - 唱 (Live at 国立競技場 2024「心臓」)', channel: 'Ado', category: 'J-POP' },
-            { youtube_id: 'm2O_b7qS0Gg', title: 'DECO*27 - モニタリング', channel: 'DECO*27', category: 'Vocaloid' },
-            { youtube_id: '0ad7f0H5wmY', title: 'ずっと真夜中でいいのに。『秒針を噛む』(Live from テクノプア)', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
-            { youtube_id: '2b1IexhKPz4', title: 'いよわ - きゅうくらりん feat.可不', channel: 'いよわ/iyowa', category: 'Vocaloid' },
-            { youtube_id: '243pG7v8Q4w', title: '柊マグネタイト - マーシャル・マキシマイザー', channel: '柊マグネタイト', category: 'Vocaloid' },
-            { youtube_id: 'vQ_NFqtGDgo', title: 'Aiobahn & TAK feat. 初音ミク - DIVA', channel: 'Aiobahn', category: 'Vocaloid' },
-            { youtube_id: 'oxb48kR3U0M', title: 'tuki. - 晩餐歌', channel: 'tuki.', category: 'J-POP' },
-            { youtube_id: '5fW0bO4mSlo', title: 'キタニタツヤ - 永遠 (TVアニメ『BLEACH 千年血戦篇』挿入歌)', channel: 'キタニタツヤ / Tatsuya Kitani', category: 'Anime' },
-            { youtube_id: 'c3t_465i74I', title: '花譜 - 過去を喰らう', channel: '花譜 -KAF-', category: 'J-POP' },
-            { youtube_id: 'i-DZukWFR64', title: 'すりぃ - テレキャスタービーボーイ', channel: 'すりぃ', category: 'Vocaloid' },
-            { youtube_id: '1tk1pqWROys', title: 'Eve - 廻廻奇譚 (Live Film / Official MV)', channel: 'Eve', category: 'Anime' },
-        ]
+        id: 446,
+        badge: 'CLUB & SOUND',
+        title: 'YTM 12.0: クラブ & インスト',
+        subtitle: 'かめりあ、Aiobahn、Ichika Nito、SO-SO、スクエニ',
+        playlistId: 446,
+        cover_id: 'dnCjKf0bnSI',
+        trackCount: 8,
+        thumbs: ['dnCjKf0bnSI', 'oKzabm8TNWE', 'CLqOYbLv0ok', 'IX1kzC1uf4o']
     }
 ];
 
@@ -7836,7 +7808,7 @@ export const YTM_MIXES = [
 
 export function playYTMStage(stageIndex, shuffle = false) {
     if (stageIndex === -1) {
-        playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 オールスターズ', shuffle);
+        playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 公式', shuffle);
         return;
     }
     const stage = YTM_WEEKEND_STAGES[stageIndex];
@@ -7863,7 +7835,7 @@ export function selectYTMStage(stageIndex) {
 if (typeof window !== 'undefined') window.selectYTMStage = selectYTMStage;
 
 export function openWeekendFeaturePlaylist() {
-    openPlaylistDetail(445, 'YouTube Music Weekend 12.0 オールスターズ', 'C-7TIDIKB2M');
+    openPlaylistDetail(445, 'YouTube Music Weekend 12.0 公式', 'mYJshNOfv_w');
 }
 if (typeof window !== 'undefined') window.openWeekendFeaturePlaylist = openWeekendFeaturePlaylist;
 
@@ -7979,9 +7951,9 @@ export function renderYTMWeekend() {
     });
 
     const playAllBtn = document.getElementById('btn-ytm-weekend-play');
-    if (playAllBtn) playAllBtn.onclick = () => playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 オールスターズ', false);
+    if (playAllBtn) playAllBtn.onclick = () => playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 公式', false);
     const shuffleBtn = document.getElementById('btn-ytm-weekend-shuffle');
-    if (shuffleBtn) shuffleBtn.onclick = () => playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 オールスターズ', true);
+    if (shuffleBtn) shuffleBtn.onclick = () => playUserPlaylistDirect(445, 'YouTube Music Weekend 12.0 公式', true);
 }
 
 export function getMixTracks(mixId) {
