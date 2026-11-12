@@ -428,10 +428,20 @@ function with_default_playlist_covers(PDO $db, array $playlists): array {
         "SELECT youtube_id FROM bookmarks WHERE playlist_id = ?
          ORDER BY added_at DESC, id DESC LIMIT 1"
     );
-    $viewer = require_user_or_guest($db);
+    $viewer = 0;
+    $uid = current_user_id();
+    if ($uid) {
+        $exists = $db->prepare('SELECT 1 FROM users WHERE id = ?');
+        $exists->execute([$uid]);
+        if ($exists->fetchColumn()) {
+            $viewer = (int)$uid;
+        }
+    }
     foreach ($playlists as &$playlist) {
-        if ((int)$playlist['user_id'] !== $viewer) {
+        if ($viewer > 0 && (int)$playlist['user_id'] !== $viewer) {
             $playlist['is_favorite'] = public_favorite_state($db, $viewer, 'playlist', (int)$playlist['id']);
+        } else {
+            $playlist['is_favorite'] = 0;
         }
         if (empty($playlist['cover_id']) || is_system_playlist($playlist)) {
             $latest->execute([$playlist['id']]);
@@ -1842,7 +1852,29 @@ try {
             // - 視聴者の利用が多いカテゴリ一致で加点
             // - お気に入り数は人気ブーストとして少量加点
             // - 自分の公開リスト・すでにお気に入り済みは後回し (除外はしない)
-            $viewer = require_user_or_guest($db);
+            $uid = current_user_id();
+            $viewer = 0;
+            if ($uid) {
+                $exists = $db->prepare('SELECT 1 FROM users WHERE id = ?');
+                $exists->execute([$uid]);
+                if ($exists->fetchColumn()) $viewer = (int)$uid;
+            }
+            if ($viewer <= 0) {
+                $stmt = $db->query(
+                    "SELECT p.*, COALESCE(u.display_name, u.username) AS author, COALESCE(u.display_name, u.username) AS author_name,
+                            (SELECT COUNT(*) FROM bookmarks b WHERE b.playlist_id = p.id) AS track_count,
+                            ((SELECT COUNT(*) FROM public_favorites f WHERE f.kind = 'playlist' AND f.target_id = p.id)
+                             + CASE WHEN p.is_favorite = 1 THEN 1 ELSE 0 END) AS favorite_count
+                     FROM playlists p
+                     JOIN users u ON u.id = p.user_id
+                     WHERE p.is_public = 1 AND p.system_key IS NULL
+                     ORDER BY favorite_count DESC, p.created_at DESC, p.id DESC
+                     LIMIT 6"
+                );
+                $playlists = with_default_playlist_covers($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
+                echo json_encode($playlists, JSON_UNESCAPED_UNICODE);
+                break;
+            }
             $settings = recommend_settings($db);   // admin/admin.php で編集した重み
             $limit = max(1, min(12, (int)($_GET['limit'] ?? $settings['limit'])));
             $my_youtube_ids = $db->prepare(

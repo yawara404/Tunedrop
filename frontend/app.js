@@ -8868,13 +8868,9 @@ export function bindShareMoodChips() {
                 document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'relax') {
                 selectYTMMix('chill');
-                const cat = document.getElementById('share-category');
-                if (cat) { cat.value = 'Lo-Fi'; renderSharePlaylists(); }
                 document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'energy') {
                 selectYTMMix('energy');
-                const cat = document.getElementById('share-category');
-                if (cat) { cat.value = 'J-POP'; renderSharePlaylists(); }
                 document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'vocaloid') {
                 selectYTMStage(1);
@@ -8888,8 +8884,6 @@ export function bindShareMoodChips() {
                 document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'anime') {
                 selectYTMStage(3);
-                const cat = document.getElementById('share-category');
-                if (cat) { cat.value = 'Anime'; renderSharePlaylists(); }
                 document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
             } else {
                 const cat = document.getElementById('share-category');
@@ -8901,20 +8895,24 @@ export function bindShareMoodChips() {
 }
 
 export async function loadSharePlaylists() {
-    // 未ログイン (デモ表示) ではAPIを呼ばない
-    if (!hasAccountSession()) return;
     const grid = document.getElementById('share-playlists-grid');
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';
     try {
-        const [pubRes, recRes, qpRes, bmRes] = await Promise.all([
+        const fetches = [
             tunedropFetch('api.php?action=get_public_playlists'),
             tunedropFetch('api.php?action=get_recommended_playlists&limit=6').catch(() => null),
             tunedropFetch('api.php?action=get_quick_picks&limit=24').catch(() => null),
-            tunedropFetch('api.php?action=get_my_bookmarks').catch(() => null),
-        ]);
+        ];
+        if (hasAccountSession()) {
+            fetches.push(tunedropFetch('api.php?action=get_my_bookmarks').catch(() => null));
+        }
+        const [pubRes, recRes, qpRes, bmRes] = await Promise.all(fetches);
+        if (!pubRes || !pubRes.ok) {
+            throw new Error('公開リストを取得できませんでした。ステータス: ' + (pubRes ? pubRes.status : 'network error'));
+        }
         const publicLists = await pubRes.json();
-        if (!pubRes.ok || !Array.isArray(publicLists)) throw new Error('公開リストを取得できませんでした。');
+        if (!Array.isArray(publicLists)) throw new Error('公開リストのデータ形式が不正です。');
         sharePlaylists = publicLists;
         try {
             const recommended = recRes && recRes.ok ? await recRes.json() : [];
@@ -8928,19 +8926,20 @@ export async function loadSharePlaylists() {
             const myBookmarks = bmRes && bmRes.ok ? await bmRes.json() : [];
             allBookmarks = Array.isArray(myBookmarks) ? myBookmarks : [];
         } catch (_) { allBookmarks = []; }
-
-        bindShareMoodChips();
-        updateShareSidebarActive('home');
-        renderShareSidebarPlaylists();
-        renderYTMReplayShelf();
-        renderYTMWeekend();
-        renderShareMixes();
-        renderSharePlaylists();
     } catch (err) {
-        grid.innerHTML = '<div class="ui-load-error" role="status"><strong>公開リストを読み込めませんでした</strong><p>接続を確認して、もう一度お試しください。</p><button type="button" onclick="loadSharePlaylists()">再試行</button></div>';
-        console.error(err);
+        grid.innerHTML = '<div class="ui-load-error" role="status"><strong>公開リストを読み込めませんでした</strong><p>接続を確認して、もう一度お試しください。</p><button type="button" class="btn ytm-retry-btn" onclick="loadSharePlaylists()"><span class="material-symbols-rounded">refresh</span> 再試行</button></div>';
+        console.error('loadSharePlaylists error:', err);
     }
+
+    try { bindShareMoodChips(); } catch (e) { console.warn('bindShareMoodChips error:', e); }
+    try { updateShareSidebarActive('home'); } catch (e) { console.warn('updateShareSidebarActive error:', e); }
+    try { renderShareSidebarPlaylists(); } catch (e) { console.warn('renderShareSidebarPlaylists error:', e); }
+    try { renderYTMReplayShelf(); } catch (e) { console.warn('renderYTMReplayShelf error:', e); }
+    try { renderYTMWeekend(); } catch (e) { console.warn('renderYTMWeekend error:', e); }
+    try { renderShareMixes(); } catch (e) { console.warn('renderShareMixes error:', e); }
+    try { renderSharePlaylists(); } catch (e) { console.error('renderSharePlaylists error:', e); }
 }
+if (typeof window !== 'undefined') window.loadSharePlaylists = loadSharePlaylists;
 
 export function shareFavCount(p) {
     const n = Number(p?.favorite_count);
@@ -8998,6 +8997,20 @@ export function clearShareSearch() {
     if (input) input.focus();
 }
 
+export function resetShareFilters() {
+    const input = document.getElementById('share-search');
+    if (input) input.value = '';
+    const cat = document.getElementById('share-category');
+    if (cat) cat.value = '';
+    const strip = document.getElementById('share-mood-chips');
+    if (strip) {
+        strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
+        strip.querySelector('.ytm-chip[data-chip="all"]')?.classList.add('is-active');
+    }
+    renderSharePlaylists();
+}
+if (typeof window !== 'undefined') window.resetShareFilters = resetShareFilters;
+
 // 検索欄の Enter=先頭結果を開く、Escape=クリア
 export function onShareSearchKey(e) {
     if (e.key === 'Enter') {
@@ -9052,7 +9065,14 @@ export function renderSharePlaylists() {
     if (sorted.length === 0) {
         const searching = query || category;
         grid.innerHTML = searching
-            ? '<div class="share-empty"><span class="material-symbols-rounded share-empty-icon">radar</span><p>条件に合うプレイリストがありません。</p><p class="share-empty-sub">検索やカテゴリを変えてみてください。</p></div>'
+            ? `<div class="share-empty">
+                <span class="material-symbols-rounded share-empty-icon">radar</span>
+                <p>条件に合うプレイリストがありません。</p>
+                <p class="share-empty-sub">${category ? `カテゴリ「${escapeHtml(category)}」の公開リストはまだありません。` : '別のキーワードで検索してみてください。'}</p>
+                <button type="button" class="btn ytm-reset-filter-btn" onclick="resetShareFilters()" style="margin-top:12px; display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:20px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:var(--text-main); cursor:pointer;">
+                    <span class="material-symbols-rounded" style="font-size:18px;">refresh</span> すべての公開リストを表示
+                </button>
+            </div>`
             : '<div class="share-empty"><span class="material-symbols-rounded share-empty-icon">public</span><p>まだ公開されたプレイリストがありません。</p><p class="share-empty-sub">「編集・公開」から最初の1つを公開してみよう！</p></div>';
         return;
     }
