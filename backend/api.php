@@ -1994,14 +1994,18 @@ try {
             // force / audio / limit / wait / reset / resume を Flask へ転送する
             // (旧パラメータ名 essentia も audio として受付)
             //
-            // 全曲再解析は管理者アカウント (rarugu) 専用機能。
+            // 全曲再解析は管理者アカウント (wawa404) 専用機能。
             // 一般ユーザーやゲストからの実行は拒否する。
             $uid = require_user_or_guest($db);
-            $stmt = $db->prepare('SELECT username FROM users WHERE id = ?');
+            $stmt = $db->prepare('SELECT username, display_name FROM users WHERE id = ?');
             $stmt->execute([$uid]);
-            $username = (string)$stmt->fetchColumn();
-            $adminUser = getenv('TUNEDROP_ADMIN_USERNAME') ?: 'rarugu';
-            if (strcasecmp($username, $adminUser) !== 0) {
+            $userRow = $stmt->fetch(PDO::FETCH_ASSOC);
+            $adminUser = strtolower(trim((string)(getenv('TUNEDROP_ADMIN_USERNAME') ?: 'wawa404')));
+            $userNames = $userRow ? [
+                strtolower(trim((string)($userRow['username'] ?? ''))),
+                strtolower(trim((string)($userRow['display_name'] ?? ''))),
+            ] : [];
+            if (!in_array($adminUser, $userNames, true)) {
                 http_response_code(403);
                 echo json_encode([
                     'success' => false,

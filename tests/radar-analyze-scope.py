@@ -86,10 +86,11 @@ with tempfile.TemporaryDirectory() as directory:
     database = work / 'database.sqlite'
     with sqlite3.connect(database) as db:
         db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
-        db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'rarugu','test-only')")
+        db.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+        db.execute("INSERT INTO users (id,username,password_hash,display_name) VALUES (99,'rarugu7438@gmail.com','test-only','wawa404')")
         db.execute("INSERT INTO users (id,username,password_hash) VALUES (100,'other_user','test-only')")
 
-    # [1] 管理者 (rarugu) の呼び出し: 呼び出し元の user_id が転送される
+    # [1] 管理者 (wawa404) の呼び出し: 呼び出し元の user_id が転送される
     received.clear()
     result = call(work, database, {'action': 'radar_analyze_all', 'user_id': '1', 'force': '1'},
                   bearer(99))
@@ -117,4 +118,4 @@ with tempfile.TemporaryDirectory() as directory:
 
     server.shutdown()
 
-print('PASS: 全曲再解析は管理者アカウント (rarugu) 専用に制限され、一般ユーザー・他人の user_id・未認証は拒否される。')
+print('PASS: 全曲再解析は管理者アカウント (wawa404) 専用に制限され、一般ユーザー・他人の user_id・未認証は拒否される。')

@@ -1682,7 +1682,14 @@ export function currentUsername() {
 }
 
 export function isAdminUser() {
-    return currentUsername().toLowerCase() === 'rarugu';
+    const admin = 'wawa404';
+    const cur = currentUsername().toLowerCase();
+    if (cur === admin) return true;
+    try {
+        const loginId = (localStorage.getItem('tunedrop_login_id') || '').trim().toLowerCase();
+        if (loginId === admin) return true;
+    } catch (_) {}
+    return false;
 }
 
 export function updateAdminUI() {
@@ -6291,7 +6298,7 @@ export function bindRadarControls() {
     if (zoomFit) zoomFit.onclick = () => fitRadarToFiltered();
     if (analyzeAll) analyzeAll.onclick = async () => {
         if (!isAdminUser()) {
-            showToast('全曲解析は管理者アカウント（rarugu）専用の機能です。', 'error');
+            showToast('全曲解析は管理者アカウント（wawa404）専用の機能です。', 'error');
             return;
         }
         const confirmed = await showConfirm({
