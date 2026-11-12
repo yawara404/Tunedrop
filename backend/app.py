@@ -1803,6 +1803,19 @@ def radar_analyze_all():
             resume_ids = list(_ANALYZE_STATE.get('queued') or [])
 
     user_id = _num(request.args.get('user_id'), 0)
+    admin_user = os.environ.get('TUNEDROP_ADMIN_USERNAME', 'rarugu').strip().lower()
+    if user_id:
+        conn = None
+        try:
+            conn = get_db()
+            row = conn.execute("SELECT username FROM users WHERE id = ?", (int(user_id),)).fetchone()
+            if row:
+                u_name = str(row['username'] or '').strip().lower()
+                if u_name != admin_user:
+                    return jsonify({'success': False, 'error': '全曲解析は管理者アカウント専用の機能です。'}), 403
+        finally:
+            if conn is not None:
+                conn.close()
     items = _db_bookmarks()
     if user_id:
         items = [i for i in items if i.get("user_id") == int(user_id)]

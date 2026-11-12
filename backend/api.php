@@ -1994,6 +1994,22 @@ try {
             // force / audio / limit / wait / reset / resume を Flask へ転送する
             // (旧パラメータ名 essentia も audio として受付)
             //
+            // 全曲再解析は管理者アカウント (rarugu) 専用機能。
+            // 一般ユーザーやゲストからの実行は拒否する。
+            $uid = require_user_or_guest($db);
+            $stmt = $db->prepare('SELECT username FROM users WHERE id = ?');
+            $stmt->execute([$uid]);
+            $username = (string)$stmt->fetchColumn();
+            $adminUser = getenv('TUNEDROP_ADMIN_USERNAME') ?: 'rarugu';
+            if (strcasecmp($username, $adminUser) !== 0) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'error' => '全曲解析は管理者アカウント専用の機能です。',
+                ], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
             // 解析対象は必ず「呼び出し元のライブラリ」に固定する。
             // user_id を渡さないと Flask 側は _db_bookmarks() の全件 (= 全ユーザー) を
             // 対象にするため、未ログインでも
@@ -2002,7 +2018,7 @@ try {
             // 全ユーザーをまとめて再解析するのは管理用の reanalyze_songs.py (CLI) の役割。
             // 呼び出し元以外の user_id は受け付けない。
             $qs = http_build_query([
-                'user_id' => require_user_or_guest($db),
+                'user_id' => $uid,
                 'force' => isset($_GET['force']) ? (int)$_GET['force'] : 0,
                 'audio' => isset($_GET['audio']) ? (int)$_GET['audio']
                     : (isset($_GET['essentia']) ? (int)$_GET['essentia'] : 1),

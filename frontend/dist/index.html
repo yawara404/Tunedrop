@@ -97,7 +97,7 @@
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer
         onload="if (window.isModalVisible && window.isModalVisible('login-modal')) window.initGoogleAuth()"></script>
-  <script type="module" crossorigin src="./assets/index-BEzp31Mf.js"></script>
+  <script type="module" crossorigin src="./assets/index-CTRm7VZZ.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-FezMkbkn.css">
 </head>
 
@@ -699,8 +699,8 @@
                             style="background:#333; color:#fff;" onclick="loadVibeRadar()"
                             title="未解析の楽曲を音源実測で解析し、雰囲気マップへ反映します">🔍
                             雰囲気検索</button></div>
-                    <div class="filters"><button class="draw-btn" id="btn-radar-analyze-all"
-                            title="全曲を Gemini AI + 音源実測で再解析します（Gemini解析済みの曲は対象外。処理が重いため確認があります）">⟳
+                    <div class="filters" id="radar-analyze-all-wrap" style="display: none;"><button class="draw-btn" id="btn-radar-analyze-all"
+                            title="全曲を Gemini AI + 音源実測で再解析します（Gemini解析済みの曲は対象外。管理者アカウント専用）">⟳
                             全曲解析</button></div>
                     <!-- Radarで見つけた曲を、その場で自分のリスト（ブックマーク）へ保存する -->
                     <div class="filters"><button class="draw-btn radar-save-btn" id="btn-radar-save"

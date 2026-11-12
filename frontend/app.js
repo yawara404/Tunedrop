@@ -1662,10 +1662,46 @@ export function switchView(viewName) {
     else if (viewName === 'profile') loadProfile();
 }
 
+export function currentUsername() {
+    let username = '';
+    try {
+        username = (localStorage.getItem('tunedrop_username') || '').trim();
+    } catch (_) {}
+    if (!username) {
+        try {
+            const token = localStorage.getItem('tunedrop_token') || '';
+            const payload = token.split('.')[1];
+            if (payload) {
+                const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+                const json = JSON.parse(decodeURIComponent(escape(atob(base64))));
+                username = String(json.username || '').trim();
+            }
+        } catch (_) {}
+    }
+    return username;
+}
+
+export function isAdminUser() {
+    return currentUsername().toLowerCase() === 'rarugu';
+}
+
+export function updateAdminUI() {
+    const isAdmin = isAdminUser();
+    const wrap = document.getElementById('radar-analyze-all-wrap');
+    if (wrap) {
+        wrap.style.display = isAdmin ? '' : 'none';
+    }
+    const btn = document.getElementById('btn-radar-analyze-all');
+    if (btn) {
+        btn.style.display = isAdmin ? '' : 'none';
+    }
+}
+
 export function checkLoginStatus() {
     const token = localStorage.getItem('tunedrop_token');
     const username = localStorage.getItem('tunedrop_username');
     const loggedIn = Boolean(token && username);
+    updateAdminUI();
     // 未ログイン時のデモ表示を CSS 側にも伝える (プレイヤー等を隠す)
     if (document.body && document.body.classList) {
         document.body.classList.toggle('is-guest', !loggedIn);
@@ -1698,6 +1734,7 @@ export function clearSession() {
     localStorage.removeItem('tunedrop_token');
     localStorage.removeItem('tunedrop_username');
     localStorage.removeItem('tunedrop_login_id');
+    updateAdminUI();
     // アカウントが変わると集計も変わるため、ダッシュボードのキャッシュを捨てる
     managerSummary = null;
     managerSummaryError = false;
@@ -6242,6 +6279,7 @@ export function showRadarOverlap(candidates, x, y) {
 }
 
 export function bindRadarControls() {
+    updateAdminUI();
     const zoomIn = document.getElementById('btn-radar-zoom-in');
     const zoomOut = document.getElementById('btn-radar-zoom-out');
     const zoomReset = document.getElementById('btn-radar-zoom-reset');
@@ -6252,6 +6290,10 @@ export function bindRadarControls() {
     const zoomFit = document.getElementById('btn-radar-zoom-fit');
     if (zoomFit) zoomFit.onclick = () => fitRadarToFiltered();
     if (analyzeAll) analyzeAll.onclick = async () => {
+        if (!isAdminUser()) {
+            showToast('全曲解析は管理者アカウント（rarugu）専用の機能です。', 'error');
+            return;
+        }
         const confirmed = await showConfirm({
             title: '全曲を再解析',
             message: '全曲を再解析します。\n\nGemini AI 推定に加えて、音源解析 (librosa/CLAP) で実測BPM・雰囲気を取得します。\nGemini で解析済みの曲は対象外です（上書きしません）。\n曲数が多いと数分〜数十分かかります。\n\n実行しますか？',

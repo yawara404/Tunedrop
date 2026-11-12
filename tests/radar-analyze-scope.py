@@ -86,9 +86,10 @@ with tempfile.TemporaryDirectory() as directory:
     database = work / 'database.sqlite'
     with sqlite3.connect(database) as db:
         db.executescript((ROOT / 'backend' / 'setup.sql').read_text())
-        db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'me','test-only')")
+        db.execute("INSERT INTO users (id,username,password_hash) VALUES (99,'rarugu','test-only')")
+        db.execute("INSERT INTO users (id,username,password_hash) VALUES (100,'other_user','test-only')")
 
-    # [1] 他人の user_id を指定しても、転送されるのは呼び出し元の user_id
+    # [1] 管理者 (rarugu) の呼び出し: 呼び出し元の user_id が転送される
     received.clear()
     result = call(work, database, {'action': 'radar_analyze_all', 'user_id': '1', 'force': '1'},
                   bearer(99))
@@ -98,7 +99,15 @@ with tempfile.TemporaryDirectory() as directory:
     assert 'user_id=99' in forwarded[0], ('呼び出し元の user_id が付いていない', forwarded[0])
     assert 'user_id=1&' not in forwarded[0] and not forwarded[0].endswith('user_id=1'), forwarded[0]
 
-    # [2] 未認証は 401 で、Flask へは転送しない
+    # [2] 一般ユーザー (非管理者) の呼び出し: 403 で拒否され、Flask へは転送しない
+    received.clear()
+    result = call(work, database, {'action': 'radar_analyze_all', 'force': '1'},
+                  bearer(100))
+    assert result['code'] == 403, ('一般ユーザーが拒否されていない', result)
+    assert '管理者アカウント専用' in result['body']['error'], result
+    assert not [path for path in received if path.startswith('/radar/analyze_all')], received
+
+    # [3] 未認証は 401 で、Flask へは転送しない
     #     (require_user_or_guest() が exit するため、出力は 401 の JSON 本文そのもの)
     received.clear()
     result = call(work, database, {'action': 'radar_analyze_all', 'force': '1'})
@@ -108,4 +117,4 @@ with tempfile.TemporaryDirectory() as directory:
 
     server.shutdown()
 
-print('PASS: 全曲再解析は呼び出し元のライブラリに固定され、他人の user_id と未認証は拒否される。')
+print('PASS: 全曲再解析は管理者アカウント (rarugu) 専用に制限され、一般ユーザー・他人の user_id・未認証は拒否される。')
