@@ -482,6 +482,7 @@ let currentQueue = [];
 let currentTrackIndex = -1;
 
 let allPlaylists = [];
+let allBookmarks = [];
 let allRadarPlaylists = [];
 let allRadarRecentPlaylists = [];
 let sharePlaylists = [];
@@ -4663,6 +4664,7 @@ export async function loadMyBookmarks(playlistId = null) {
     const response = await tunedropFetch(url);
     // 未ログイン (401) の場合は空配列で安全に描画する (アカウントごとのデータ分離)
     currentTracks = response.ok ? await response.json() : [];
+    if (!playlistId || playlistId === 'home') allBookmarks = currentTracks;
     const trackSearch = document.getElementById('track-search');
     if (trackSearch) trackSearch.value = '';
     syncTrackSearchClear();
@@ -7818,6 +7820,9 @@ export const YTM_MIXES = [
     }
 ];
 
+let selectedWeekendStage = 0;
+let selectedMixId = null;
+
 export function playYTMStage(stageIndex, shuffle = false) {
     let queue = [];
     let name = '';
@@ -7845,12 +7850,209 @@ export function playYTMStage(stageIndex, shuffle = false) {
     playTrackFromQueue(0, queue);
     showToast(`「${name}」を再生開始しました（${queue.length}曲）`);
 }
+if (typeof window !== 'undefined') window.playYTMStage = playYTMStage;
+
+export function playTrackFromStage(stageIndex, trackIndex) {
+    const stage = YTM_WEEKEND_STAGES[stageIndex];
+    if (!stage || !stage.tracks[trackIndex]) return;
+    playTrackFromQueue(trackIndex, stage.tracks);
+    const tr = stage.tracks[trackIndex];
+    showToast(`「${tr.title}」を再生開始しました（${stage.badge}）`);
+}
+if (typeof window !== 'undefined') window.playTrackFromStage = playTrackFromStage;
+
+export function selectYTMStage(stageIndex) {
+    selectedWeekendStage = stageIndex;
+    const cards = document.querySelectorAll('.ytm-stage-card');
+    cards.forEach((c, idx) => c.classList.toggle('selected', idx === stageIndex));
+    renderYTMStageDetail(stageIndex);
+}
+if (typeof window !== 'undefined') window.selectYTMStage = selectYTMStage;
+
+export function saveTrackFromShare(youtubeId, title, channel) {
+    if (!youtubeId) return;
+    openSaveTrackModal({ youtube_id: youtubeId, title, channel });
+}
+if (typeof window !== 'undefined') window.saveTrackFromShare = saveTrackFromShare;
+
+export async function saveYTMStageToMyPlaylists(stageIndex) {
+    const stage = YTM_WEEKEND_STAGES[stageIndex];
+    if (!stage || !stage.tracks.length) return;
+    if (!hasAccountSession()) {
+        showToast('プレイリストを保存するにはログインが必要です', 'info');
+        return;
+    }
+    const playlistName = `YTM Weekend: ${stage.badge}`;
+    showToast(`「${playlistName}」を作成して楽曲を保存中…`, 'info');
+
+    try {
+        const createRes = await tunedropFetch('api.php?action=create_playlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: playlistName,
+                category: stage.tracks[0]?.category || 'J-POP',
+                is_public: 0
+            })
+        });
+        const createData = await createRes.json();
+        if (!createData || !createData.success) {
+            throw new Error(createData?.error || 'プレイリストの作成に失敗しました');
+        }
+        const newPlaylistId = createData.id;
+
+        let addedCount = 0;
+        for (const tr of stage.tracks) {
+            try {
+                await tunedropFetch('api.php?action=add_bookmark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        youtube_id: tr.youtube_id,
+                        playlist_id: newPlaylistId,
+                        title: tr.title,
+                        channel: tr.channel
+                    })
+                });
+                addedCount++;
+            } catch (_) {}
+        }
+
+        await loadPlaylists();
+        renderShareSidebarPlaylists();
+        showToast(`「${playlistName}」をライブラリに保存しました（${addedCount}曲）`);
+    } catch (err) {
+        showToast(err.message || '保存に失敗しました', 'error');
+    }
+}
+if (typeof window !== 'undefined') window.saveYTMStageToMyPlaylists = saveYTMStageToMyPlaylists;
+
+export function renderYTMStageDetail(stageIndex) {
+    const container = document.getElementById('ytm-stage-detail-area');
+    if (!container) return;
+    const stage = YTM_WEEKEND_STAGES[stageIndex];
+    if (!stage) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+    container.style.display = 'block';
+
+    const trackRowsHtml = stage.tracks.map((t, tIdx) => `
+        <div class="ytm-stage-track-row" onclick="playTrackFromStage(${stageIndex}, ${tIdx})" role="button" tabindex="0" title="${escapeHtml(t.title)} を再生">
+            <div class="ytm-track-col-index">${tIdx + 1}</div>
+            <div class="ytm-track-col-thumb">
+                <img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                <div class="ytm-track-thumb-play"><span class="material-symbols-rounded">play_arrow</span></div>
+            </div>
+            <div class="ytm-track-col-info">
+                <div class="ytm-track-row-title">${escapeHtml(t.title)}</div>
+                <div class="ytm-track-row-channel">${escapeHtml(t.channel || '')}</div>
+            </div>
+            <div class="ytm-track-col-cat">
+                <span class="ytm-track-cat-pill">${escapeHtml(t.category || 'Other')}</span>
+            </div>
+            <div class="ytm-track-col-actions" onclick="event.stopPropagation()">
+                <button type="button" class="ytm-track-action-btn" title="マイブックマークに保存" onclick="saveTrackFromShare('${t.youtube_id}', '${escapeHtml(t.title)}', '${escapeHtml(t.channel || '')}')">
+                    <span class="material-symbols-rounded">bookmark_add</span>
+                </button>
+                <a href="https://www.youtube.com/watch?v=${t.youtube_id}" target="_blank" rel="noopener noreferrer" class="ytm-track-action-btn" title="YouTubeで動画を開く">
+                    <span class="material-symbols-rounded">open_in_new</span>
+                </a>
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = `
+        <div class="ytm-stage-detail-box" style="border-left: 3px solid ${stage.accentColor || 'var(--accent-color)'};">
+            <div class="ytm-stage-detail-header">
+                <div class="ytm-stage-detail-info">
+                    <div class="ytm-stage-detail-badges">
+                        <span class="ytm-stage-badge-lg" style="background:${stage.accentColor || 'var(--accent-color)'}; color:#0f0f0f;">${escapeHtml(stage.badge)}</span>
+                        <span class="ytm-stage-vol-pill">YouTube Music Weekend 8</span>
+                        <span class="ytm-stage-count-pill">${stage.tracks.length}曲 · 厳選セットリスト</span>
+                    </div>
+                    <h3 class="ytm-stage-detail-title">${escapeHtml(stage.title)}</h3>
+                    <p class="ytm-stage-detail-desc">${escapeHtml(stage.description)}</p>
+                    <div class="ytm-stage-detail-artists"><span class="material-symbols-rounded">person</span>出演: ${escapeHtml(stage.subtitle)}</div>
+                </div>
+                <div class="ytm-stage-detail-actions">
+                    <button type="button" class="ytm-action-btn ytm-action-primary" onclick="playYTMStage(${stageIndex}, false)" title="このステージを最初から再生">
+                        <span class="material-symbols-rounded">play_arrow</span> このステージを再生
+                    </button>
+                    <button type="button" class="ytm-action-btn ytm-action-secondary" onclick="playYTMStage(${stageIndex}, true)" title="シャッフル再生">
+                        <span class="material-symbols-rounded">shuffle</span> シャッフル
+                    </button>
+                    <button type="button" class="ytm-action-btn ytm-action-save" onclick="saveYTMStageToMyPlaylists(${stageIndex})" title="このステージの全曲をマイリストに保存">
+                        <span class="material-symbols-rounded">playlist_add</span> マイリストに保存
+                    </button>
+                    <a href="https://music.youtube.com/search?q=${encodeURIComponent(stage.subtitle)}" target="_blank" rel="noopener noreferrer" class="ytm-action-btn ytm-action-link" title="YouTube Music でアーティストを検索">
+                        <span class="material-symbols-rounded">open_in_new</span> YouTube Music
+                    </a>
+                </div>
+            </div>
+            <div class="ytm-stage-tracklist">
+                ${trackRowsHtml}
+            </div>
+        </div>
+    `;
+}
+if (typeof window !== 'undefined') window.renderYTMStageDetail = renderYTMStageDetail;
+
+export function renderYTMWeekend() {
+    const container = document.getElementById('ytm-stages-shelf');
+    if (!container) return;
+    container.innerHTML = '';
+    YTM_WEEKEND_STAGES.forEach((stage, idx) => {
+        const card = document.createElement('div');
+        card.className = 'ytm-stage-card' + (idx === selectedWeekendStage ? ' selected' : '');
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.title = `${stage.title} のセットリストを表示`;
+        card.innerHTML = `
+            <div class="ytm-stage-art" style="background: ${stage.coverGradient};">
+                <span class="ytm-stage-badge">${escapeHtml(stage.badge)}</span>
+                <div class="ytm-stage-play-btn" title="今すぐ再生"><span class="material-symbols-rounded">play_arrow</span></div>
+            </div>
+            <div class="ytm-stage-info">
+                <h4 class="ytm-stage-title">${escapeHtml(stage.title)}</h4>
+                <div class="ytm-stage-artists">${escapeHtml(stage.subtitle)}</div>
+                <div class="ytm-stage-meta">${stage.tracks.length}曲 · YouTube Music Weekend</div>
+            </div>
+        `;
+        const playBtn = card.querySelector('.ytm-stage-play-btn');
+        if (playBtn) {
+            playBtn.onclick = (e) => {
+                e.stopPropagation();
+                playYTMStage(idx);
+            };
+        }
+        card.onclick = () => selectYTMStage(idx);
+        card.onkeydown = (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                selectYTMStage(idx);
+            }
+        };
+        container.appendChild(card);
+    });
+
+    const playAllBtn = document.getElementById('btn-ytm-weekend-play');
+    if (playAllBtn) playAllBtn.onclick = () => playYTMStage(-1, false);
+    const shuffleBtn = document.getElementById('btn-ytm-weekend-shuffle');
+    if (shuffleBtn) shuffleBtn.onclick = () => playYTMStage(-1, true);
+
+    renderYTMStageDetail(selectedWeekendStage);
+}
 
 export function getMixTracks(mixId) {
     const mix = YTM_MIXES.find(m => m.id === mixId);
     if (!mix) return [];
     const pool = [...(shareQuickPicks || [])];
     YTM_WEEKEND_STAGES.forEach(s => s.tracks.forEach(t => pool.push(t)));
+    if (allBookmarks && allBookmarks.length) {
+        allBookmarks.forEach(b => pool.push(b));
+    }
     const seen = new Set();
     const uniquePool = pool.filter(t => {
         if (!t?.youtube_id || seen.has(t.youtube_id)) return false;
@@ -7889,61 +8091,212 @@ export function playMix(mixId) {
     showToast(`「${mix?.title || 'ミックス'}」の再生を開始しました（${tracks.length}曲）`);
 }
 
-export function renderYTMWeekend() {
-    const container = document.getElementById('ytm-stages-shelf');
-    if (!container) return;
-    container.innerHTML = '';
-    YTM_WEEKEND_STAGES.forEach((stage, idx) => {
-        const card = document.createElement('div');
-        card.className = 'ytm-stage-card';
-        card.setAttribute('role', 'button');
-        card.setAttribute('tabindex', '0');
-        card.title = `${stage.title} を再生`;
-        card.innerHTML = `
-            <div class="ytm-stage-art" style="background: ${stage.coverGradient};">
-                <span class="ytm-stage-badge">${escapeHtml(stage.badge)}</span>
-                <div class="ytm-stage-play-btn" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
-            </div>
-            <div class="ytm-stage-info">
-                <h4 class="ytm-stage-title">${escapeHtml(stage.title)}</h4>
-                <div class="ytm-stage-artists">${escapeHtml(stage.subtitle)}</div>
-                <div class="ytm-stage-meta">${stage.tracks.length}曲 · YouTube Music Weekend</div>
-            </div>
-        `;
-        card.onclick = () => playYTMStage(idx);
-        card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playYTMStage(idx); } };
-        container.appendChild(card);
-    });
-
-    const playAllBtn = document.getElementById('btn-ytm-weekend-play');
-    if (playAllBtn) playAllBtn.onclick = () => playYTMStage(-1, false);
-    const shuffleBtn = document.getElementById('btn-ytm-weekend-shuffle');
-    if (shuffleBtn) shuffleBtn.onclick = () => playYTMStage(-1, true);
+export function playTrackFromMix(mixId, trackIndex) {
+    const tracks = getMixTracks(mixId);
+    if (!tracks || !tracks[trackIndex]) return;
+    playTrackFromQueue(trackIndex, tracks);
+    const tr = tracks[trackIndex];
+    const mix = YTM_MIXES.find(m => m.id === mixId);
+    showToast(`「${tr.title}」を再生開始しました（${mix?.title || 'ミックス'}）`);
 }
+if (typeof window !== 'undefined') window.playTrackFromMix = playTrackFromMix;
+
+export function selectYTMMix(mixId) {
+    if (selectedMixId === mixId) {
+        selectedMixId = null;
+        const container = document.getElementById('ytm-mix-detail-area');
+        if (container) {
+            container.style.display = 'none';
+            container.innerHTML = '';
+        }
+        document.querySelectorAll('.ytm-mix-card').forEach(c => c.classList.remove('selected'));
+        return;
+    }
+    selectedMixId = mixId;
+    document.querySelectorAll('.ytm-mix-card').forEach(c => c.classList.toggle('selected', c.dataset.mixId === mixId));
+    renderYTMMixDetail(mixId);
+}
+if (typeof window !== 'undefined') window.selectYTMMix = selectYTMMix;
+
+export async function saveMixToMyPlaylists(mixId) {
+    const mix = YTM_MIXES.find(m => m.id === mixId);
+    const tracks = getMixTracks(mixId);
+    if (!mix || !tracks.length) return;
+    if (!hasAccountSession()) {
+        showToast('プレイリストを保存するにはログインが必要です', 'info');
+        return;
+    }
+    const playlistName = `ミックス: ${mix.title}`;
+    showToast(`「${playlistName}」を作成して楽曲を保存中…`, 'info');
+
+    try {
+        const createRes = await tunedropFetch('api.php?action=create_playlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: playlistName,
+                category: tracks[0]?.category || 'Other',
+                is_public: 0
+            })
+        });
+        const createData = await createRes.json();
+        if (!createData || !createData.success) {
+            throw new Error(createData?.error || 'プレイリストの作成に失敗しました');
+        }
+        const newPlaylistId = createData.id;
+
+        let addedCount = 0;
+        for (const tr of tracks) {
+            try {
+                await tunedropFetch('api.php?action=add_bookmark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        youtube_id: tr.youtube_id,
+                        playlist_id: newPlaylistId,
+                        title: tr.title,
+                        channel: tr.channel
+                    })
+                });
+                addedCount++;
+            } catch (_) {}
+        }
+
+        await loadPlaylists();
+        renderShareSidebarPlaylists();
+        showToast(`「${playlistName}」をライブラリに保存しました（${addedCount}曲）`);
+    } catch (err) {
+        showToast(err.message || '保存に失敗しました', 'error');
+    }
+}
+if (typeof window !== 'undefined') window.saveMixToMyPlaylists = saveMixToMyPlaylists;
+
+export function renderYTMMixDetail(mixId) {
+    const container = document.getElementById('ytm-mix-detail-area');
+    if (!container) return;
+    const mix = YTM_MIXES.find(m => m.id === mixId);
+    const tracks = getMixTracks(mixId);
+    if (!mix || !tracks.length) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+    container.style.display = 'block';
+
+    const trackRowsHtml = tracks.map((t, tIdx) => `
+        <div class="ytm-stage-track-row" onclick="playTrackFromMix('${mixId}', ${tIdx})" role="button" tabindex="0" title="${escapeHtml(t.title)} を再生">
+            <div class="ytm-track-col-index">${tIdx + 1}</div>
+            <div class="ytm-track-col-thumb">
+                <img src="https://img.youtube.com/vi/${t.youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                <div class="ytm-track-thumb-play"><span class="material-symbols-rounded">play_arrow</span></div>
+            </div>
+            <div class="ytm-track-col-info">
+                <div class="ytm-track-row-title">${escapeHtml(t.title)}</div>
+                <div class="ytm-track-row-channel">${escapeHtml(t.channel || '')}</div>
+            </div>
+            <div class="ytm-track-col-cat">
+                <span class="ytm-track-cat-pill">${escapeHtml(t.category || 'Other')}</span>
+            </div>
+            <div class="ytm-track-col-actions" onclick="event.stopPropagation()">
+                <button type="button" class="ytm-track-action-btn" title="マイブックマークに保存" onclick="saveTrackFromShare('${t.youtube_id}', '${escapeHtml(t.title)}', '${escapeHtml(t.channel || '')}')">
+                    <span class="material-symbols-rounded">bookmark_add</span>
+                </button>
+                <a href="https://www.youtube.com/watch?v=${t.youtube_id}" target="_blank" rel="noopener noreferrer" class="ytm-track-action-btn" title="YouTubeで動画を開く">
+                    <span class="material-symbols-rounded">open_in_new</span>
+                </a>
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = `
+        <div class="ytm-mix-detail-box">
+            <div class="ytm-stage-detail-header">
+                <div class="ytm-stage-detail-info">
+                    <div class="ytm-stage-detail-badges">
+                        <span class="ytm-stage-badge-lg" style="background:var(--accent-color); color:#0f0f0f;">${escapeHtml(mix.badge)}</span>
+                        <span class="ytm-stage-vol-pill">Tunedrop ミックス</span>
+                        <span class="ytm-stage-count-pill">${tracks.length}曲 · 自動生成</span>
+                    </div>
+                    <h3 class="ytm-stage-detail-title">${escapeHtml(mix.title)}</h3>
+                    <p class="ytm-stage-detail-desc">${escapeHtml(mix.subtitle)}</p>
+                </div>
+                <div class="ytm-stage-detail-actions">
+                    <button type="button" class="ytm-action-btn ytm-action-primary" onclick="playMix('${mixId}')" title="このミックスを再生">
+                        <span class="material-symbols-rounded">play_arrow</span> このミックスを再生
+                    </button>
+                    <button type="button" class="ytm-action-btn ytm-action-save" onclick="saveMixToMyPlaylists('${mixId}')" title="このミックスをマイリストに保存">
+                        <span class="material-symbols-rounded">playlist_add</span> マイリストに保存
+                    </button>
+                    <button type="button" class="ytm-action-btn ytm-action-secondary" onclick="selectYTMMix('${mixId}')" title="閉じる">
+                        <span class="material-symbols-rounded">close</span> 閉じる
+                    </button>
+                </div>
+            </div>
+            <div class="ytm-stage-tracklist">
+                ${trackRowsHtml}
+            </div>
+        </div>
+    `;
+    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+if (typeof window !== 'undefined') window.renderYTMMixDetail = renderYTMMixDetail;
 
 export function renderShareMixes() {
     const container = document.getElementById('ytm-mixes-shelf');
     if (!container) return;
     container.innerHTML = '';
     YTM_MIXES.forEach(mix => {
+        const tracks = getMixTracks(mix.id);
         const card = document.createElement('div');
-        card.className = 'ytm-mix-card';
+        card.className = 'ytm-mix-card' + (mix.id === selectedMixId ? ' selected' : '');
+        card.dataset.mixId = mix.id;
         card.setAttribute('role', 'button');
         card.setAttribute('tabindex', '0');
-        card.title = `${mix.title} を再生`;
+        card.title = `${mix.title} の曲を見る / 再生`;
+
+        // 2x2 collage artwork from real track thumbnails
+        let collageHtml = '';
+        if (tracks.length >= 4) {
+            collageHtml = `
+                <div class="ytm-mix-collage">
+                    <img src="https://img.youtube.com/vi/${tracks[0].youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${tracks[1].youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${tracks[2].youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                    <img src="https://img.youtube.com/vi/${tracks[3].youtube_id}/mqdefault.jpg" alt="" loading="lazy">
+                </div>
+            `;
+        } else if (tracks.length > 0) {
+            collageHtml = `<img src="https://img.youtube.com/vi/${tracks[0].youtube_id}/mqdefault.jpg" alt="" loading="lazy" style="width:100%; height:100%; object-fit:cover;">`;
+        } else {
+            collageHtml = `<div style="width:100%; height:100%; background:${mix.gradient};"></div>`;
+        }
+
         card.innerHTML = `
-            <div class="ytm-mix-art" style="background: ${mix.gradient};">
+            <div class="ytm-mix-art">
+                ${collageHtml}
+                <div class="ytm-mix-overlay-gradient"></div>
                 <span class="ytm-mix-badge">${escapeHtml(mix.badge)}</span>
-                <span class="material-symbols-rounded ytm-mix-icon">${mix.icon}</span>
-                <div class="ytm-mix-play-overlay" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                <div class="ytm-mix-play-overlay" title="今すぐ再生"><span class="material-symbols-rounded">play_arrow</span></div>
             </div>
             <div class="ytm-mix-info">
                 <h4 class="ytm-mix-title">${escapeHtml(mix.title)}</h4>
-                <div class="ytm-mix-sub">${escapeHtml(mix.subtitle)}</div>
+                <div class="ytm-mix-sub">${tracks.length}曲 · ${escapeHtml(mix.subtitle)}</div>
             </div>
         `;
-        card.onclick = () => playMix(mix.id);
-        card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playMix(mix.id); } };
+        const playBtn = card.querySelector('.ytm-mix-play-overlay');
+        if (playBtn) {
+            playBtn.onclick = (e) => {
+                e.stopPropagation();
+                playMix(mix.id);
+            };
+        }
+        card.onclick = () => selectYTMMix(mix.id);
+        card.onkeydown = (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                selectYTMMix(mix.id);
+            }
+        };
         container.appendChild(card);
     });
 }
@@ -8372,17 +8725,53 @@ export function renderYTMReplayShelf() {
     const handleEl = document.getElementById('ytm-user-handle');
     if (handleEl) handleEl.textContent = currentUser?.display_name || 'WAWA404';
     const avatarEl = document.getElementById('ytm-user-avatar');
-    if (avatarEl) avatarEl.textContent = 'ZZZ';
+    if (avatarEl) {
+        const dname = currentUser?.display_name || 'WAWA404';
+        avatarEl.textContent = dname.slice(0, 3).toUpperCase();
+    }
 
     const playAllBtn = document.getElementById('btn-ytm-replay-all');
     if (playAllBtn) {
         playAllBtn.onclick = () => playAllReplayTracks();
     }
 
-    const items = [...YTM_REPLAY_PICKS];
+    const items = [];
+    const seen = new Set();
+
+    // 1. ユーザーのお気に入り曲・保存曲を優先表示
+    if (allBookmarks && allBookmarks.length) {
+        const userFavs = allBookmarks.filter(b => b.is_favorite == 1);
+        const source = userFavs.length >= 3 ? userFavs : allBookmarks;
+        source.slice(0, 5).forEach((b, idx) => {
+            if (b.youtube_id && !seen.has(b.youtube_id)) {
+                seen.add(b.youtube_id);
+                items.push({
+                    id: `user-fav-${idx}`,
+                    youtube_id: b.youtube_id,
+                    title: b.title || 'Untitled',
+                    artist: `曲 • ${b.channel || currentUser?.display_name || 'You'}`,
+                    thumbnail: `https://img.youtube.com/vi/${b.youtube_id}/mqdefault.jpg`,
+                    type: 'track'
+                });
+            }
+        });
+    }
+
+    // 2. YTM_REPLAY_PICKS をマージ
+    YTM_REPLAY_PICKS.forEach(item => {
+        if (items.length < 8) {
+            if (item.is_playlist || (item.youtube_id && !seen.has(item.youtube_id))) {
+                if (item.youtube_id) seen.add(item.youtube_id);
+                items.push(item);
+            }
+        }
+    });
+
+    // 3. shareQuickPicks をマージ
     if (shareQuickPicks && shareQuickPicks.length) {
-        shareQuickPicks.slice(0, 6).forEach((qp, idx) => {
-            if (!items.some(it => it.youtube_id === qp.youtube_id)) {
+        shareQuickPicks.forEach((qp, idx) => {
+            if (items.length < 10 && qp.youtube_id && !seen.has(qp.youtube_id)) {
+                seen.add(qp.youtube_id);
                 items.push({
                     id: `qp-${idx}`,
                     youtube_id: qp.youtube_id,
@@ -8478,29 +8867,34 @@ export function bindShareMoodChips() {
             } else if (target === 'mixes') {
                 document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'relax') {
+                selectYTMMix('chill');
                 const cat = document.getElementById('share-category');
                 if (cat) { cat.value = 'Lo-Fi'; renderSharePlaylists(); }
-                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'energy') {
+                selectYTMMix('energy');
                 const cat = document.getElementById('share-category');
                 if (cat) { cat.value = 'J-POP'; renderSharePlaylists(); }
-                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'vocaloid') {
+                selectYTMStage(1);
                 const cat = document.getElementById('share-category');
                 if (cat) { cat.value = 'Vocaloid'; renderSharePlaylists(); }
-                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'jpop') {
+                selectYTMStage(0);
                 const cat = document.getElementById('share-category');
                 if (cat) { cat.value = 'J-POP'; renderSharePlaylists(); }
-                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
             } else if (target === 'anime') {
+                selectYTMStage(3);
                 const cat = document.getElementById('share-category');
                 if (cat) { cat.value = 'Anime'; renderSharePlaylists(); }
-                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+                document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
             } else {
                 const cat = document.getElementById('share-category');
                 if (cat) { cat.value = ''; renderSharePlaylists(); }
-                document.getElementById('view-share')?.scrollTo({ top: 0, behavior: 'smooth' });
+                document.querySelector('.ytm-main-area')?.scrollTo({ top: 0, behavior: 'smooth' });
             }
         };
     });
@@ -8513,10 +8907,11 @@ export async function loadSharePlaylists() {
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';
     try {
-        const [pubRes, recRes, qpRes] = await Promise.all([
+        const [pubRes, recRes, qpRes, bmRes] = await Promise.all([
             tunedropFetch('api.php?action=get_public_playlists'),
             tunedropFetch('api.php?action=get_recommended_playlists&limit=6').catch(() => null),
             tunedropFetch('api.php?action=get_quick_picks&limit=24').catch(() => null),
+            tunedropFetch('api.php?action=get_my_bookmarks').catch(() => null),
         ]);
         const publicLists = await pubRes.json();
         if (!pubRes.ok || !Array.isArray(publicLists)) throw new Error('公開リストを取得できませんでした。');
@@ -8529,6 +8924,10 @@ export async function loadSharePlaylists() {
             const quickPicks = qpRes && qpRes.ok ? await qpRes.json() : [];
             shareQuickPicks = Array.isArray(quickPicks) ? quickPicks : [];
         } catch (_) { shareQuickPicks = []; }
+        try {
+            const myBookmarks = bmRes && bmRes.ok ? await bmRes.json() : [];
+            allBookmarks = Array.isArray(myBookmarks) ? myBookmarks : [];
+        } catch (_) { allBookmarks = []; }
 
         bindShareMoodChips();
         updateShareSidebarActive('home');
@@ -8625,14 +9024,18 @@ export function renderSharePlaylists() {
     const { query, category, sortMode, filtered, sorted } = getShareFiltered();
     const all = sharePlaylists || [];
 
-    // 検索語が入力されているときは上部のWeekend・Mixes・QuickPicksを非表示にして検索結果に集中させる
+    // 検索語が入力されているときは上部のWeekend・Mixes・Replayを非表示にして検索結果に集中させる
     const searching = Boolean(query);
+    const replaySec = document.getElementById('ytm-replay-section');
     const weekendSec = document.getElementById('ytm-weekend-section');
     const mixesSec = document.getElementById('ytm-mixes-section');
-    const qpSec = document.getElementById('ytm-quickpicks-section');
+    const stageDetail = document.getElementById('ytm-stage-detail-area');
+    const mixDetail = document.getElementById('ytm-mix-detail-area');
+    if (replaySec) replaySec.style.display = searching ? 'none' : '';
     if (weekendSec) weekendSec.style.display = searching ? 'none' : '';
     if (mixesSec) mixesSec.style.display = searching ? 'none' : '';
-    if (qpSec) qpSec.style.display = searching ? 'none' : '';
+    if (stageDetail) stageDetail.style.display = searching ? 'none' : (selectedWeekendStage !== null ? 'block' : 'none');
+    if (mixDetail && searching) mixDetail.style.display = 'none';
 
     const { sorted: popularSorted } = sharePopularRanks(all);
     renderShareRanking(popularSorted);

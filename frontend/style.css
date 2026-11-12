@@ -11097,6 +11097,340 @@ button:disabled { cursor: not-allowed; }
     margin-bottom: 24px;
 }
 
+/* Selected State for Stage & Mix Cards */
+.ytm-stage-card.selected {
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 16px rgba(212, 225, 87, 0.28);
+    background: var(--panel-bg);
+    transform: translateY(-2px);
+}
+
+.ytm-mix-card.selected {
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 16px rgba(212, 225, 87, 0.28);
+    background: var(--panel-bg);
+    transform: translateY(-2px);
+}
+
+/* Mix 2x2 Collage Artwork */
+.ytm-mix-collage {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 1px;
+    background: #000;
+}
+
+.ytm-mix-collage img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.ytm-mix-overlay-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.7) 100%);
+    pointer-events: none;
+}
+
+/* Stage & Mix Detail Wrap and Box */
+.ytm-stage-detail-wrap,
+.ytm-mix-detail-wrap {
+    margin-top: 16px;
+    margin-bottom: 24px;
+}
+
+.ytm-stage-detail-box,
+.ytm-mix-detail-box {
+    background: var(--panel-bg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 20px 24px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.ytm-stage-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ytm-stage-detail-info {
+    flex: 1;
+    min-width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ytm-stage-detail-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ytm-stage-badge-lg {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.ytm-stage-vol-pill,
+.ytm-stage-count-pill {
+    font-size: 11px;
+    color: var(--text-sub);
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.ytm-stage-detail-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 4px 0 0;
+}
+
+.ytm-stage-detail-desc {
+    font-size: 13px;
+    color: var(--text-sub);
+    margin: 0;
+    line-height: 1.4;
+}
+
+.ytm-stage-detail-artists {
+    font-size: 12px;
+    color: var(--accent-color);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.ytm-stage-detail-artists .material-symbols-rounded {
+    font-size: 16px;
+}
+
+.ytm-stage-detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.ytm-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 20px;
+    cursor: pointer;
+    border: none;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    text-decoration: none;
+}
+
+.ytm-action-btn:hover {
+    transform: translateY(-1px);
+}
+
+.ytm-action-primary {
+    background: var(--accent-color);
+    color: #0f0f0f;
+}
+
+.ytm-action-primary:hover {
+    background: #e2ee6c;
+}
+
+.ytm-action-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ytm-action-secondary:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.ytm-action-save {
+    background: rgba(212, 225, 87, 0.12);
+    color: var(--accent-color);
+    border: 1px solid rgba(212, 225, 87, 0.3);
+}
+
+.ytm-action-save:hover {
+    background: rgba(212, 225, 87, 0.2);
+    border-color: var(--accent-color);
+}
+
+.ytm-action-link {
+    background: transparent;
+    color: var(--text-sub);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ytm-action-link:hover {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Tracklist inside Stage / Mix Detail */
+.ytm-stage-tracklist {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ytm-stage-track-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.ytm-stage-track-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.ytm-track-col-index {
+    width: 24px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-sub);
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.ytm-track-col-thumb {
+    position: relative;
+    width: 60px;
+    aspect-ratio: 16/9;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #000;
+    flex-shrink: 0;
+}
+
+.ytm-track-col-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.ytm-track-thumb-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    color: var(--accent-color);
+}
+
+.ytm-stage-track-row:hover .ytm-track-thumb-play {
+    opacity: 1;
+}
+
+.ytm-track-thumb-play .material-symbols-rounded {
+    font-size: 24px;
+}
+
+.ytm-track-col-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ytm-track-row-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ytm-stage-track-row:hover .ytm-track-row-title {
+    color: var(--accent-color);
+}
+
+.ytm-track-row-channel {
+    font-size: 12px;
+    color: var(--text-sub);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ytm-track-col-cat {
+    flex-shrink: 0;
+}
+
+.ytm-track-cat-pill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-sub);
+    letter-spacing: 0.5px;
+}
+
+.ytm-track-col-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.ytm-track-action-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-sub);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+    text-decoration: none;
+}
+
+.ytm-track-action-btn:hover {
+    color: var(--accent-color);
+    background: rgba(212, 225, 87, 0.12);
+}
+
+.ytm-track-action-btn .material-symbols-rounded {
+    font-size: 20px;
+}
+
 @media (max-width: 900px) {
     .ytm-sidebar {
         display: none;
@@ -11109,5 +11443,13 @@ button:disabled { cursor: not-allowed; }
     .ytm-square-card {
         min-width: 145px;
         max-width: 165px;
+    }
+
+    .ytm-stage-detail-header {
+        flex-direction: column;
+    }
+
+    .ytm-stage-detail-actions {
+        width: 100%;
     }
 }
