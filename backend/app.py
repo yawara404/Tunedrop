@@ -69,8 +69,8 @@ if CPU_THREADS:
     for _thread_env in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
                         'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
         os.environ.setdefault(_thread_env, str(CPU_THREADS))
-# 解析バッチの1曲ごとの待ち時間 (秒)。連続で回し続けても操作が重くならないように少し空ける。
-ANALYZE_THROTTLE_SECONDS = float(os.environ.get('TUNEDROP_ANALYZE_THROTTLE', '0.5'))
+# 解析バッチの1曲ごとの待ち時間 (秒)。既定は高速化のため 0.05 秒。
+ANALYZE_THROTTLE_SECONDS = float(os.environ.get('TUNEDROP_ANALYZE_THROTTLE', '0.05'))
 
 # Google OAuth 2.0 (Google Identity Services)
 # Google Cloud Console で「OAuth 2.0 クライアントID (ウェブアプリケーション)」を作成し、
@@ -1678,6 +1678,7 @@ def _run_reanalyze_batch(targets, use_audio, force):
 
     - 1曲ごとに進捗を _ANALYZE_STATE へ反映し、_persist_batch_state() で途中保存する。
     - 各曲の解析結果は reanalyze_bookmark / reanalyze_audio_only が analysis_cache に逐次保存する。
+    - 並行処理 (既定 2 ワーカー) で I/O 待ちと音源解析を並行化し、処理時間を大幅に短縮する。
     - 中断しても analysis_cache と state ファイルの両方から再開できる。
     """
     import analysis_cache
@@ -1689,7 +1690,8 @@ def _run_reanalyze_batch(targets, use_audio, force):
                    'queued': [t['youtube_id'] for t in targets],
                    'started_at': time.time(), 'finished_at': None})
     _persist_batch_state()
-    for it in targets:
+
+    def _process_one(it):
         vid = it['youtube_id']
         with _ANALYZE_LOCK:
             st['current'] = vid
@@ -1732,9 +1734,18 @@ def _run_reanalyze_batch(targets, use_audio, force):
                 if vid in st['queued']:
                     st['queued'].remove(vid)
             _persist_batch_state()
-            # 負荷対策: 連続実行でマシンを占有し続けないよう、曲間に少し待ちを入れる
             if ANALYZE_THROTTLE_SECONDS > 0:
                 time.sleep(ANALYZE_THROTTLE_SECONDS)
+
+    concurrency = int(os.environ.get('TUNEDROP_ANALYZE_CONCURRENCY', '2'))
+    if concurrency > 1 and len(targets) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            list(pool.map(_process_one, targets))
+    else:
+        for it in targets:
+            _process_one(it)
+
     with _ANALYZE_LOCK:
         st['current'] = None
         st['running'] = False

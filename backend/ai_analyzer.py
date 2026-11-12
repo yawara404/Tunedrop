@@ -57,8 +57,12 @@ GEMINI_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_TOKENS", "1024") or "1024")
 # thinkingBudget: 0 = 思考を無効化 (JSON出力を確実にする)。負値で指定なし。
 GEMINI_THINKING_BUDGET = int(os.environ.get("GEMINI_THINKING_BUDGET", "0") or "0")
 # 1モデルあたりの再試行回数 (429/503 の一時エラー対策)
-GEMINI_RETRIES = int(os.environ.get("GEMINI_RETRIES", "2") or "2")
-GEMINI_TIMEOUT = float(os.environ.get("GEMINI_TIMEOUT", "30") or "30")
+GEMINI_RETRIES = int(os.environ.get("GEMINI_RETRIES", "1") or "1")
+GEMINI_TIMEOUT = float(os.environ.get("GEMINI_TIMEOUT", "15") or "15")
+
+# エンジン一時無効化 (401/402/403 や接続不能時に全曲で待たされるのを防ぐサーキットブレーカー)
+_GEMINI_DISABLED_UNTIL = 0.0
+_OLLAMA_DISABLED_UNTIL = 0.0
 
 # ---- Ollama (ローカルLLM) ----
 # Gemini が未設定/失敗したときの代替エンジン。ローカルで完結するため課金・レート制限がない。
@@ -69,12 +73,24 @@ GEMINI_TIMEOUT = float(os.environ.get("GEMINI_TIMEOUT", "30") or "30")
 AI_ENGINE = os.environ.get("TUNEDROP_AI_ENGINE", "auto").strip().lower()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b").strip()
-OLLAMA_TIMEOUT = float(os.environ.get("OLLAMA_TIMEOUT", "120") or "120")
+OLLAMA_TIMEOUT = float(os.environ.get("OLLAMA_TIMEOUT", "15") or "15")
 OLLAMA_RETRIES = int(os.environ.get("OLLAMA_RETRIES", "1") or "1")
-OLLAMA_NUM_PREDICT = int(os.environ.get("OLLAMA_NUM_PREDICT", "512") or "512")
+OLLAMA_NUM_PREDICT = int(os.environ.get("OLLAMA_NUM_PREDICT", "160") or "160")
 # 思考モデル (qwen3 等) の思考を無効化する (JSON出力を確実にし高速化)。gemma3 等では無視される。
 #   TUNEDROP_OLLAMA_THINK=1 で思考を有効化できる (既定 0 = 無効化)。
 OLLAMA_THINK = os.environ.get("TUNEDROP_OLLAMA_THINK", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def is_ollama_alive(timeout=1.5):
+    """Ollama が起動しており応答するか高速に確認する。"""
+    if time.time() < _OLLAMA_DISABLED_UNTIL:
+        return False
+    try:
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/version")
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return res.status == 200
+    except Exception:
+        return False
 
 # 生成させる固定キー。feature vector の次元を固定するために順序も固定。
 FEATURE_KEYS = [
@@ -467,12 +483,14 @@ def _build_prompt(title, channel, category):
         "actual singing voice is a voicebank. Do not infer Vocaloid from an artist's aesthetic.\n"
         "  - Lo-Fi: chill/instrumental beats. Other: instrumental, classical, or unknown.\n"
         "If unsure between Vocaloid and J-POP, answer J-POP unless a voice synthesizer name is present.\n"
+        "For \"vocal_type\", identify the primary vocal: human, synthetic, instrumental, or unknown.\n"
         "For \"mood\", judge the actual emotional tone of the song, not a genre stereotype. "
         "Upbeat songs can be sad or dark; slow songs can be warm. "
         "Do not default to happy/energetic.\n"
         "Respond with a single JSON object, no markdown, no extra text. Keys exactly:\n"
         '{"genre": <one of Vocaloid,J-POP,Anime,Lo-Fi,Other>, '
-        '"tempo": <BPM 40-220>, "energy": <0-1>, "danceability": <0-1>, '
+        '"vocal_type": <one of human,synthetic,instrumental,unknown>, '
+        '"tempo": <BPM 40-220 or 0>, "energy": <0-1>, "danceability": <0-1>, '
         '"valence": <0-1>, "acousticness": <0-1>, "instrumentalness": <0-1>, '
         '"speechiness": <0-1>, "liveness": <0-1>, '
         '"mood": <one of happy,sad,calm,energetic,dark,dreamy,aggressive,warm>}\n'
@@ -518,6 +536,8 @@ def _gemini_generate(prompt, model, with_thinking_config=True):
                 return "".join(text_parts)
     except urllib.error.HTTPError as e:
         if e.code in (401, 402, 403):
+            global _GEMINI_DISABLED_UNTIL
+            _GEMINI_DISABLED_UNTIL = time.time() + 300.0
             raise  # 認証・課金エラーはそのまま上に伝播して高速フォールバック
         # 400/404 などの場合は従来の generateContent へフォールバック
     except Exception:
@@ -556,6 +576,9 @@ def _call_gemini(title, channel, category):
     - 401/402/403 (認証・課金切れ) は全モデル共通のため即時フォールバック
     - 429/503 などの一時エラーはバックオフして再試行し、次モデルへフォールバック
     """
+    global _GEMINI_DISABLED_UNTIL
+    if time.time() < _GEMINI_DISABLED_UNTIL:
+        raise RuntimeError("Gemini API auth/billing error (circuit open)")
     prompt = _build_prompt(title, channel, category)
     last_err = ""
     for model in GEMINI_MODELS:
@@ -570,6 +593,7 @@ def _call_gemini(title, channel, category):
                     last_err = f"HTTP {e.code} ({model}): {detail}"
                     if e.code in (401, 402, 403):
                         # 認証切れ・前払いクレジット切れは再試行せず即時終了してOllamaへ
+                        _GEMINI_DISABLED_UNTIL = time.time() + 300.0
                         raise RuntimeError(f"Gemini API auth/billing error ({last_err})")
                     if e.code in (400, 404) and with_thinking:
                         continue          # thinkingConfig 非対応 → 指定なしで再試行
@@ -587,9 +611,10 @@ def _call_gemini(title, channel, category):
                                              or "HTTP 503" in last_err
                                              or "HTTP 500" in last_err
                                              or "empty response" in last_err):
-                time.sleep(min(2 ** attempt, 6))
+                time.sleep(min(2 ** attempt, 4))
                 continue
             break
+    _GEMINI_DISABLED_UNTIL = time.time() + 60.0
     raise RuntimeError("Gemini API call failed: " + last_err)
 
 
@@ -600,6 +625,9 @@ def _call_ollama(title, channel, category):
     - temperature は低め (0.2) で、同じ曲なら毎回同じ値に寄せる
     - 接続不可 (Ollama 未起動・モデル未取得) はすぐ失敗させ、次のエンジンへ渡す
     """
+    global _OLLAMA_DISABLED_UNTIL
+    if time.time() < _OLLAMA_DISABLED_UNTIL:
+        raise RuntimeError("Ollama API temporarily disabled (circuit open)")
     prompt = _build_prompt(title, channel, category)
     payload = {
         "model": OLLAMA_MODEL,
@@ -627,10 +655,19 @@ def _call_ollama(title, channel, category):
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "ignore")[:160]
             last_err = f"HTTP {e.code} ({OLLAMA_MODEL}): {detail}"
+            _OLLAMA_DISABLED_UNTIL = time.time() + 60.0
+            break
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = f"{OLLAMA_MODEL}: {str(e)[:160]}"
+            _OLLAMA_DISABLED_UNTIL = time.time() + 60.0
+            break
         except Exception as e:
             last_err = f"{OLLAMA_MODEL}: {str(e)[:160]}"
+            _OLLAMA_DISABLED_UNTIL = time.time() + 60.0
+            break
         if attempt < OLLAMA_RETRIES:
-            time.sleep(min(2 ** attempt, 4))
+            time.sleep(min(2 ** attempt, 2))
+    _OLLAMA_DISABLED_UNTIL = time.time() + 60.0
     raise RuntimeError("Ollama API call failed: " + last_err)
 
 
@@ -674,6 +711,9 @@ def _call_llm_genre(title, channel, engine):
     """ジャンルだけを LLM に聞く (engine: gemini / ollama)。失敗時は RuntimeError。"""
     prompt = _GENRE_PROMPT + f"Title: {title}\nArtist: {channel}"
     if engine == "gemini":
+        global _GEMINI_DISABLED_UNTIL
+        if time.time() < _GEMINI_DISABLED_UNTIL:
+            raise RuntimeError("Gemini API auth/billing error (circuit open)")
         last_err = ""
         for model in GEMINI_MODELS:
             for with_thinking in (True, False):
@@ -682,6 +722,9 @@ def _call_llm_genre(title, channel, engine):
                 try:
                     return _extract_json(_gemini_generate(prompt, model, with_thinking))
                 except urllib.error.HTTPError as e:
+                    if e.code in (401, 402, 403):
+                        _GEMINI_DISABLED_UNTIL = time.time() + 300.0
+                        raise RuntimeError(f"Gemini API auth/billing error (HTTP {e.code})")
                     if e.code in (400, 404) and with_thinking:
                         continue
                     last_err = f"{model}: HTTP {e.code}"
@@ -712,6 +755,9 @@ def _call_llm_bpm(title, channel, engine):
     """BPM だけを LLM に聞く (engine: gemini / ollama)。不明なら 0。失敗時は RuntimeError。"""
     prompt = _BPM_PROMPT + f"Title: {title}\nArtist: {channel}"
     if engine == "gemini":
+        global _GEMINI_DISABLED_UNTIL
+        if time.time() < _GEMINI_DISABLED_UNTIL:
+            raise RuntimeError("Gemini API auth/billing error (circuit open)")
         last_err = ""
         for model in GEMINI_MODELS:
             for with_thinking in (True, False):
@@ -720,6 +766,9 @@ def _call_llm_bpm(title, channel, engine):
                 try:
                     return _extract_json(_gemini_generate(prompt, model, with_thinking))
                 except urllib.error.HTTPError as e:
+                    if e.code in (401, 402, 403):
+                        _GEMINI_DISABLED_UNTIL = time.time() + 300.0
+                        raise RuntimeError(f"Gemini API auth/billing error (HTTP {e.code})")
                     if e.code in (400, 404) and with_thinking:
                         continue
                     last_err = f"{model}: HTTP {e.code}"
@@ -733,6 +782,9 @@ def _call_llm_bpm(title, channel, engine):
 
 def _ollama_json_call(prompt, temperature=0.3, num_predict=256):
     """Ollama に任意の prompt を送り、JSON dict を返す (think:false, format=json)。"""
+    global _OLLAMA_DISABLED_UNTIL
+    if time.time() < _OLLAMA_DISABLED_UNTIL:
+        return {}
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": prompt,
@@ -742,11 +794,16 @@ def _ollama_json_call(prompt, temperature=0.3, num_predict=256):
     }
     if not OLLAMA_THINK:
         payload["think"] = False   # 思考モデル (qwen3) は思考を無効化して JSON を確実に返す
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/generate", data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as res:
-        text = (json.load(res).get("response") or "").strip()
+    try:
+        req = urllib.request.Request(
+            f"{OLLAMA_URL}/api/generate", data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as res:
+            text = (json.load(res).get("response") or "").strip()
+        return _extract_json(text)
+    except (urllib.error.URLError, TimeoutError) as e:
+        _OLLAMA_DISABLED_UNTIL = time.time() + 60.0
+        raise RuntimeError(f"Ollama call failed: {e}")
     return _extract_json(text)
 
 
@@ -804,14 +861,18 @@ def analyze(title, channel, category):
     #   auto   : gemini (キーがあれば) → ollama
     #   gemini : gemini だけ / ollama : ollama だけ / rules : LLMを使わない
     order = []
+    now = time.time()
     if AI_ENGINE == "auto":
-        if GEMINI_API_KEY:
+        if GEMINI_API_KEY and now >= _GEMINI_DISABLED_UNTIL:
             order.append("gemini")
-        order.append("ollama")
+        if now >= _OLLAMA_DISABLED_UNTIL:
+            order.append("ollama")
     elif AI_ENGINE == "gemini" and GEMINI_API_KEY:
-        order.append("gemini")
+        if now >= _GEMINI_DISABLED_UNTIL:
+            order.append("gemini")
     elif AI_ENGINE == "ollama":
-        order.append("ollama")
+        if now >= _OLLAMA_DISABLED_UNTIL:
+            order.append("ollama")
     failures = []
     for name in order:
         try:
@@ -842,17 +903,40 @@ def analyze(title, channel, category):
             vals[k] = rb[k]
 
     cleaned = {k: _sanitize_value(vals.get(k), k) for k in FEATURE_KEYS}
-    # BPM は専用の短いプロンプトで聞き直す (特徴量と同時に聞くとボカロ曲が「140」に固まる)。
+
+    # BPM とジャンル専用プロンプトの特定:
     # 1. 既知曲辞書 (公式/譜面BPM) を最優先
-    # 2. LLM で正確に分かる曲を採用 (明確に分かる場合のみ)
-    # 3. 不明 (0) や失敗時はルールベースの自然に分散した値へフォールバック
+    # 2. LLM による BPM・ジャンル専用プロンプトの問い合わせ
+    #    BPM (未登録時) と ジャンルを ThreadPoolExecutor で並行実行し、
+    #    2回の逐次LLM呼び出し (約8秒) を1回分 (約4秒) に短縮する。
     known_bpm = lookup_known_tempo(title, channel)
+    need_bpm_call = (known_bpm is None) and (engine in ("gemini", "ollama"))
+    need_genre_call = engine in ("gemini", "ollama")
+
+    bpm_res = None
+    genre_res = None
+    if need_bpm_call or need_genre_call:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_bpm = executor.submit(_call_llm_bpm, title, channel, engine) if need_bpm_call else None
+            fut_genre = executor.submit(_call_llm_genre, title, channel, engine) if need_genre_call else None
+            if fut_bpm:
+                try:
+                    bpm_res = fut_bpm.result()
+                except Exception:
+                    bpm_res = None
+            if fut_genre:
+                try:
+                    genre_res = fut_genre.result()
+                except Exception:
+                    genre_res = None
+
     if known_bpm is not None:
         cleaned["tempo"] = float(known_bpm)
         tempo_source = "known"
-    elif engine in ("gemini", "ollama"):
+    elif bpm_res is not None:
         try:
-            bpm = float((_call_llm_bpm(title, channel, engine) or {}).get("tempo") or 0)
+            bpm = float((bpm_res or {}).get("tempo") or 0)
             if 40 <= bpm <= 220:
                 cleaned["tempo"] = _sanitize_value(bpm, "tempo")
                 tempo_source = engine
@@ -862,6 +946,9 @@ def analyze(title, channel, category):
         except Exception:
             cleaned["tempo"] = _sanitize_value(rb["tempo"], "tempo")
             tempo_source = "rules"
+    elif engine in ("gemini", "ollama"):
+        cleaned["tempo"] = _sanitize_value(rb["tempo"], "tempo")
+        tempo_source = "rules"
     else:
         cleaned["tempo"] = _sanitize_value(rb["tempo"], "tempo")
         tempo_source = "rules"
@@ -880,18 +967,15 @@ def analyze(title, channel, category):
     # LLM が曲ごとに判定したジャンル (表示カテゴリの上書きに使う)。
     # プレイリスト単位のカテゴリは、複数ジャンルを混ぜたリストでは実態と合わないため。
     ai_category = normalize_category(vals.get("genre")) if engine in ("gemini", "ollama") else None
-    vocal_type = "unknown"
-    # ジャンルは専用の短いプロンプトで聞き直す (特徴量と同時に聞くと外しやすい)。
-    # 取れなかったときは上の値 (同時推定の genre) をそのまま使う。
-    if engine in ("gemini", "ollama"):
-        try:
-            genre_result = _call_llm_genre(title, channel, engine) or {}
-            focused = normalize_category(genre_result.get("genre"))
-            vocal_type = normalize_vocal_type(genre_result.get("vocal_type"))
-            if focused:
-                ai_category = focused
-        except Exception:
-            pass
+    vocal_type = normalize_vocal_type(vals.get("vocal_type")) if engine in ("gemini", "ollama") else "unknown"
+
+    if genre_res:
+        focused = normalize_category(genre_res.get("genre"))
+        vt = normalize_vocal_type(genre_res.get("vocal_type"))
+        if focused:
+            ai_category = focused
+        if vt != "unknown":
+            vocal_type = vt
     # 曲名/配信タイトルにジャンルを明示した手掛かりがある場合は LLM より優先する。
     # 特に Anime は音楽スタイルとタイアップ属性を混同しやすいため、明示的な
     # リリース情報を判定に使う。合成音声の歌手名は確定情報として最優先。

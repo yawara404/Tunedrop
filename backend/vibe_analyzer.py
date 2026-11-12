@@ -1212,7 +1212,8 @@ def analyze_wav(wav_path, reference_tempo=None, use_clap=None):
     if not has_librosa():
         raise RuntimeError("librosa missing: pip install --user librosa")
 
-    y, sr = librosa.load(wav_path, sr=SR, mono=True)
+    # 高速化: 最大 120 秒 (2分) に制限して STFT/HPSS/CQT の計算負荷を激減させる
+    y, sr = librosa.load(wav_path, sr=SR, mono=True, duration=120.0)
     if y is None or len(y) == 0:
         raise RuntimeError("empty audio")
 
@@ -1318,6 +1319,8 @@ def analyze(video_id, db_path, force=False, reference_tempo=None, use_clap=None,
     try:
         wav, _duration = audio_download.download_wav(video_id, workdir, sample_rate=SR)
         result = analyze_wav(wav, reference_tempo=reference_tempo, use_clap=use_clap)
+        if _duration > 0:
+            result["duration"] = round(_duration, 2)
     except Exception as exc:
         return {"status": "unavailable", "engine": "unavailable", "measured": False,
                 "tempo": 0, "feature_vector": [], "error": str(exc)[:300]}

@@ -22,8 +22,9 @@ load_environment()
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
-# 試す順番。android は PO Token 無しでも muxed(18) が残ることが多い。
-PLAYER_CLIENTS = ["android", "web_safari", "android_vr", "mweb", "tv", "web", "default"]
+# 試す順番。android / web_safari / mweb は PO Token 無しでも muxed(18) や音声形式が安定して取れる。
+# 失敗しやすい重いクライアント (tv / web / android_vr) を除外してダウンロード高速化。
+PLAYER_CLIENTS = ["android", "web_safari", "mweb", "default"]
 
 
 def find_ytdlp():
@@ -75,9 +76,11 @@ def _extra_options():
     return opts
 
 
-def download_wav(video_id, workdir, sample_rate=22050, timeout=240):
+def download_wav(video_id, workdir, sample_rate=22050, timeout=45):
     """YouTube 音源を取得してモノラル WAV に変換する。
 
+    長尺動画 (1時間作業BGM等) でも高速に解析できるよう、WAV変換時に
+    先頭 120 秒 (-t 120) に制限して librosa / STFT の負荷を激減させる。
     戻り値: (wav_path, duration_sec)
     失敗時は RuntimeError (試した全クライアントのエラーを含む)。
     """
@@ -101,8 +104,8 @@ def download_wav(video_id, workdir, sample_rate=22050, timeout=240):
         # これが無いとファイルが保存されず解析が必ず失敗する。
         cmd = [ytdlp, "--no-playlist", "--quiet", "--no-simulate",
                "-f", "bestaudio/best", "--print", "%(duration)s",
-               "--retries", "3", "--fragment-retries", "3", "--retry-sleep", "2",
-               "--socket-timeout", "30",
+               "--retries", "1", "--fragment-retries", "1", "--retry-sleep", "1",
+               "--socket-timeout", "15",
                "-o", raw] + args + extra + [url]
         # クライアント切替時は不完全ファイル (.part) を消して最初から試す
         for stale in ("src.mp4.part", "src.webm.part", "src.m4a.part"):
@@ -135,6 +138,7 @@ def download_wav(video_id, workdir, sample_rate=22050, timeout=240):
     wav = os.path.join(workdir, "audio.wav")
     conv = subprocess.run(
         [ffmpeg, "-y", "-v", "error", "-i", src,
+         "-t", "120",
          "-ac", "1", "-ar", str(sample_rate), wav],
         capture_output=True, text=True, timeout=timeout)
     if conv.returncode != 0:
