@@ -322,11 +322,39 @@ terminate_pattern() {
     return 0
 }
 
+# 指定ポートを掴んでいるプロセスを解放する (SIGTERM → SIGKILL)。
+free_port() {
+    local port="$1" pids pid i alive
+    command -v lsof >/dev/null 2>&1 || return 0
+    pids="$(lsof -ti ":$port" 2>/dev/null || true)"
+    [ -n "$pids" ] || return 0
+    for pid in $pids; do
+        [ "$pid" = "$$" ] && continue
+        kill "$pid" 2>/dev/null || true
+    done
+    i=0
+    while [ "$i" -lt 6 ]; do
+        alive=0
+        for pid in $pids; do
+            if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+        done
+        [ "$alive" = "0" ] && return 0
+        sleep 0.5
+        i=$((i + 1))
+    done
+    for pid in $pids; do
+        [ "$pid" = "$$" ] && continue
+        kill -9 "$pid" 2>/dev/null || true
+    done
+}
+
 stop_stack() {
     terminate_pattern "$ROOT/backend/start.py"
     terminate_pattern "$ROOT/backend/app.py"
     # start.py が落ちた後に残った PHP ワーカーも、このdocrootのものだけ止める。
     terminate_pattern "php.*$ROOT/backend/router.php"
+    free_port 8888
+    free_port 5050
     rm -f "$ROOT/.web_port" "$ROOT/.auth_port" 2>/dev/null || true
 }
 
@@ -472,7 +500,20 @@ cycle() {
         else
             mark_state public down
             if check_web; then
-                if restart_tunnel; then
+                # 公開URLは 8888 へのトンネルを前提としている。ローカルWebが 8888 以外で
+                # 起動しているときはトンネル側から 502 になるため、8888 を解放してスタックを再起動する。
+                local web_p
+                web_p="$(read_port "$ROOT/.web_port" 8888)"
+                if [ -z "${TUNEDROP_WATCHDOG_LOCAL_URL:-}" ] && [ "$web_p" != "8888" ]; then
+                    log "public: 公開トンネルは 8888 を要求しますが、Web は port $web_p で起動しています。8888 を解放してスタックを再起動します"
+                    free_port 8888
+                    if restart_stack; then
+                        mark_state web up
+                        mark_state auth up
+                    else
+                        rc=1
+                    fi
+                elif restart_tunnel; then
                     mark_state public up
                 else
                     rc=1

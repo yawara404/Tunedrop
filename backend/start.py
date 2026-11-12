@@ -442,6 +442,7 @@ def _port_available(port: int) -> bool:
     """127.0.0.1 の指定ポートへ bind できるか。"""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(('127.0.0.1', port))
         return True
     except OSError:
