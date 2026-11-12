@@ -76,7 +76,7 @@
          下の icon_names にアルファベット順で追加すること（未知の名前があると全収録版の
          約3.1MBにフォールバックする）。 -->
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=account_circle,add,arrow_back,auto_awesome,bookmark,bookmark_add,check,checklist,chevron_right,close,delete,description,donut_small,drag_indicator,drive_file_move,edit,favorite,heart_broken,help,history,home,insights,keyboard,library_music,lock,menu,more_vert,music_note,open_in_new,pause,person,person_add,play_arrow,playlist_add,public,queue_music,radar,refresh,share,shuffle,skip_next,skip_previous,touch_app&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&icon_names=account_circle,add,arrow_back,auto_awesome,bookmark,bookmark_add,check,checklist,chevron_left,chevron_right,close,delete,description,donut_small,drag_indicator,drive_file_move,edit,explore,favorite,heart_broken,help,history,home,insights,keyboard,library_music,lock,menu,more_vert,music_note,open_in_new,pause,person,person_add,play_arrow,playlist_add,public,queue_music,radar,refresh,search,share,shuffle,skip_next,skip_previous,touch_app&display=swap"
         rel="stylesheet">
     <!-- 未ログイン時の初期ビュー (デモ) を、JSの初期化を待たずに出す。
          app.js 側の checkLoginStatus() がこのクラスを外して通常表示へ切り替える。
@@ -97,8 +97,8 @@
     </script>
     <script src="https://accounts.google.com/gsi/client" async defer
         onload="if (window.isModalVisible && window.isModalVisible('login-modal')) window.initGoogleAuth()"></script>
-  <script type="module" crossorigin src="./assets/index-D9Aby0Cd.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-FezMkbkn.css">
+  <script type="module" crossorigin src="./assets/index-Dlg9xtNP.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-CnMsx3Ma.css">
 </head>
 
 <body>
@@ -817,40 +817,153 @@
             </section>
         </div>
 
-        <div id="view-share" class="view-section">
-            <section class="content-area share-content-area">
-                <div class="share-toolbar">
-                    <h2 class="section-title" style="margin:0;">みんなのプレイリスト</h2>
-                    <div class="radar-map-controls">
-                        <div class="share-search-wrap">
-                            <input type="text" id="share-search" class="ctrl-search" placeholder="プレイリスト名・ユーザー名で検索..."
-                                oninput="onShareSearchInput()" onkeydown="onShareSearchKey(event)"
-                                aria-label="プレイリスト名・ユーザー名で検索">
-                            <button class="share-search-clear" id="btn-share-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearShareSearch()">×</button>
-                        </div>
-                        <select aria-label="公開リストのカテゴリ" id="share-category" class="ctrl-select" onchange="renderSharePlaylists()">
-                            <option value="">All</option>
-                            <option value="Vocaloid">Vocaloid</option>
-                            <option value="J-POP">J-POP</option>
-                            <option value="Anime">Anime</option>
-                            <option value="Lo-Fi">Lo-Fi</option>
-                            <option value="Other">Other</option>
-                        </select>
-                        <select aria-label="公開リストの並び順" id="share-sort" class="ctrl-select" onchange="renderSharePlaylists()" title="並び順">
-                            <option value="popular">人気順</option>
-                            <option value="newest" selected>新着順</option>
-                            <option value="tracks">曲数順</option>
-                        </select>
-                        <button type="button" id="btn-share-random" class="share-random-btn" onclick="openRandomSharePlaylist()" title="ランダムに1つ選ぶ"><span class="material-symbols-rounded">radar</span>おまかせ</button>
+        <div id="view-share" class="view-section ytm-share-view">
+            <!-- Left Sidebar (YouTube Music Style) -->
+            <aside class="sidebar ytm-sidebar" id="share-sidebar">
+                <ul class="ytm-side-nav">
+                    <li onclick="navigateView('manager')" class="ytm-side-item" title="ホーム"><span class="material-symbols-rounded">home</span>ホーム</li>
+                    <li onclick="navigateView('share')" class="ytm-side-item active" title="探索"><span class="material-symbols-rounded">explore</span>探索</li>
+                    <li onclick="navigateView('radar')" class="ytm-side-item" title="Radar"><span class="material-symbols-rounded">radar</span>Radar</li>
+                </ul>
+
+                <button type="button" class="add-btn ytm-add-btn" onclick="openCreatePlaylistModal()">
+                    <span class="material-symbols-rounded">add</span> 新しい再生リスト
+                </button>
+
+                <div class="ytm-sidebar-divider"></div>
+
+                <div class="ytm-sidebar-section-title">マイ ライブラリ</div>
+                <ul class="playlist-nav ytm-playlist-nav" id="share-playlist-nav">
+                    <!-- Dynamic user playlists rendered from allPlaylists -->
+                </ul>
+            </aside>
+
+            <!-- Main Content Area -->
+            <section class="content-area share-content-area ytm-main-area">
+                <!-- Top Bar & Search -->
+                <div class="ytm-top-bar">
+                    <div class="share-search-wrap ytm-search-wrap">
+                        <span class="material-symbols-rounded ytm-search-icon">search</span>
+                        <input type="text" id="share-search" class="ctrl-search ytm-search-input" placeholder="曲、アルバム、アーティストを検索..."
+                            oninput="onShareSearchInput()" onkeydown="onShareSearchKey(event)"
+                            aria-label="曲、アルバム、アーティストを検索">
+                        <button class="share-search-clear" id="btn-share-search-clear" title="検索をクリア" aria-label="検索をクリア" onclick="clearShareSearch()">×</button>
+                    </div>
+
+                    <!-- 気分・ジャンル タグ (YTM Filter Chips) -->
+                    <div class="ytm-chips-strip" id="share-mood-chips" role="tablist" aria-label="気分・ジャンルフィルター">
+                        <button type="button" class="ytm-chip is-active" data-chip="all">すべて</button>
+                        <button type="button" class="ytm-chip ytm-chip-ytm" data-chip="weekend"><span class="ytm-chip-indicator"></span>YouTube Music Weekend</button>
+                        <button type="button" class="ytm-chip" data-chip="replay">もう一度聴く</button>
+                        <button type="button" class="ytm-chip" data-chip="mixes">ミックスリスト</button>
+                        <button type="button" class="ytm-chip" data-chip="relax">リラックス</button>
+                        <button type="button" class="ytm-chip" data-chip="energy">エナジー</button>
+                        <button type="button" class="ytm-chip" data-chip="vocaloid">ボカロ / Net</button>
+                        <button type="button" class="ytm-chip" data-chip="jpop">J-POP</button>
+                        <button type="button" class="ytm-chip" data-chip="anime">アニメ</button>
                     </div>
                 </div>
-                <div id="share-recommend" class="share-recommend" hidden></div>
-                <div id="share-ranking" class="share-ranking" hidden></div>
-                <div class="share-grid-header">
-                    <h3 class="share-grid-title" id="share-grid-title">すべて</h3>
-                    <span class="share-count-badge" id="share-count-badge"></span>
+
+                <!-- 1. 「もう一度聴く」 (Listen again / Quick replay - YTM screenshot match) -->
+                <div class="ytm-shelf-block" id="ytm-replay-section">
+                    <div class="ytm-user-hero-header">
+                        <div class="ytm-user-avatar-badge" id="ytm-user-avatar">W</div>
+                        <div class="ytm-user-hero-titles">
+                            <span class="ytm-user-handle" id="ytm-user-handle">WAWA404</span>
+                            <h2 class="ytm-shelf-title">もう一度聴く</h2>
+                        </div>
+                        <div class="ytm-shelf-actions-right">
+                            <button type="button" class="ytm-shelf-more-btn" id="btn-ytm-replay-all" title="全曲を連続再生">すべて再生</button>
+                            <div class="ytm-shelf-nav">
+                                <button type="button" class="ytm-nav-btn" onclick="scrollShelf('ytm-replay-shelf', -1)" aria-label="前へ"><span class="material-symbols-rounded">chevron_left</span></button>
+                                <button type="button" class="ytm-nav-btn" onclick="scrollShelf('ytm-replay-shelf', 1)" aria-label="次へ"><span class="material-symbols-rounded">chevron_right</span></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ytm-cards-shelf" id="ytm-replay-shelf"></div>
                 </div>
-                <div class="grid-container share-grid" id="share-playlists-grid"></div>
+
+                <!-- 2. YouTube Music Weekend 特集 (Hero Banner & Stage Carousel) -->
+                <div class="ytm-shelf-block" id="ytm-weekend-section">
+                    <div class="ytm-weekend-banner">
+                        <div class="ytm-weekend-hero-content">
+                            <div class="ytm-weekend-tagline">
+                                <span class="ytm-live-pill"><span class="ytm-live-dot"></span>LIVE SPECIAL ARCHIVE</span>
+                                <span class="ytm-weekend-vol">YouTube Music Weekend 8</span>
+                            </div>
+                            <h2 class="ytm-weekend-title">YouTube Music Weekend 特集</h2>
+                            <p class="ytm-weekend-desc">国内トップアーティスト＆ネット発人気クリエイターが集結したライブの熱狂。フェス厳選ステージのセットリストをお届け！</p>
+                            <div class="ytm-weekend-actions">
+                                <button type="button" class="ytm-hero-btn ytm-btn-play" id="btn-ytm-weekend-play" title="フェス全曲を連続再生"><span class="material-symbols-rounded">play_arrow</span> 全ステージ再生</button>
+                                <button type="button" class="ytm-hero-btn ytm-btn-sub" id="btn-ytm-weekend-shuffle" title="シャッフル再生"><span class="material-symbols-rounded">shuffle</span> シャッフル</button>
+                                <a href="https://music.youtube.com/search?q=YouTube+Music+Weekend" target="_blank" rel="noopener noreferrer" class="ytm-hero-btn ytm-btn-ytm" title="YouTube Music で開く">
+                                    <span class="material-symbols-rounded">open_in_new</span> YouTube Music で開く
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ytm-shelf-head">
+                        <div>
+                            <h3 class="ytm-shelf-title">フェス・ステージ別セットリスト</h3>
+                            <span class="ytm-shelf-sub">各ステージの厳選セットリスト（タップで即再生）</span>
+                        </div>
+                        <div class="ytm-shelf-nav">
+                            <button type="button" class="ytm-nav-btn" onclick="scrollShelf('ytm-stages-shelf', -1)" aria-label="前へ"><span class="material-symbols-rounded">chevron_left</span></button>
+                            <button type="button" class="ytm-nav-btn" onclick="scrollShelf('ytm-stages-shelf', 1)" aria-label="次へ"><span class="material-symbols-rounded">chevron_right</span></button>
+                        </div>
+                    </div>
+                    <div class="ytm-cards-shelf" id="ytm-stages-shelf"></div>
+                </div>
+
+                <!-- 3. ミックスリスト (Themed & Dynamic Mixes) -->
+                <div class="ytm-shelf-block" id="ytm-mixes-section">
+                    <div class="ytm-shelf-head">
+                        <div>
+                            <h3 class="ytm-shelf-title">ミックスリスト</h3>
+                            <span class="ytm-shelf-sub">あなた好みの楽曲とおすすめがブレンドされたノンストップミックス</span>
+                        </div>
+                        <div class="ytm-shelf-nav">
+                            <button type="button" class="ytm-nav-btn" onclick="scrollShelf('ytm-mixes-shelf', -1)" aria-label="前へ"><span class="material-symbols-rounded">chevron_left</span></button>
+                            <button type="button" class="ytm-nav-btn" onclick="scrollShelf('ytm-mixes-shelf', 1)" aria-label="次へ"><span class="material-symbols-rounded">chevron_right</span></button>
+                        </div>
+                    </div>
+                    <div class="ytm-cards-shelf" id="ytm-mixes-shelf"></div>
+                </div>
+
+                <!-- 4. あなたへのおすすめ & ランキング -->
+                <div id="share-recommend" class="share-recommend ytm-shelf-block" hidden></div>
+                <div id="share-ranking" class="share-ranking ytm-shelf-block" hidden></div>
+
+                <!-- 5. みんなの公開プレイリスト (Community Playlists) -->
+                <div class="ytm-shelf-block ytm-community-section" id="ytm-community-section">
+                    <div class="ytm-community-head">
+                        <div class="ytm-community-title-area">
+                            <h3 class="ytm-shelf-title">みんなのプレイリスト</h3>
+                            <span class="share-count-badge ytm-count-badge" id="share-count-badge"></span>
+                        </div>
+                        <div class="radar-map-controls ytm-filter-controls">
+                            <select aria-label="公開リストのカテゴリ" id="share-category" class="ctrl-select ytm-select" onchange="renderSharePlaylists()">
+                                <option value="">すべてのジャンル</option>
+                                <option value="Vocaloid">Vocaloid</option>
+                                <option value="J-POP">J-POP</option>
+                                <option value="Anime">Anime</option>
+                                <option value="Lo-Fi">Lo-Fi</option>
+                                <option value="Other">Other</option>
+                            </select>
+                            <select aria-label="公開リストの並び順" id="share-sort" class="ctrl-select ytm-select" onchange="renderSharePlaylists()" title="並び順">
+                                <option value="popular">人気順</option>
+                                <option value="newest" selected>新着順</option>
+                                <option value="tracks">曲数順</option>
+                            </select>
+                            <button type="button" id="btn-share-random" class="share-random-btn ytm-random-btn" onclick="openRandomSharePlaylist()" title="ランダムに1つ選ぶ"><span class="material-symbols-rounded">radar</span>おまかせ</button>
+                        </div>
+                    </div>
+                    <div class="share-grid-header ytm-grid-header" style="display:none;">
+                        <h3 class="share-grid-title" id="share-grid-title">すべて</h3>
+                    </div>
+                    <div class="grid-container share-grid ytm-grid" id="share-playlists-grid"></div>
+                </div>
             </section>
         </div>
 

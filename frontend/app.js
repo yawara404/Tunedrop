@@ -486,6 +486,8 @@ let allRadarPlaylists = [];
 let allRadarRecentPlaylists = [];
 let sharePlaylists = [];
 let shareRecommended = [];
+let shareQuickPicks = [];
+let shareMood = 'all';
 let currentTracks = [];
 let currentDetailTracks = [];
 let currentDetailIsMine = false;   // 表示中のリストが自分のものか (移動・削除の可否)
@@ -3227,6 +3229,7 @@ export function renderPlaylistNav(playlists) {
         const listsToRender = currentPlaylistId === 'fav_playlists' ? playlists.filter(p => p.is_favorite == 1) : playlists;
         renderManagerHome(listsToRender);
     }
+    try { renderShareSidebarPlaylists(); } catch (_) {}
 }
 
 // ==========================================================
@@ -7682,8 +7685,546 @@ export function playRadarRandomThree() {
 }
 
 // ==========================================================
-// Share: みんなの公開プレイリスト一覧
+// Share: YouTube Music 風 エクスプローラー
+// (YouTube Music Weekend 特集, ミックスリスト, クイック ピック, 公開リスト)
 // ==========================================================
+
+export function scrollShelf(shelfId, direction) {
+    const el = document.getElementById(shelfId);
+    if (!el) return;
+    const distance = Math.max(280, el.clientWidth * 0.75);
+    el.scrollBy({ left: direction * distance, behavior: 'smooth' });
+}
+if (typeof window !== 'undefined') window.scrollShelf = scrollShelf;
+
+export const YTM_WEEKEND_STAGES = [
+    {
+        id: 'main',
+        title: 'STAGE 1: メガヒット・メインステージ',
+        subtitle: 'YOASOBI、米津玄師、King Gnu、LiSA、Vaundy',
+        badge: 'MAIN STAGE',
+        description: 'フェスを沸かせる国内最高峰のアンセム＆スタジアムライブ',
+        coverGradient: 'linear-gradient(135deg, rgba(229, 9, 20, 0.45) 0%, rgba(32, 12, 16, 0.95) 100%)',
+        accentColor: '#ff4d4d',
+        tracks: [
+            { youtube_id: 'x8VYWazR5mE', title: 'YOASOBI「夜に駆ける」', channel: 'YOASOBI', category: 'J-POP' },
+            { youtube_id: 'SX_ViT4Ra7k', title: '米津玄師 - Lemon', channel: 'Kenshi Yonezu 米津玄師', category: 'J-POP' },
+            { youtube_id: 'ony539T074w', title: 'King Gnu - 白日', channel: 'King Gnu official', category: 'J-POP' },
+            { youtube_id: 'MpYy6wwqxoo', title: 'LiSA - 紅蓮華', channel: 'THE FIRST TAKE', category: 'J-POP' },
+            { youtube_id: 'cZYYwtnUarU', title: '東京真中 - レムニスケート feat. 初音ミク', channel: '東京真中', category: 'Other' },
+        ]
+    },
+    {
+        id: 'vocaloid_net',
+        title: 'STAGE 2: インターネット・ネクスト',
+        subtitle: 'Kanaria、DECO*27、ピノキオピー、kz、higma',
+        badge: 'NET POP',
+        description: 'ボーカロイド＆ネットカルチャーの先端を走るクリエイター達',
+        coverGradient: 'linear-gradient(135deg, rgba(0, 198, 255, 0.35) 0%, rgba(10, 24, 38, 0.95) 100%)',
+        accentColor: '#00d2ff',
+        tracks: [
+            { youtube_id: 'cm-l2h6GB8Q', title: '【GUMI】KING【Kanaria】', channel: 'Kanaria', category: 'Vocaloid' },
+            { youtube_id: 'ecU_uJRzhfk', title: 'sasakure.UK x DECO*27 - 39 feat. 初音ミク', channel: 'U/M/A/A Inc.', category: 'Vocaloid' },
+            { youtube_id: 'uSijY6BEMRE', title: 'Yellow', channel: 'kz (livetune)', category: 'Vocaloid' },
+            { youtube_id: '86LKuj-DK04', title: 'higma - echo feat. 初音ミク', channel: 'higma', category: 'Vocaloid' },
+            { youtube_id: '_UyCmkC64zk', title: 'KAIRUI & higma - ネバーエンド', channel: 'KAIRUI', category: 'Vocaloid' },
+            { youtube_id: 'qH0_nPqcQvk', title: 'バックヤード / 初音ミク', channel: '佐藤乃子', category: 'Vocaloid' },
+        ]
+    },
+    {
+        id: 'midnight_chill',
+        title: 'STAGE 3: ミッドナイト・チル＆メロウ',
+        subtitle: 'ずっと真夜中でいいのに。、笹川真生、初星学園、Lo-Fi',
+        badge: 'CHILL & NIGHT',
+        description: '深夜の静寂に寄り添う、エモーショナルで心地よいグルーヴ',
+        coverGradient: 'linear-gradient(135deg, rgba(138, 35, 135, 0.4) 0%, rgba(28, 14, 36, 0.95) 100%)',
+        accentColor: '#e94057',
+        tracks: [
+            { youtube_id: 'GJI4Gv7NbmE', title: 'ずっと真夜中でいいのに。『秒針を噛む』MV', channel: 'ずっと真夜中でいいのに。 ZUTOMAYO', category: 'J-POP' },
+            { youtube_id: '4cArp-fgrOU', title: '笹川真生 - サニーサイドへようこそ', channel: '笹川真生 - Mao Sasagawa', category: 'Lo-Fi' },
+            { youtube_id: 'X1xcOhkgc4c', title: '初星学園 「ヨルニテ」Official Music Video', channel: '初星学園', category: 'Anime' },
+            { youtube_id: 'LzvR25RZUE8', title: 'ぎゅる子 - 天使だったんだよ', channel: 'ぎゅる子', category: 'Lo-Fi' },
+            { youtube_id: 'XLwmEuM0dIw', title: '初星学園 「サンフェーデッド」Official MV', channel: '初星学園', category: 'Anime' },
+        ]
+    },
+    {
+        id: 'rock_alt',
+        title: 'STAGE 4: 爆音オルタナティブ・ロック',
+        subtitle: 'LiSA、King Gnu、kz (livetune)、バンドサウンド',
+        badge: 'ROCK STAGE',
+        description: '心拍数を引き上げる、疾走感あふれるハイエナジーなステージ',
+        coverGradient: 'linear-gradient(135deg, rgba(241, 39, 17, 0.4) 0%, rgba(36, 16, 12, 0.95) 100%)',
+        accentColor: '#f5af19',
+        tracks: [
+            { youtube_id: 'MpYy6wwqxoo', title: 'LiSA - 紅蓮華', channel: 'THE FIRST TAKE', category: 'Anime' },
+            { youtube_id: 'ony539T074w', title: 'King Gnu - 白日', channel: 'King Gnu official', category: 'J-POP' },
+            { youtube_id: 'bPI0_YzOiEw', title: 'i wanna be your world', channel: 'kz (livetune)', category: 'J-POP' },
+            { youtube_id: 'x8VYWazR5mE', title: 'YOASOBI「夜に駆ける」', channel: 'YOASOBI', category: 'J-POP' },
+        ]
+    }
+];
+
+export const YTM_MIXES = [
+    {
+        id: 'supermix',
+        title: 'マイ スーパーミックス',
+        subtitle: 'あなたのお気に入りとおすすめをブレンド',
+        badge: 'SUPERMIX',
+        icon: 'auto_awesome',
+        gradient: 'linear-gradient(135deg, rgba(212, 225, 87, 0.22) 0%, rgba(30, 32, 22, 0.95) 100%)'
+    },
+    {
+        id: 'chill',
+        title: 'チル ミックス',
+        subtitle: '夜やリラックスタイムに最適な心地よいビート',
+        badge: 'CHILL',
+        icon: 'favorite',
+        gradient: 'linear-gradient(135deg, rgba(90, 80, 140, 0.35) 0%, rgba(20, 18, 30, 0.95) 100%)'
+    },
+    {
+        id: 'energy',
+        title: 'エナジー ミックス',
+        subtitle: 'ドライブや作業が捗るハイテンポなナンバー',
+        badge: 'ENERGY',
+        icon: 'insights',
+        gradient: 'linear-gradient(135deg, rgba(245, 100, 80, 0.35) 0%, rgba(32, 18, 16, 0.95) 100%)'
+    },
+    {
+        id: 'vocaloid',
+        title: 'ボカロ＆ネット発 ミックス',
+        subtitle: '初音ミクやネット発クリエイターの名曲',
+        badge: 'NET POP',
+        icon: 'queue_music',
+        gradient: 'linear-gradient(135deg, rgba(56, 239, 125, 0.3) 0%, rgba(14, 28, 22, 0.95) 100%)'
+    },
+    {
+        id: 'discover',
+        title: '発掘ミックス',
+        subtitle: 'まだ聴いたことのない新しい音楽との出会い',
+        badge: 'DISCOVER',
+        icon: 'explore',
+        gradient: 'linear-gradient(135deg, rgba(71, 118, 230, 0.35) 0%, rgba(16, 22, 38, 0.95) 100%)'
+    },
+    {
+        id: 'jpop_hit',
+        title: 'J-POP ヒットミックス',
+        subtitle: '話題の最新ヒット曲＆歴代アンセム',
+        badge: 'HIT MIX',
+        icon: 'music_note',
+        gradient: 'linear-gradient(135deg, rgba(255, 100, 130, 0.35) 0%, rgba(34, 16, 22, 0.95) 100%)'
+    }
+];
+
+export function playYTMStage(stageIndex, shuffle = false) {
+    let queue = [];
+    let name = '';
+    if (stageIndex === -1) {
+        name = 'YouTube Music Weekend 全ステージ';
+        const seen = new Set();
+        YTM_WEEKEND_STAGES.forEach(st => {
+            st.tracks.forEach(t => {
+                if (t.youtube_id && !seen.has(t.youtube_id)) {
+                    seen.add(t.youtube_id);
+                    queue.push(t);
+                }
+            });
+        });
+    } else {
+        const stage = YTM_WEEKEND_STAGES[stageIndex];
+        if (!stage) return;
+        name = stage.title;
+        queue = [...stage.tracks];
+    }
+    if (shuffle) {
+        queue = [...queue].sort(() => Math.random() - 0.5);
+    }
+    if (!queue.length) return;
+    playTrackFromQueue(0, queue);
+    showToast(`「${name}」を再生開始しました（${queue.length}曲）`);
+}
+
+export function getMixTracks(mixId) {
+    const mix = YTM_MIXES.find(m => m.id === mixId);
+    if (!mix) return [];
+    const pool = [...(shareQuickPicks || [])];
+    YTM_WEEKEND_STAGES.forEach(s => s.tracks.forEach(t => pool.push(t)));
+    const seen = new Set();
+    const uniquePool = pool.filter(t => {
+        if (!t?.youtube_id || seen.has(t.youtube_id)) return false;
+        seen.add(t.youtube_id);
+        return true;
+    });
+
+    if (mixId === 'supermix') return uniquePool;
+    if (mixId === 'chill') {
+        const matches = uniquePool.filter(t => (t.category === 'Lo-Fi' || t.category === 'Other' || (t.title || '').includes('チル') || (t.title || '').includes('夜')));
+        return matches.length >= 3 ? matches : uniquePool.slice(0, 8);
+    }
+    if (mixId === 'energy') {
+        const matches = uniquePool.filter(t => (t.category === 'J-POP' || t.category === 'Anime' || (t.title || '').includes('紅蓮華') || (t.title || '').includes('KING')));
+        return matches.length >= 3 ? matches : uniquePool.slice(0, 8);
+    }
+    if (mixId === 'vocaloid') {
+        const matches = uniquePool.filter(t => (t.category === 'Vocaloid' || (t.title || '').includes('ミク') || (t.title || '').includes('GUMI') || (t.channel || '').includes('livetune') || (t.channel || '').includes('Kanaria')));
+        return matches.length >= 3 ? matches : uniquePool.slice(0, 8);
+    }
+    if (mixId === 'jpop_hit') {
+        const matches = uniquePool.filter(t => (t.category === 'J-POP' || t.category === 'Anime'));
+        return matches.length >= 3 ? matches : uniquePool.slice(0, 8);
+    }
+    return [...uniquePool].reverse();
+}
+
+export function playMix(mixId) {
+    const tracks = getMixTracks(mixId);
+    if (!tracks.length) {
+        showToast('ミックスの楽曲を読み込めませんでした。', 'info');
+        return;
+    }
+    const mix = YTM_MIXES.find(m => m.id === mixId);
+    playTrackFromQueue(0, tracks);
+    showToast(`「${mix?.title || 'ミックス'}」の再生を開始しました（${tracks.length}曲）`);
+}
+
+export function renderYTMWeekend() {
+    const container = document.getElementById('ytm-stages-shelf');
+    if (!container) return;
+    container.innerHTML = '';
+    YTM_WEEKEND_STAGES.forEach((stage, idx) => {
+        const card = document.createElement('div');
+        card.className = 'ytm-stage-card';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.title = `${stage.title} を再生`;
+        card.innerHTML = `
+            <div class="ytm-stage-art" style="background: ${stage.coverGradient};">
+                <span class="ytm-stage-badge">${escapeHtml(stage.badge)}</span>
+                <div class="ytm-stage-play-btn" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+            </div>
+            <div class="ytm-stage-info">
+                <h4 class="ytm-stage-title">${escapeHtml(stage.title)}</h4>
+                <div class="ytm-stage-artists">${escapeHtml(stage.subtitle)}</div>
+                <div class="ytm-stage-meta">${stage.tracks.length}曲 · YouTube Music Weekend</div>
+            </div>
+        `;
+        card.onclick = () => playYTMStage(idx);
+        card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playYTMStage(idx); } };
+        container.appendChild(card);
+    });
+
+    const playAllBtn = document.getElementById('btn-ytm-weekend-play');
+    if (playAllBtn) playAllBtn.onclick = () => playYTMStage(-1, false);
+    const shuffleBtn = document.getElementById('btn-ytm-weekend-shuffle');
+    if (shuffleBtn) shuffleBtn.onclick = () => playYTMStage(-1, true);
+}
+
+export function renderShareMixes() {
+    const container = document.getElementById('ytm-mixes-shelf');
+    if (!container) return;
+    container.innerHTML = '';
+    YTM_MIXES.forEach(mix => {
+        const card = document.createElement('div');
+        card.className = 'ytm-mix-card';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.title = `${mix.title} を再生`;
+        card.innerHTML = `
+            <div class="ytm-mix-art" style="background: ${mix.gradient};">
+                <span class="ytm-mix-badge">${escapeHtml(mix.badge)}</span>
+                <span class="material-symbols-rounded ytm-mix-icon">${mix.icon}</span>
+                <div class="ytm-mix-play-overlay" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+            </div>
+            <div class="ytm-mix-info">
+                <h4 class="ytm-mix-title">${escapeHtml(mix.title)}</h4>
+                <div class="ytm-mix-sub">${escapeHtml(mix.subtitle)}</div>
+            </div>
+        `;
+        card.onclick = () => playMix(mix.id);
+        card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playMix(mix.id); } };
+        container.appendChild(card);
+    });
+}
+
+export const YTM_REPLAY_PICKS = [
+    {
+        id: 'replay-1',
+        youtube_id: '4cArp-fgrOU',
+        title: 'we are friends',
+        artist: 'アルバム • mao sasagawa',
+        thumbnail: 'https://img.youtube.com/vi/4cArp-fgrOU/mqdefault.jpg',
+        type: 'track'
+    },
+    {
+        id: 'replay-2',
+        youtube_id: 'm2O_b7qS0Gg',
+        title: 'モニタリング',
+        artist: '曲 • DECO*27',
+        thumbnail: 'https://img.youtube.com/vi/m2O_b7qS0Gg/mqdefault.jpg',
+        type: 'track'
+    },
+    {
+        id: 'replay-3',
+        youtube_id: 'i1D9aU_8tFw',
+        title: 'いのちが見たい (feat. 重音テト)',
+        artist: '曲 • ぬゆり、重音テト',
+        thumbnail: 'https://img.youtube.com/vi/i1D9aU_8tFw/mqdefault.jpg',
+        type: 'track'
+    },
+    {
+        id: 'replay-4',
+        youtube_id: 'u_n-k1L_0Lg',
+        title: 'スノードロップ',
+        artist: '曲 • ちいたな、初音ミク',
+        thumbnail: 'https://img.youtube.com/vi/u_n-k1L_0Lg/mqdefault.jpg',
+        type: 'track'
+    },
+    {
+        id: 'replay-5',
+        title: 'AT358選 Ver.6.02ds',
+        artist: 'Wawa404 • 358トラック',
+        thumbnail: '',
+        is_playlist: true,
+        type: 'playlist'
+    },
+    {
+        id: 'replay-6',
+        youtube_id: '7C6d0p7iT-Q',
+        title: '思念の揺曳する箱庭。',
+        artist: 'qlaywo • 184回視聴',
+        thumbnail: 'https://img.youtube.com/vi/7C6d0p7iT-Q/mqdefault.jpg',
+        type: 'track'
+    }
+];
+
+export function renderShareSidebarPlaylists() {
+    const nav = document.getElementById('share-playlist-nav');
+    if (!nav) return;
+    nav.innerHTML = '';
+
+    // 自動再生リスト (YouTube Music スクリーンショット準拠)
+    const quickFav = document.createElement('li');
+    quickFav.className = 'ytm-playlist-item';
+    quickFav.innerHTML = `
+        <span class="ytm-playlist-item-name">高く評価した音楽</span>
+        <span class="ytm-playlist-item-sub">自動再生リスト</span>
+    `;
+    quickFav.onclick = () => {
+        selectPlaylist('fav_tracks');
+        navigateView('manager');
+    };
+    nav.appendChild(quickFav);
+
+    const quickNew = document.createElement('li');
+    quickNew.className = 'ytm-playlist-item';
+    quickNew.innerHTML = `
+        <span class="ytm-playlist-item-name">新エピソード</span>
+        <span class="ytm-playlist-item-sub">自動再生リスト</span>
+    `;
+    quickNew.onclick = () => {
+        selectPlaylist(null);
+        navigateView('manager');
+    };
+    nav.appendChild(quickNew);
+
+    const userLists = (allPlaylists || []).filter(l => !isSystemPlaylist(l));
+    if (userLists.length > 0) {
+        userLists.forEach(list => {
+            const li = document.createElement('li');
+            li.className = 'ytm-playlist-item';
+            li.title = list.name;
+            const trackCount = list.track_count ?? 0;
+            const ownerName = currentUser?.display_name || 'Wawa404';
+            li.innerHTML = `
+                <span class="ytm-playlist-item-name">${escapeHtml(list.name)}</span>
+                <span class="ytm-playlist-item-sub">${escapeHtml(ownerName)}${trackCount ? ` · ${trackCount}トラック` : ''}</span>
+            `;
+            li.onclick = () => {
+                openPlaylistDetail(list.id, list.name, list.cover_id);
+            };
+            nav.appendChild(li);
+        });
+    } else {
+        const sampleLists = [
+            { name: '2026 Lo3 vc256', sub: 'Wawa404' },
+            { name: 'AT358選 Ver.6.02ds', sub: 'Wawa404 · 358トラック' },
+            { name: '予測不能なリズムで駆け抜け...', sub: 'YouTube Music' },
+            { name: 'ødyzon releases (alone)', sub: 'Ødyzon' },
+            { name: 'weirdo girl & snafu radio', sub: 'Megan L' },
+            { name: 'カバーを作れ', sub: 'Wawa404' }
+        ];
+        sampleLists.forEach(item => {
+            const li = document.createElement('li');
+            li.className = 'ytm-playlist-item';
+            li.innerHTML = `
+                <span class="ytm-playlist-item-name">${escapeHtml(item.name)}</span>
+                <span class="ytm-playlist-item-sub">${escapeHtml(item.sub)}</span>
+            `;
+            li.onclick = () => {
+                navigateView('manager');
+            };
+            nav.appendChild(li);
+        });
+    }
+}
+
+export function playAllReplayTracks() {
+    const queue = [];
+    YTM_REPLAY_PICKS.forEach(item => {
+        if (item.youtube_id) {
+            queue.push({
+                youtube_id: item.youtube_id,
+                title: item.title,
+                channel: item.artist.replace(/^(曲|アルバム)\s*•\s*/, '')
+            });
+        }
+    });
+    if (!queue.length) return;
+    playTrackFromQueue(0, queue);
+    showToast(`「もう一度聴く」の再生を開始しました（${queue.length}曲）`);
+}
+
+export function renderYTMReplayShelf() {
+    const container = document.getElementById('ytm-replay-shelf');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const handleEl = document.getElementById('ytm-user-handle');
+    if (handleEl) handleEl.textContent = currentUser?.display_name || 'WAWA404';
+    const avatarEl = document.getElementById('ytm-user-avatar');
+    if (avatarEl) avatarEl.textContent = 'ZZZ';
+
+    const playAllBtn = document.getElementById('btn-ytm-replay-all');
+    if (playAllBtn) {
+        playAllBtn.onclick = () => playAllReplayTracks();
+    }
+
+    const items = [...YTM_REPLAY_PICKS];
+    if (shareQuickPicks && shareQuickPicks.length) {
+        shareQuickPicks.slice(0, 6).forEach((qp, idx) => {
+            if (!items.some(it => it.youtube_id === qp.youtube_id)) {
+                items.push({
+                    id: `qp-${idx}`,
+                    youtube_id: qp.youtube_id,
+                    title: qp.title || 'Unknown',
+                    artist: `曲 • ${qp.channel || 'Artist'}`,
+                    thumbnail: `https://img.youtube.com/vi/${qp.youtube_id}/mqdefault.jpg`,
+                    type: 'track'
+                });
+            }
+        });
+    }
+
+    items.forEach((item) => {
+        const card = document.createElement('div');
+        card.className = 'ytm-square-card';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.title = `${item.title} を再生`;
+
+        let coverContent = '';
+        if (item.is_playlist) {
+            coverContent = `
+                <div style="width:100%; height:100%; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; background:#222;">
+                    <div style="background:#e50914; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">music_note</span></div>
+                    <div style="background:#00c6ff; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">explore</span></div>
+                    <div style="background:#8a2387; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">favorite</span></div>
+                    <div style="background:#11998e; display:flex; align-items:center; justify-content:center;"><span class="material-symbols-rounded" style="color:#fff; font-size:20px;">queue_music</span></div>
+                </div>
+            `;
+        } else if (item.thumbnail) {
+            coverContent = `<img src="${item.thumbnail}" alt="" loading="lazy">`;
+        } else {
+            coverContent = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#18181b;"><span class="material-symbols-rounded" style="font-size:48px; color:#555;">music_note</span></div>`;
+        }
+
+        card.innerHTML = `
+            <div class="ytm-card-cover-wrap">
+                ${coverContent}
+                <div class="ytm-card-center-play">
+                    <div class="ytm-card-center-play-icon" title="再生"><span class="material-symbols-rounded">play_arrow</span></div>
+                </div>
+            </div>
+            <div class="ytm-card-text">
+                <h4 class="ytm-card-title">${escapeHtml(item.title)}</h4>
+                <div class="ytm-card-artist">${escapeHtml(item.artist)}</div>
+            </div>
+        `;
+
+        card.onclick = () => {
+            if (item.is_playlist) {
+                const targetPl = (allPlaylists || []).find(p => p.name === item.title) || (allPlaylists || [])[0];
+                if (targetPl) {
+                    openPlaylistDetail(targetPl.id, targetPl.name, targetPl.cover_id);
+                } else {
+                    navigateView('manager');
+                }
+            } else if (item.youtube_id) {
+                const queue = items.filter(it => it.youtube_id).map(it => ({
+                    youtube_id: it.youtube_id,
+                    title: it.title,
+                    channel: it.artist.replace(/^(曲|アルバム)\s*•\s*/, '')
+                }));
+                const qIdx = queue.findIndex(it => it.youtube_id === item.youtube_id);
+                playTrackFromQueue(Math.max(0, qIdx), queue);
+            }
+        };
+
+        card.onkeydown = (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                card.click();
+            }
+        };
+
+        container.appendChild(card);
+    });
+}
+
+export function bindShareMoodChips() {
+    const strip = document.getElementById('share-mood-chips');
+    if (!strip) return;
+    strip.querySelectorAll('.ytm-chip').forEach(chip => {
+        chip.onclick = () => {
+            strip.querySelectorAll('.ytm-chip').forEach(c => c.classList.remove('is-active'));
+            chip.classList.add('is-active');
+            const target = chip.dataset.chip;
+            shareMood = target;
+
+            if (target === 'weekend') {
+                document.getElementById('ytm-weekend-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (target === 'replay') {
+                document.getElementById('ytm-replay-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (target === 'mixes') {
+                document.getElementById('ytm-mixes-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (target === 'relax') {
+                const cat = document.getElementById('share-category');
+                if (cat) { cat.value = 'Lo-Fi'; renderSharePlaylists(); }
+                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (target === 'energy') {
+                const cat = document.getElementById('share-category');
+                if (cat) { cat.value = 'J-POP'; renderSharePlaylists(); }
+                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (target === 'vocaloid') {
+                const cat = document.getElementById('share-category');
+                if (cat) { cat.value = 'Vocaloid'; renderSharePlaylists(); }
+                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (target === 'jpop') {
+                const cat = document.getElementById('share-category');
+                if (cat) { cat.value = 'J-POP'; renderSharePlaylists(); }
+                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else if (target === 'anime') {
+                const cat = document.getElementById('share-category');
+                if (cat) { cat.value = 'Anime'; renderSharePlaylists(); }
+                document.getElementById('ytm-community-section')?.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                const cat = document.getElementById('share-category');
+                if (cat) { cat.value = ''; renderSharePlaylists(); }
+                document.getElementById('view-share')?.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        };
+    });
+}
+
 export async function loadSharePlaylists() {
     // 未ログイン (デモ表示) ではAPIを呼ばない
     if (!hasAccountSession()) return;
@@ -7691,9 +8232,10 @@ export async function loadSharePlaylists() {
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';
     try {
-        const [pubRes, recRes] = await Promise.all([
+        const [pubRes, recRes, qpRes] = await Promise.all([
             tunedropFetch('api.php?action=get_public_playlists'),
             tunedropFetch('api.php?action=get_recommended_playlists&limit=6').catch(() => null),
+            tunedropFetch('api.php?action=get_quick_picks&limit=24').catch(() => null),
         ]);
         const publicLists = await pubRes.json();
         if (!pubRes.ok || !Array.isArray(publicLists)) throw new Error('公開リストを取得できませんでした。');
@@ -7702,6 +8244,16 @@ export async function loadSharePlaylists() {
             const recommended = recRes && recRes.ok ? await recRes.json() : [];
             shareRecommended = Array.isArray(recommended) ? recommended : [];
         } catch (_) { shareRecommended = []; }
+        try {
+            const quickPicks = qpRes && qpRes.ok ? await qpRes.json() : [];
+            shareQuickPicks = Array.isArray(quickPicks) ? quickPicks : [];
+        } catch (_) { shareQuickPicks = []; }
+
+        bindShareMoodChips();
+        renderShareSidebarPlaylists();
+        renderYTMReplayShelf();
+        renderYTMWeekend();
+        renderShareMixes();
         renderSharePlaylists();
     } catch (err) {
         grid.innerHTML = '<div class="ui-load-error" role="status"><strong>公開リストを読み込めませんでした</strong><p>接続を確認して、もう一度お試しください。</p><button type="button" onclick="loadSharePlaylists()">再試行</button></div>';
@@ -7790,6 +8342,15 @@ export function renderSharePlaylists() {
     updateShareClearButton();
     const { query, category, sortMode, filtered, sorted } = getShareFiltered();
     const all = sharePlaylists || [];
+
+    // 検索語が入力されているときは上部のWeekend・Mixes・QuickPicksを非表示にして検索結果に集中させる
+    const searching = Boolean(query);
+    const weekendSec = document.getElementById('ytm-weekend-section');
+    const mixesSec = document.getElementById('ytm-mixes-section');
+    const qpSec = document.getElementById('ytm-quickpicks-section');
+    if (weekendSec) weekendSec.style.display = searching ? 'none' : '';
+    if (mixesSec) mixesSec.style.display = searching ? 'none' : '';
+    if (qpSec) qpSec.style.display = searching ? 'none' : '';
 
     const { sorted: popularSorted } = sharePopularRanks(all);
     renderShareRanking(popularSorted);

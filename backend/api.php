@@ -1534,6 +1534,29 @@ try {
             echo json_encode($playlists, JSON_UNESCAPED_UNICODE);
             break;
 
+        case 'get_quick_picks': {
+            // YouTube Music 風の「クイック ピック」用楽曲一覧
+            // 公開プレイリスト内の人気楽曲および最新楽曲を抽出し、重複を除いて返す。
+            $limit = max(8, min(48, (int)($_GET['limit'] ?? 24)));
+            $stmt = $db->query(
+                "SELECT b.youtube_id,
+                        MAX(b.title) AS title,
+                        MAX(b.channel) AS channel,
+                        MAX(p.category) AS category,
+                        COUNT(b.id) AS pick_count,
+                        MIN(b.id) AS id
+                 FROM bookmarks b
+                 JOIN playlists p ON b.playlist_id = p.id
+                 WHERE p.is_public = 1 AND b.youtube_id IS NOT NULL AND b.youtube_id != ''
+                 GROUP BY b.youtube_id
+                 ORDER BY pick_count DESC, id DESC
+                 LIMIT {$limit}"
+            );
+            $tracks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode($tracks, JSON_UNESCAPED_UNICODE);
+            break;
+        }
+
         case 'get_profile_activity': {
             // プロフィールの統計カードをクリックしたときの「簡易ログ」。
             header('Cache-Control: no-store');
