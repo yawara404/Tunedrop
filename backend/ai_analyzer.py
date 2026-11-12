@@ -37,9 +37,11 @@ load_environment()
 # APIキーは環境変数から取得。Python起動時に非公開の .env を読み込みます。
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
-# Gemini API (generateContent) REST エンドポイント
-#   https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+# Gemini API REST エンドポイント (Interactions API / generateContent)
+# gemini-api-dev スキル準拠: POST /v1beta/interactions (Api-Revision: 2026-05-20)
+GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GEMINI_URL = GEMINI_GENERATE_URL  # 互換用別名
 # Antigravity標準の最新Geminiモデル群 (上から順に試行)。
 # 既定最優先は gemini-3.8-flash。高速・軽量フォールバックに gemini-4-argon / gemini-3.5-flash-lite / gemini-3.1-flash-lite。
 # 旧モデル (gemini-2.0-flash / gemini-1.5-flash / gemini-2.5-flash / gemini-3.6-flash) は廃止または非推奨。
@@ -483,7 +485,45 @@ def _build_prompt(title, channel, category):
 
 
 def _gemini_generate(prompt, model, with_thinking_config=True):
-    """1モデル・1回分の generateContent 呼び出し。テキストを返す。"""
+    """Gemini API 呼び出し。
+    gemini-api-dev スキル準拠: Interactions API (POST /v1beta/interactions) を優先し、
+    未対応環境では従来の generateContent にフォールバックする。
+    """
+    # 1. モダンな Interactions API (2026 推奨仕様) を試行
+    try:
+        body = json.dumps({
+            "model": model,
+            "input": prompt,
+            "response_format": {"type": "text", "mime_type": "application/json"}
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            GEMINI_INTERACTIONS_URL, data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Api-Revision": "2026-05-20",
+                "x-goog-api-key": GEMINI_API_KEY,
+            })
+        with urllib.request.urlopen(req, timeout=GEMINI_TIMEOUT) as res:
+            data = json.load(res)
+        if isinstance(data, dict):
+            if data.get("output_text"):
+                return data["output_text"]
+            text_parts = []
+            for step in data.get("steps", []):
+                if step.get("type") == "model_output":
+                    for c in step.get("content", []):
+                        if c.get("type") == "text" and c.get("text"):
+                            text_parts.append(c["text"])
+            if text_parts:
+                return "".join(text_parts)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 402, 403):
+            raise  # 認証・課金エラーはそのまま上に伝播して高速フォールバック
+        # 400/404 などの場合は従来の generateContent へフォールバック
+    except Exception:
+        pass
+
+    # 2. 従来の generateContent API エンドポイント
     cfg = {"temperature": 0.2, "maxOutputTokens": GEMINI_MAX_TOKENS}
     if with_thinking_config and GEMINI_THINKING_BUDGET >= 0:
         cfg["thinkingConfig"] = {"thinkingBudget": GEMINI_THINKING_BUDGET}
@@ -492,7 +532,7 @@ def _gemini_generate(prompt, model, with_thinking_config=True):
         "generationConfig": cfg,
     }).encode("utf-8")
     req = urllib.request.Request(
-        GEMINI_URL.format(model=model), data=body,
+        GEMINI_GENERATE_URL.format(model=model), data=body,
         headers={
             "Content-Type": "application/json",
             "x-goog-api-key": GEMINI_API_KEY,
@@ -513,6 +553,7 @@ def _call_gemini(title, channel, category):
 
     - 思考トークンで出力が尽きないよう thinkingBudget=0 を指定
     - thinkingConfig 非対応モデル (HTTP 400) は指定なしで再試行
+    - 401/402/403 (認証・課金切れ) は全モデル共通のため即時フォールバック
     - 429/503 などの一時エラーはバックオフして再試行し、次モデルへフォールバック
     """
     prompt = _build_prompt(title, channel, category)
@@ -527,6 +568,9 @@ def _call_gemini(title, channel, category):
                 except urllib.error.HTTPError as e:
                     detail = e.read().decode("utf-8", "ignore")[:160]
                     last_err = f"HTTP {e.code} ({model}): {detail}"
+                    if e.code in (401, 402, 403):
+                        # 認証切れ・前払いクレジット切れは再試行せず即時終了してOllamaへ
+                        raise RuntimeError(f"Gemini API auth/billing error ({last_err})")
                     if e.code in (400, 404) and with_thinking:
                         continue          # thinkingConfig 非対応 → 指定なしで再試行
                     break
