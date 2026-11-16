@@ -3396,7 +3396,16 @@ body.player-in-sidebar .youtube-popup.is-active {
     z-index: 99;
     overflow: hidden;
     transform: translateY(150%);
-    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    /* 閉じている間は transform だけに頼らず opacity / visibility でも隠す。
+       translateY(150%) は「元の位置 (bottom: 110px) から自分の高さの1.5倍下」
+       へ動かすだけなので、ドラッグでプレイヤーを上へ移動したあとに閉じると
+       (例: top: 65px + 300px) 画面内に残ってしまい「×を押しても消えない」状態になる。
+       visibility はアニメーション終了後に切り替え、スライドアウトは維持する。 */
+    opacity: 0;
+    visibility: hidden;
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+        opacity 0.15s ease,
+        visibility 0s linear 0.15s;
     pointer-events: none;
 }
 
@@ -3479,6 +3488,11 @@ body.player-in-sidebar .youtube-popup.is-active {
 
 .youtube-popup.is-active {
     transform: translateY(0);
+    opacity: 1;
+    visibility: visible;
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+        opacity 0.15s ease,
+        visibility 0s;
     pointer-events: auto;
 }
 
