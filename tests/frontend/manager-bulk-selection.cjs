@@ -2,7 +2,7 @@
 // Manager: 複数選択 (一括操作) の単体テスト
 // ----------------------------------------------------------
 // 使い方:
-//   node tests/manager-bulk-selection.cjs
+//   node tests/frontend/manager-bulk-selection.cjs
 // ==========================================================
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -165,7 +165,7 @@ const windowMock = {
     matchMedia() { return { matches: false, addEventListener() { } }; },
 };
 
-const code = fs.readFileSync('frontend/app.js', 'utf8')
+const code = fs.readFileSync(`${__dirname}/../../frontend/src/app.js`, 'utf8')
     .replace(/^export /gm, '');
 
 const fetchCalls = [];

@@ -3,7 +3,7 @@
 // ----------------------------------------------------------
 // frontend/index.html はこのファイルだけを読み込み、config.js / app.js /
 // style.css はここから取り込む (index.html に個別の <script> / <link> は書かない)。
-// ビルド成果物はプロジェクト直下の index.html + assets/ (PHP と同じ docroot)。
+// ビルド成果物は frontend/dist/ に出力し、backend/router.php が配信する。
 //
 // config.js は window.TUNEDROP_CONFIG を作るのが目的なので、名前を付けずに
 // 副作用として読み込む。export して値として受け取る形にすると、使われていない

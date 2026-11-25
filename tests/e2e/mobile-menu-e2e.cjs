@@ -5,22 +5,21 @@
 // 「メニューを開いている間に他の操作をしたら閉じる」ことを検証する。
 //
 // 使い方:
-//   0) 画面をビルドしておく (プロジェクト直下の index.html と assets/ に出力される):
-//      npm run build
-//   1) サーバー起動 (プロジェクト直下で): php -S 127.0.0.1:8199 -t .
+//   0) プロジェクト直下で npm --prefix frontend run build を実行する。
+//   1) 一時 DB を使うローカルの TuneDrop を 8199 番ポートで起動する。
 //   2) Chrome 起動:
 //      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
 //        --headless=new --remote-debugging-port=9222 \
 //        --user-data-dir=/tmp/tunedrop-chrome-e2e about:blank
-//   3) node tests/mobile-menu-e2e.cjs
+//   3) node tests/e2e/mobile-menu-e2e.cjs
 //
 // 環境変数:
-//   TUNEDROP_E2E_BASE … 検証対象ページ (既定 http://127.0.0.1:8199/index.html)
+//   TUNEDROP_E2E_BASE … 検証対象ページ (既定 http://127.0.0.1:8199/tunedrop/)
 //   TUNEDROP_E2E_CDP  … Chrome の DevTools エンドポイント (既定 http://127.0.0.1:9222)
 // ==========================================================
 const assert = require('node:assert/strict');
 
-const BASE = process.env.TUNEDROP_E2E_BASE || 'http://127.0.0.1:8199/index.html';
+const BASE = process.env.TUNEDROP_E2E_BASE || 'http://127.0.0.1:8199/tunedrop/';
 const CDP = process.env.TUNEDROP_E2E_CDP || 'http://127.0.0.1:9222';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 

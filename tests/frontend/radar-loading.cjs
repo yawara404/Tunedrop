@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const src = fs.readFileSync('frontend/app.js','utf8');
+const src = fs.readFileSync(`${__dirname}/../../frontend/src/app.js`,'utf8');
 const begin = src.indexOf('let radarLoadGeneration');
 const end = src.indexOf('// 未解析曲数に応じて',begin);
 const hud = {textContent:''};

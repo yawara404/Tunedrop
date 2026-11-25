@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""favicon-card.png (512x512) を生成する (このスクリプトは frontend/ にある)。
+"""favicon-card.png (512x512) を生成する (このスクリプトは scripts/ にある)。
 
 この画像の用途
 --------------
 favicon-card.png は apple-touch-icon (スマホのホーム画面) 用。
 SNS共有用の OGP カードは 1200x630 の ogp-card.png を使う
-(frontend/make_ogp_card.py で生成)。
+(scripts/make_ogp_card.py で生成)。
 
 デザインは favicon.svg と対になっている (背景色・アクセント色・"T" の位置と大きさ)。
 favicon.svg を変えたときは、このスクリプトの数値も合わせて直して再実行し、
@@ -13,8 +13,8 @@ Git に PNG の差分として残す。
 
 使い方
 ------
-    .venv/bin/python frontend/make_favicon_card.py          # frontend/favicon-card.png を更新
-    .venv/bin/python frontend/make_favicon_card.py out.png  # 出力先を指定
+    .venv/bin/python scripts/make_favicon_card.py          # frontend/favicon-card.png を更新
+    .venv/bin/python scripts/make_favicon_card.py out.png  # 出力先を指定
 """
 import sys
 from pathlib import Path
@@ -25,13 +25,13 @@ from PIL import Image, ImageDraw, ImageFont
 # 「unknown file extension: .png」で保存に失敗するため、必ず先に呼ぶ。
 Image.init()
 
-FRONTEND_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / 'frontend'
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else FRONTEND_DIR / 'favicon-card.png'
 
 SIZE = 512
 VIEW = 64                     # frontend/favicon.svg の viewBox は 0 0 64 64
 SCALE = SIZE / VIEW
-BG = '#121212'                # frontend/style.css の --bg-color
+BG = '#121212'                # frontend/src/style.css の --bg-color
 ICON_BG = '#111111'           # favicon.svg の角丸四角の色
 ACCENT = '#d4e157'            # favicon.svg の "T" の色 (--accent-color)
 FONT_SIZE = 36 * SCALE        # favicon.svg の font-size

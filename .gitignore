@@ -39,10 +39,9 @@ backups/
 /admin/
 /tests/admin-page.py
 /tests/admin-render.cjs
-# 詳細マニュアル: ローカル専用 (GitHubには公開しない)
+# ローカル専用の資料、制作素材、詳細マニュアル
 /README.local.md
-# 検証用テストアカウントのメモ: 本番DBの実在アカウントと管理者APIの手順を含むため公開しない
-/docs/TEST_USER.md
+/docs/
 # プロジェクト内に隔離した PHP ランタイム (公式ソースをビルドしたもの)
 /.php/
 # プロモーション動画フォルダ (mp4 は合計 25MB 超。撮影スクリプトごと GitHub へは載せない)
@@ -51,8 +50,6 @@ backups/
 
 # メンテナンスモードのフラグ (backend/maintenance.sh が作成)
 maintenance.flag
-# 動画・画像の制作素材 (HL2026 提出動画や ProtoPedia 用素材。GitHub へは載せない)
-/docs/media/
 # プロセスIDファイル
 *.pid
 

@@ -191,7 +191,7 @@
             } catch (_) { /* localStorage が使えない環境では通常表示のまま */ }
         })();
     </script>
-    <link rel="stylesheet" href="./style.css">
+    <link rel="stylesheet" href="./src/style.css">
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script>
         window.onYouTubeIframeAPIReady = window.onYouTubeIframeAPIReady || function () { window.__ytApiReadyQueued = true; };
@@ -1803,13 +1803,13 @@
         </div>
     </noscript>
 
-    <!-- 画面のビルドは Vite が行う (frontend/main.js から config.js / app.js / style.css を
-         取り込む)。プロジェクト直下の index.html はこのファイルを元にしたビルド成果物で、
+    <!-- 画面のビルドは Vite が行う (frontend/src/main.js から config.js / app.js / style.css を
+         取り込む)。frontend/dist/index.html はこのファイルを元にしたビルド成果物で、
          そこから ./assets/*.js / *.css を参照する (キャッシュはファイル名のハッシュで管理)。
          このファイルを直に配信することはない (許可リストにも入っていない)。
          開発中は npm run dev (Vite の開発サーバー)、確認は npm run build 後の
-         プロジェクト直下の index.html (または ./start.sh の配信) で行う。 -->
-    <script type="module" src="./main.js"></script>
+         ./backend/start.sh で配信した画面を開く。 -->
+    <script type="module" src="./src/main.js"></script>
 </body>
 
 </html>

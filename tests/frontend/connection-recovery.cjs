@@ -2,13 +2,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-// 接続断バナー / 自動再接続 (frontend/app.js) の検証。
+// 接続断バナー / 自動再接続 (frontend/src/app.js) の検証。
 // 実ブラウザは使わず、DOM と fetch を最小限スタブして次を確認する:
 //   - 起動後の切断は全面オーバーレイではなくバナーを出す
 //   - バナーの「再試行」で health を確認し、復旧したら自動で消える
 //   - 復旧時に tunedrop:reconnected を1回だけ通知する
 //   - オフライン (navigator.onLine=false) では無駄な再試行をしない
-const bundled = fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8').replace(/^export /gm, '');
+const bundled = fs.readFileSync(`${__dirname}/../../frontend/src/app.js`, 'utf8').replace(/^export /gm, '');
 const source = bundled.slice(bundled.indexOf('// ===== api-client'), bundled.indexOf('let player;'));
 
 function element() {

@@ -1,10 +1,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-// api-client は frontend/app.js 先頭に統合済み。統合部分だけ切り出して検証する。
+// api-client は frontend/src/app.js 先頭に統合済み。統合部分だけ切り出して検証する。
 // app.js は Vite が読む ES モジュール (export 付き) なので、vm で classic script として
 // 評価するために export だけ外す (中身は同じ)。
-const bundled = fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8').replace(/^export /gm, '');
+const bundled = fs.readFileSync(`${__dirname}/../../frontend/src/app.js`, 'utf8').replace(/^export /gm, '');
 const apiStart = bundled.indexOf('// ===== api-client');
 const appStart = bundled.indexOf('let player;');
 const source = bundled.slice(apiStart, appStart);

@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const source = fs.readFileSync('frontend/app.js', 'utf8');
+const source = fs.readFileSync(`${__dirname}/../../frontend/src/app.js`, 'utf8');
 const start = source.indexOf('export function radarSelectPlotPoints');
 const end = source.indexOf('/** マップの表示上限を変更する', start);
 assert.ok(start > 0 && end > start, 'radarSelectPlotPoints を抽出できません');

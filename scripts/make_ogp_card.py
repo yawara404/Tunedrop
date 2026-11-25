@@ -7,7 +7,7 @@
   - 背景はアプリと同じダーク。黄色は使わない。
 
 使い方:
-    .venv/bin/python frontend/make_ogp_card.py
+    .venv/bin/python scripts/make_ogp_card.py
 """
 import math
 import sys
@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 Image.init()
 
-FRONTEND_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / 'frontend'
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else FRONTEND_DIR / 'ogp-card.png'
 
 W, H = 1200, 630

@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync('frontend/app.js', 'utf8');
+const source = fs.readFileSync(`${__dirname}/../../frontend/src/app.js`, 'utf8');
 const start = source.indexOf('export function spreadLegacyRadarMap');
 const end = source.indexOf('let radarLoadGeneration', start);
 const ctx = vm.createContext({});

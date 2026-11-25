@@ -2,7 +2,7 @@
 
 frontend/index.html は全アイコン収録版 (約3.1MB) を避けるため icon_names でアイコンを絞っている。
 未知の名前が1つでも混ざると全収録版へフォールバックしてしまうため、
-静的マークアップ (frontend/index.html / frontend/app.js) に書かれたアイコン名が
+静的マークアップ (frontend/index.html / frontend/src/app.js) に書かれたアイコン名が
 icon_names に含まれていることを検証する。
 ビルド済みのバンドル (assets/*.js) があればそちらも検査する (配信される実物で確認する)。
 """
@@ -20,7 +20,7 @@ assert subset, 'icon_names が空です'
 
 used = set()
 # ビルド成果物 (Viteの minify でクォートが ' から ` に変わることがある) も対象にする
-for name in [TEMPLATE, 'frontend/app.js'] + [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'frontend' / 'dist' / 'assets').glob('*.js'))]:
+for name in [TEMPLATE, 'frontend/src/app.js'] + [str(p.relative_to(ROOT)) for p in sorted((ROOT / 'frontend' / 'dist' / 'assets').glob('*.js'))]:
     text = (ROOT / name).read_text(encoding='utf-8')
     # 静的な <span class="material-symbols-rounded">name</span>
     used |= set(re.findall(r'material-symbols-rounded[^>]*>\s*([a-z_]+)\s*<', text))

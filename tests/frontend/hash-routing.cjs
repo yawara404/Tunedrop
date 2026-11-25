@@ -8,7 +8,7 @@
 // - ロゴクリック (goToHome) で Manager + ホーム選択に戻ること
 //
 // 使い方:
-//   node tests/hash-routing.cjs
+//   node tests/frontend/hash-routing.cjs
 // ==========================================================
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -194,7 +194,7 @@ const context = vm.createContext({
 
 // app.js は Vite が読む ES モジュール (export 付き)。vm では classic script として
 // 評価するため export だけ外す (中身は同じ)。
-vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8').replace(/^export /gm, ''), context);
+vm.runInContext(fs.readFileSync(`${__dirname}/../../frontend/src/app.js`, 'utf8').replace(/^export /gm, ''), context);
 const run = code => vm.runInContext(code, context);
 // ビュー切替時のデータ取得とリスト選択は記録だけ行う (DOM/API 不要)
 vm.runInContext(`

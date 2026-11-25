@@ -69,7 +69,7 @@ from supervisor import (  # noqa: E402 (上の sys.path 設定後に読み込む
     supervisor_settings_from_env,
 )
 FRONTEND_SOURCES = (
-    'index.html', 'main.js', 'app.js', 'config.js', 'style.css', 'mobile.css',
+    'index.html',
     'favicon.svg', 'favicon-card.png', 'ogp-card.png',
     'vite.config.mjs', 'package.json', 'package-lock.json',
 )
@@ -371,6 +371,7 @@ def needs_frontend_build() -> bool:
         return True
     index_mtime = index.stat().st_mtime
     sources = [FRONTEND_DIR / name for name in FRONTEND_SOURCES]
+    sources.extend((FRONTEND_DIR / 'src').rglob('*'))
     return any(source.is_file() and source.stat().st_mtime > index_mtime
                for source in sources + public_files)
 

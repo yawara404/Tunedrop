@@ -9,7 +9,7 @@
 // - 曲検索の Enter=先頭を再生 / Escape=クリア
 //
 // 使い方:
-//   node tests/ui-feedback.cjs
+//   node tests/frontend/ui-feedback.cjs
 // ==========================================================
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -189,7 +189,7 @@ context.window.__alerts = [];
 
 // app.js は Vite が読む ES モジュール (export 付き)。vm では classic script として
 // 評価するため export だけ外す (中身は同じ)。
-vm.runInContext(fs.readFileSync(`${__dirname}/../frontend/app.js`, 'utf8').replace(/^export /gm, ''), context);
+vm.runInContext(fs.readFileSync(`${__dirname}/../../frontend/src/app.js`, 'utf8').replace(/^export /gm, ''), context);
 const run = code => vm.runInContext(code, context);
 
 // index.html のモーダルは初期状態が display:none (JSが flex にして表示する)
@@ -662,7 +662,7 @@ test('Radarマップのキー操作はブラウザ標準ショートカットと
 });
 
 test('ヘルプに実装済みのキーボードショートカットを案内する', () => {
-    const html = fs.readFileSync(`${__dirname}/../frontend/index.html`, 'utf8');
+    const html = fs.readFileSync(`${__dirname}/../../frontend/index.html`, 'utf8');
     assert.match(html, /href="#help-shortcuts"/, '目次からショートカット欄へ移動できる');
     const section = html.match(/<section class="help-section" id="help-shortcuts">([\s\S]*?)<\/section>/)?.[1] || '';
     assert.match(section, /検索欄/, '検索欄の操作を説明する');
@@ -681,7 +681,7 @@ test('ヘルプに実装済みのキーボードショートカットを案内�
 
 test('並び順に新着順があり、追加日時 (added_at) の新しい順に並ぶ', () => {
     // 4つ目の枠と並び順は index.html (ビルド元のテンプレート) の構造もテストする
-    const html = fs.readFileSync(`${__dirname}/../frontend/index.html`, 'utf8');
+    const html = fs.readFileSync(`${__dirname}/../../frontend/index.html`, 'utf8');
     assert.match(html, /<option value="newest">新着順<\/option>/, '並び順に新着順がある');
     const sheetBody = html.match(/<div class="radar-filters-body">([\s\S]*?)<\/div>/)[1];
     assert.equal((sheetBody.match(/<select /g) || []).length, 3, '絞り込みの選択肢は3つ');

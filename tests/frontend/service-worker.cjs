@@ -9,7 +9,7 @@ const { execFileSync } = require('node:child_process');
 //   - 画面遷移はネットワーク優先。届かないときだけキャッシュ済みの画面を返す
 //   - 503 (メンテナンス画面) は差し替えずそのまま表示する
 //   - ビルド済み資産はキャッシュ優先
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', '..');
 const SOURCE_FILE = path.join(ROOT, 'frontend', 'public', 'sw.js');
 const DIST_FILE = path.join(ROOT, 'frontend', 'dist', 'sw.js');
 const source = fs.readFileSync(SOURCE_FILE, 'utf8');

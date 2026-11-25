@@ -10,7 +10,7 @@ header('Content-Type: application/json; charset=utf-8');
 // CORS は全オリジンに開放する。認証は Cookie ではなく Authorization: Bearer
 // (ブラウザが自動送信しない値) のため、他サイトから認証済みリクエストを
 // 作ることはできない。画面を別ホスト (Vite開発サーバー等) から開く
-// frontend/config.js の fallbackApiUrl でも同じAPIを叩けるようにするために必要。
+// frontend/src/config.js の fallbackApiUrl でも同じAPIを叩けるようにするために必要。
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
@@ -34,11 +34,11 @@ $maintenance_message = $maintenance ? trim((string)@file_get_contents($maintenan
 $db_path = getenv('TUNEDROP_DB') ?: dirname(__DIR__) . '/database.sqlite';
 
 if (($_GET['action'] ?? '') === 'health') {
-    // features: フロントの接続先自動検出 (frontend/app.js の resolveTunedropApi) が
+    // features: フロントの接続先自動検出 (frontend/src/app.js の resolveTunedropApi) が
     // 「別フォルダに残った古い api.php」を接続先に選ばないための目印。
     // 古いコピーも health には同じ service 名で応答してしまうため、
     // 認証プロキシ (guest 等) に対応したビルドであることを明示する。
-    // tests/api-client.cjs が「features の無い API を採用しない」ことを検証する。
+    // tests/frontend/api-client.cjs が「features の無い API を採用しない」ことを検証する。
     if ($maintenance) {
         http_response_code(503);
         header('Retry-After: 300');

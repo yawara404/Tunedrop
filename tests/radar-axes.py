@@ -25,7 +25,7 @@ check("_db_bookmarksがvalenceを運ぶ", 'item["valence"] = d.get("valence")' i
 # 2) フロントの向き推定: エネルギーが高い曲が右に集まれば +x を向く
 import re
 
-js = (ROOT / "frontend" / "app.js").read_text(encoding="utf-8")
+js = (ROOT / "frontend" / "src" / "app.js").read_text(encoding="utf-8")
 for fn in ("radarAxisOrientation", "drawRadarAxes"):
     check(f"{fn}が定義される", re.search(rf"export function {fn}\(", js) is not None)
 check("drawRadarMapがガイドを描く",

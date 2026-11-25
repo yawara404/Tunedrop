@@ -37,8 +37,8 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
                      '/frontend/manager-lists.js', '/frontend/api-client.js', '/frontend/text-marquee.js',
                      '/vendor/vue.esm-browser.prod.js',
                      # Vite のビルド元 (配信するのは assets/ のビルド成果物だけ)
-                     '/frontend/app.js', '/frontend/config.js', '/frontend/style.css',
-                     '/frontend/favicon.svg', '/frontend/index.html', '/frontend/main.js',
+                     '/frontend/src/app.js', '/frontend/src/config.js', '/frontend/src/style.css',
+                     '/frontend/favicon.svg', '/frontend/index.html', '/frontend/src/main.js',
                      '/main.js', '/src/main.js', '/package.json', '/vite.config.mjs', '/package-lock.json',
                      '/node_modules/vite/package.json',
                      # assets/ はサブフォルダ・隠しファイル・想定外の拡張子を許可しない
@@ -170,7 +170,7 @@ def public_prefix_expectations(referenced):
         '/tunedrop/assets/index-Ab12Cd.js': 200,
         # 配信してはいけないものはプレフィックス付きでも403のまま
         '/tunedrop/database.sqlite': 403,
-        '/tunedrop/frontend/app.js': 403,
+        '/tunedrop/frontend/src/app.js': 403,
         '/tunedrop/.jwt_secret': 403,
         '/tunedrop/admin/admin.sh': 403,
         '/tunedrop/router.php': 403,
@@ -205,8 +205,8 @@ with tempfile.TemporaryDirectory() as temporary:
                  'frontend/dist/assets/index-Ab12Cd.js','frontend/dist/assets/index-Ab12Cd.css',
                  'frontend/dist/assets/favicon-Ab12Cd.svg',
                  # 配信してはいけないもの (存在していても403になること)
-                 'frontend/app.js','frontend/config.js','frontend/style.css','frontend/favicon.svg',
-                 'frontend/index.html','frontend/main.js',
+                 'frontend/src/app.js','frontend/src/config.js','frontend/src/style.css','frontend/favicon.svg',
+                 'frontend/index.html','frontend/src/main.js',
                  'frontend/dist/assets/sub/index.js','frontend/dist/assets/index.js.map',
                  'frontend/dist/assets/.env',
                  'robots.txt','sitemap.xml','google9f8e7d6c5b4a.html',
