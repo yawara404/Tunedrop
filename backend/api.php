@@ -1344,6 +1344,9 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
+        // 画面 (Radar / モバイルプレイヤー) は GET で現在の★状態を取得する。
+        // toggle と同じ判定を使い、GET では状態だけを返す ($action で分岐)。
+        case 'get_track_favorite':
         case 'toggle_favorite_bookmark':
             $user_id = require_user_or_guest($db);
             $params = $action === 'get_track_favorite' ? $_GET : ($input ?? []);

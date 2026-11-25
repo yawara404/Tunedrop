@@ -41,8 +41,6 @@ function socialCardVersions() {
 // それを読む (決め打ちをやめ、空きポートへ自動でずれても追従できる)。
 // 直接指定したいときは TUNEDROP_DEV_API=http://127.0.0.1:8001 のように上書きする。
 function devApiTarget() {
-    const override = (process.env.TUNEDROP_DEV_API || '').trim();
-    if (override) return override.replace(/\/+$/, '');
     try {
         const port = readFileSync(resolve(import.meta.dirname, '..', '.web_port'), 'utf8').trim();
         if (/^\d+$/.test(port)) return `http://127.0.0.1:${port}`;
@@ -64,6 +62,11 @@ function devApiTarget() {
 //     /tunedrop/ 配下で配信される場合 (Cloudflare Tunnel) の両方で
 //     同じ index.html が動くようにするため (絶対パスだと片方で壊れる)。
 const frontendDir = import.meta.dirname;
+const apiOverride = process.env.TUNEDROP_DEV_API?.trim();
+const backendProxy = apiOverride ? apiOverride.replace(/\/+$/, '') : {
+    target: devApiTarget(),
+    rewrite: path => '/tunedrop' + path,
+};
 
 export default defineConfig({
     root: frontendDir,
@@ -75,9 +78,9 @@ export default defineConfig({
     server: {
         port: 5173,
         proxy: {
-            '/api.php': devApiTarget(),
-            '/ogp.php': devApiTarget(),
-            '/admin': devApiTarget(),
+            '/api.php': backendProxy,
+            '/ogp.php': backendProxy,
+            '/admin': backendProxy,
         },
     },
     build: {

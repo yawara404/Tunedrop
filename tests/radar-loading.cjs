@@ -8,7 +8,7 @@ const hud = {textContent:''};
 let requests=[], recommend=[], painted=[], orders=[];
 const defer=()=>{let resolve; const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 const ctx=vm.createContext({
- document:{getElementById:()=>hud},console,
+ document:{getElementById:()=>hud},console,AbortController,setTimeout,clearTimeout,
  // ログイン中の取得処理を検証する (未ログイン時はデモ表示のため loadRadarData は即 return する)
  hasAccountSession:()=>true,
  tunedropFetch:()=>{const d=defer();requests.push(d);return d.promise;},
@@ -35,6 +35,25 @@ const response=id=>({json:async()=>({success:true,count:1,method:'umap',points:[
  const failure=ctx.loadRadarData();requests[3].resolve({json:async()=>({error:'接続エラー'})});await failure;
  assert.equal(painted.at(-1),'new');
  assert.equal(hud.textContent,'接続エラー');
+ // 503から自動回復し、再試行回数は制限する。
+ let attempts=0;
+ ctx.tunedropFetch=async()=>++attempts===1
+   ? {status:503,json:async()=>({error:'busy'})} : response('recovered');
+ await ctx.loadRadarData();
+ assert.equal(attempts,2);
+ assert.equal(painted.at(-1),'recovered');
+ attempts=0;
+ ctx.tunedropFetch=async()=>{attempts++;throw new Error('offline');};
+ await ctx.loadRadarData();
+ assert.equal(attempts,2);
+ assert.equal(painted.at(-1),'recovered');
+ // 認証エラー・明示的なメンテナンスは再試行しない。
+ for (const [status,data] of [[401,{error:'login'}],[503,{maintenance:true,error:'maintenance'}]]) {
+   attempts=0;
+   ctx.tunedropFetch=async()=>{attempts++;return {status,json:async()=>data};};
+   await ctx.loadRadarData();
+   assert.equal(attempts,1);
+ }
  const pollStart=src.indexOf('export async function pollAnalyzeStatus');
  const pollEnd=src.indexOf('export function renderRadarLegend',pollStart);
  vm.runInContext(src.slice(pollStart,pollEnd).replace(/^export /gm,''),ctx);

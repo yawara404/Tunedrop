@@ -123,8 +123,8 @@ if (is_file($card_path)) {
 }
 
 // 既定はサイト共通カード。公開リストが見つかったときだけ上書きする。
-$title = 'Tune drop — 音楽で触れ合うブックマーク';
-$description = 'YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。';
+$title = 'Tune drop｜YouTubeの曲を保存・整理できる無料音楽プレイリストアプリ';
+$description = 'Tune drop（チューンドロップ）は、YouTubeのURLを貼るだけで曲を保存し、自分だけのプレイリストに整理できる無料Webアプリ。AI×音源解析の2D雰囲気マップ「Radar」で好みの曲を発掘し、公開リスト「Share」で音楽や人とつながれます。';
 $image = $default_image;
 $image_type = 'image/png';
 $image_width = 1200;

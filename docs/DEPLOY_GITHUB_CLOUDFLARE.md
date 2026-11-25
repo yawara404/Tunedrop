@@ -2,7 +2,7 @@
 
 対象は現在のmacOS。Web配信は `./backend/start.sh`（PHPビルトインサーバー + `backend/router.php`）が担当します。GitHubにはコードを保存し、PHP・Python・SQLiteは自分のサーバーで動かします。GitHub Pagesではこのアプリ全体を実行できません。
 
-サーバー側は `backend/`、画面側は `frontend/`（ソース + ビルド成果物 `frontend/dist/`）にまとめてあります。**公開URLは整理前と同じ**で、`backend/router.php` が対応付けます（`/api.php` → `backend/api.php`、`/assets/...` → `frontend/dist/assets/...`、`/` → `frontend/dist/index.html`）。
+サーバー側は `backend/`、画面のソースは `frontend/` にあります。Vite の成果物 `frontend/dist/` は配信先で生成します。`backend/router.php` が `/tunedrop/` 配下の画面・資産・APIをそれぞれ配信します。
 
 MySQL へ移行する場合は [MySQL 移行手順](MYSQL_MIGRATION.md) に従ってください。以下の SQLite バックアップと WAL の説明は SQLite 利用時のものです。
 
@@ -46,11 +46,10 @@ sqlite3 database.sqlite ".backup 'backups/before-publication.sqlite'"
 
 ```bash
 cd /Users/<username>/Tunedrop
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+python3 backend/start.py --setup
 ```
 
-音源解析も使う場合はREADME.local.md（ローカルマニュアル）の解析用依存関係を追加してください。`requirements.txt` は認証サーバーの基本依存関係です。
+初回セットアップには Python、PHP と、Vite が動作する Node.js（20.19+ または 22.12+）および npm が必要です。`--setup` は Python の基本依存を入れ、`frontend/` で `npm ci` と `npm run build` を実行します。音源解析も使う場合は README.local.md（ローカルマニュアル）の解析用依存関係を追加してください。
 
 `.env.example` を参考に `.env` を作成し、`chmod 600 .env` で保護します。既存の `.env` は上書きしないでください。この環境ではソース内のYouTube／Gemini APIキーを `.env` に移動済みです。
 
@@ -233,6 +232,7 @@ git push -u origin main
 ```bash
 cd /Users/<username>/Tunedrop
 git status --short            # 変更内容を確認
+npm --prefix frontend run build
 git add .
 git commit -m "変更内容の説明"
 git push                      # origin/main へ反映
@@ -242,7 +242,7 @@ push前に `git diff --cached --stat` でステージング内容を確認し、
 `.env`・DB・鍵ファイルなどが誤って含まれていないか目視チェックしてください。
 
 ワンコマンドで済ませる場合は `./backend/sync.sh` を使えます
-（fetch → リモート変更のrebase → コミット → push を一括実行。
+（画面のビルド、fetch、必要に応じたrebase、コミット、push を一括実行。
 コミットメッセージは `./backend/sync.sh "変更内容の説明"` のように指定できます）。
 
 ### リポジトリの公開設定を変えたいとき
@@ -262,7 +262,7 @@ Change repository visibility** で Private ⇄ Public を切り替えられま�
 
 ### 別サーバーへの展開
 
-別サーバーでは `git clone https://github.com/<your-account>/Tunedrop.git` で取得し、Python・PHP（PDO SQLite含む）・Apache・cloudflaredを用意してこの手順を繰り返します。データを移す場合はSQLiteバックアップをサーバーへ安全に転送して復元します。GitHubだけではユーザーデータは移りません。
+別サーバーでは `git clone https://github.com/<your-account>/Tunedrop.git` で取得し、Python・PHP（PDO SQLite含む）・Node.js・cloudflared を用意して `python3 backend/start.py --setup` を実行します。データを移す場合はSQLiteバックアップをサーバーへ安全に転送して復元します。
 
 ## 8. 更新・バックアップ・常時運用
 
@@ -270,7 +270,9 @@ Change repository visibility** で Private ⇄ Public を切り替えられま�
 
 ```bash
 git pull --ff-only
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r backend/requirements.txt
+npm --prefix frontend ci
+npm --prefix frontend run build
 GOOGLE_CLIENT_ID='あなたのクライアントID.apps.googleusercontent.com' PORT=5001 ./backend/start.sh
 ```
 
@@ -309,10 +311,32 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 - 状態とログは `~/.tunedrop/`（リポジトリ外）に置きます。スタックの標準出力は `~/.tunedrop/stack.log`、トンネルのログは `~/.cloudflared/tunedrop-tunnel.log` です。
 - ローカルが落ちていれば `backend/start.sh` を、ローカルは正常で公開URLだけ落ちていれば `backend/tunnel.sh` を再起動します。インターネット自体が切れている場合はトンネルを再起動しません（無駄な再起動を避けるため）。
 - `maintenance.flag`（`./backend/maintenance.sh on`）がある間はメンテナンス中として扱い、再起動しません。
+- 同時実行のロック（`~/.tunedrop/lock`）は、持ち主の pid が無い/死んでいる場合は自動で引き継ぎます（`mkdir` 直後の強制終了などで残骸が残っても、監視が永久に止まらないようにするため）。
 - ヘルスチェックは `/api.php?action=health&deep=1` を使い、DB（MySQL / SQLite）へ接続できるかまで確認します。
 - `--prevent-sleep` は `caffeinate -s` で **AC電源接続中のみ** スリープを抑止します。バッテリー駆動時はアイドルスリープ（既定1分のことが多い）で公開が止まるため、常時公開するなら電源接続＋フタを開けたまま運用してください（スリープ中は Cloudflare Tunnel が切断されます）。`./backend/watchdog.sh status` の `power` 行で給電状態を確認でき、バッテリー駆動時は起動ログにも警告を残します。
 - メモリ/スワップが80%を超えると30分に1回、警告をログへ出します。サーバー自身（PHP/Python）は数百MBですが、同じマシンのブラウザやIDEが大量にメモリを使うとスワップ逼迫で応答が遅くなります。不要なアプリを閉じるか、サーバーを別マシンへ移してください。
 - 不安定な Wi-Fi / NAT で QUIC の idle timeout が繰り返す場合は、`TUNEDROP_TUNNEL_PROTOCOL=http2 ./backend/tunnel.sh restart` で TCP 接続に切り替えられます（`./backend/tunnel.sh check` で公開URLの確認だけもできます）。
+
+### サーバーが落ちても自動で戻る仕組み（2段構え）
+
+watchdog は「スタックの外」から30秒ごとに全体を見張ります。それに加えて、`backend/start.py` は起動中ずっと子プロセスを直接監視します（`backend/supervisor.py`）。障害の規模ごとに次の層で復旧します。
+
+| 障害 | 復旧する層 | 目安 |
+| --- | --- | --- |
+| PHP / 認証サーバーがクラッシュ | `supervisor.py`（プロセス内） | 数秒（指数バックオフ 1→2→4…最大30秒） |
+| PHP / 認証サーバーがハング（health 3回連続 NG） | `supervisor.py` | 約1分（プロセスグループごと停止→再起動） |
+| `start.py` 自体が終了 | `watchdog.sh`（launchd） | 最大30秒 |
+| 公開トンネルだけ切断 | `watchdog.sh` → `tunnel.sh restart` | 最大30秒（ネットワーク断時は再起動しない） |
+| MySQL の瞬断・再起動 | `mysql_db.php` の接続リトライ（最大3回） | 数百ミリ秒 |
+| 一時的な 502/504 | ブラウザの GET 自動再試行（最大2回） | 約1.6秒 |
+| 画面を開いたまま切断 | 再接続バナー（2→4→8→15→30秒で health 確認、復旧後に再読み込みしない） | 数十秒 |
+| サーバー全停止中に再訪 | Service Worker のキャッシュ済みアプリシェル + 接続断の案内 | 即時（画面だけ） |
+
+- 監視の間隔・再起動の待ち時間は環境変数で変えられます: `TUNEDROP_SUPERVISOR_INTERVAL`（2秒）、`TUNEDROP_SUPERVISOR_RETRY_BASE`（1秒）、`TUNEDROP_SUPERVISOR_RETRY_MAX`（30秒）、`TUNEDROP_SUPERVISOR_MAX_RESTARTS`（6回）、`TUNEDROP_SUPERVISOR_STABLE_AFTER`（120秒動いたらバックオフを戻す）。
+- MySQL の接続リトライは `TUNEDROP_MYSQL_CONNECT_RETRIES`（3回）と `TUNEDROP_MYSQL_CONNECT_RETRY_DELAY_MS`（150ms）で調整できます。
+- PHP のビルトインサーバーはメインプロセスが落ちてもワーカーがポートを掴んだまま残ることがあります。`supervisor.py` はプロセスグループごと止めてから起動し直すため、`Address already in use` で復旧が止まりません。
+- Service Worker（`frontend/public/sw.js` → ビルド後 `/sw.js`）は**画面 (index.html) と `/assets/` だけ**をキャッシュし、`api.php` / `ogp.php` / 管理画面は絶対にキャッシュしません。503 のメンテナンス画面はそのまま表示します。更新時はファイル内の `VERSION` を上げると古いキャッシュが activate で削除されます。
+- ブラウザ側の動作を変えたときは `frontend/` で `npm run build` を実行します。`frontend/dist/` は Git の管理対象外です。検索向けのトップページを実質的に更新した日は `sitemap.xml` の `lastmod` を更新します。
 
 ## 9. 回帰テスト
 
@@ -321,6 +345,7 @@ sqlite3 database.sqlite ".backup 'backups/tunedrop-$(date +%Y%m%d-%H%M%S).sqlite
 **MySQL 運用中は必ずランナー経由で実行してください**（テストは一時 SQLite を前提にしており、`TUNEDROP_MYSQL_*` が有効なままだと本番 MySQL へ接続してしまいます。ランナーは MySQL 設定を空にして実行します）。
 
 ```bash
+npm --prefix frontend run build          # 配信HTMLとアセットも検証するため事前に生成
 ./tests/run-all.sh                        # 全部
 ./tests/run-all.sh tests/genre-rules.py   # 個別
 ```

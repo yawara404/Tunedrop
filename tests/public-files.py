@@ -25,7 +25,8 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
             except OSError:
                 time.sleep(.05)
         base = f'http://127.0.0.1:{port}'
-        allowed = ['/', '/index.html', '/maintenance.html', '/assets/index-Ab12Cd.js', '/assets/index-Ab12Cd.css',
+        allowed = ['/', '/index.html', '/maintenance.html', '/sw.js',
+                   '/assets/index-Ab12Cd.js', '/assets/index-Ab12Cd.css',
                    '/assets/favicon-Ab12Cd.svg',
                    '/api.php?action=health',
                    '/frontend/favicon-card.png',
@@ -73,15 +74,57 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
         with urllib.request.urlopen(base + '/playlist/30') as response:
             human_body = response.read().decode('utf-8')
         assert human_body == 'test fixture', human_body[:100]
-        # 公開URL (https://<host>/tunedrop/...) のプレフィックス付きでも同じ許可判定か。
-        # 配信は PHPビルトインサーバー (router.php) が Alias 相当を行うため、
-        # 配信と同じ経路 (router.php) だけで検証する。
+        # 正規URLは https://<host>/tunedrop/。
+        # ホスト直下 / と大文字 /Tunedrop/ は 301 で /tunedrop/ へ寄せる。
+        # ここではリダイレクトを追わず、Location が正規化されていることを確認する。
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+        for path, expected_location in (
+            ('/', '/tunedrop/'),
+            ('/?x=1', '/tunedrop/?x=1'),
+            ('/index.html', '/tunedrop/'),
+            ('/tunedrop/index.html', '/tunedrop/'),
+            ('/tunedrop?x=1', '/tunedrop/?x=1'),
+            ('/help', '/tunedrop/help'),
+            ('/api.php?action=health', '/tunedrop/api.php?action=health'),
+            ('/Tunedrop/', '/tunedrop/'),
+            ('/Tunedrop/help?from=old', '/tunedrop/help?from=old'),
+            ('/QuadTecho/', 'https://plan.wawa-app.me/QuadTecho/'),
+            ('/quadtecho/index.html', 'https://plan.wawa-app.me/QuadTecho/'),
+            # //host 形式の外部リダイレクトを作らない
+            ('/Tunedrop//evil.example/', '/tunedrop/evil.example/'),
+        ):
+            try:
+                opener.open(urllib.request.Request(base + path))
+                raise AssertionError(f'{path} がリダイレクトしない')
+            except urllib.error.HTTPError as error:
+                assert error.code == 301, (path, error.code)
+                assert error.headers.get('Location') == expected_location, (
+                    path, error.headers.get('Location'))
+        # POST などはメソッドを変えない 308 で /tunedrop/ へ送る
+        try:
+            opener.open(urllib.request.Request(
+                base + '/api.php?action=health', data=b'', method='POST'))
+            raise AssertionError('POST がリダイレクトしない')
+        except urllib.error.HTTPError as error:
+            assert error.code == 308, error.code
+            assert error.headers.get('Location') == '/tunedrop/api.php?action=health', (
+                error.headers.get('Location'))
+        # robots.txt / sitemap.xml はホスト直下のまま配信する (301 にしない)
+        for path in ('/robots.txt', '/sitemap.xml', '/tunedrop/'):
+            with opener.open(base + path) as response:
+                assert response.status == 200, (path, response.status)
+        # 正規URL (/tunedrop/...) でも同じ許可判定か。
+        # 配信は PHPビルトインサーバー (router.php) が行う。
         for path, expected in (prefix_expectations or {}).items():
             try:
                 with urllib.request.urlopen(base+path) as response:
                     status = response.status
                     headers = response.headers
-                    if path in ('/tunedrop/', '/tunedrop/index.html'):
+                    if path == '/tunedrop/':
                         # ブラウザには毎回 ETag で再検証させ、CF のエッジには短時間だけ持たせる
                         assert headers.get('Cache-Control') == (
                             'public, max-age=0, s-maxage=60, must-revalidate, '
@@ -96,6 +139,9 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
                         except urllib.error.HTTPError as error:
                             revalidate_status = error.code
                         assert revalidate_status == 304, revalidate_status
+                    elif path == '/tunedrop/sw.js':
+                        # Service Worker は更新をすぐ拾わせる (no-cache)
+                        assert headers.get('Cache-Control') == 'no-cache, must-revalidate', headers
             except urllib.error.HTTPError as error:
                 status = error.code
             assert status == expected, (command[0], path, status, expected)
@@ -105,12 +151,13 @@ def check(command, cwd, port, extra_allowed=(), prefix_expectations=None):
         process.stderr.close()
 
 def public_prefix_expectations(referenced):
-    """公開URL (/tunedrop/...) のプレフィックス付きでの期待ステータス。"""
+    """正規URL (/tunedrop/...) の期待ステータス。"""
     expectations = {
-        # 末尾スラッシュ無しは /tunedrop/ へリダイレクトされる (urllib は追従する)
+        # /tunedrop (末尾スラッシュなし) は /tunedrop/ へ301 (urllib は追従する)
         '/tunedrop': 200,
         '/tunedrop/': 200,
         '/tunedrop/index.html': 200,
+        '/tunedrop/sw.js': 200,
         '/tunedrop/api.php?action=health': 200,
         '/tunedrop/ogp.php': 200,
         '/tunedrop/admin/admin.php': 200,
@@ -152,7 +199,8 @@ with tempfile.TemporaryDirectory() as temporary:
     #   /                    → frontend/dist/index.html
     #   /assets/<hash>.<ext> → frontend/dist/assets/<hash>.<ext>
     #   /api.php, /ogp.php   → backend/*.php (実行)
-    for name in ['frontend/dist/index.html','frontend/dist/maintenance.html','frontend/favicon-card.png',
+    for name in ['frontend/dist/index.html','frontend/dist/maintenance.html','frontend/dist/sw.js',
+                 'frontend/favicon-card.png',
                  'frontend/ogp-card.png',
                  'frontend/dist/assets/index-Ab12Cd.js','frontend/dist/assets/index-Ab12Cd.css',
                  'frontend/dist/assets/favicon-Ab12Cd.svg',

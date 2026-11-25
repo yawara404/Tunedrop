@@ -16,6 +16,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -27,7 +28,7 @@ class StubHandler(BaseHTTPRequestHandler):
     """server.response = (status, dict) をそのまま返すだけのスタブ。"""
 
     def do_GET(self):
-        status, payload = self.server.response
+        status, payload = self.server.responses.pop(0) if self.server.responses else self.server.response
         body = json.dumps(payload).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -41,6 +42,7 @@ class StubHandler(BaseHTTPRequestHandler):
 
 def start_stub(status=200, payload=None):
     server = ThreadingHTTPServer(('127.0.0.1', 0), StubHandler)
+    server.responses = []
     server.response = (status, payload if payload is not None else {'status': 'ok'})
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, server.server_address[1]
@@ -154,6 +156,32 @@ try:
         assert not (state / 'stack.pid').exists(), '正常時に stack を起動してはいけない'
         appended = log_path.read_text(encoding='utf-8')[len(before):]
         assert 'tunnel: 公開トンネルを再起動します' not in appended, '正常時に再起動してはいけない'
+        # 9) 一度だけの異常は再確認で回復し、スタックやトンネルを再起動しない。
+        for target in (local, auth, public):
+            target.responses = [(502, {'status': 'error'})]
+            before = log_path.read_text(encoding='utf-8')
+            result = run_watchdog(['once'], local_port, auth_port, state, public_port)
+            assert result.returncode == 0, result.stdout + result.stderr
+            appended = log_path.read_text(encoding='utf-8')[len(before):]
+            assert '再起動前に再確認' in appended, appended
+            assert 'Web/認証サーバーを再起動します' not in appended, appended
+            assert '公開トンネルを再起動します' not in appended, appended
+        # 10) pid の無い残骸ロック (mkdir 直後に強制終了された等) を引き継いで復旧する。
+        #     以前は「前回の処理が実行中」と誤判定して永久にスキップされていた。
+        lock = state / 'lock'
+        lock.mkdir(exist_ok=True)
+        stale = time.time() - 3600
+        os.utime(lock, (stale, stale))
+        local.response = (500, {'status': 'error'})
+        before = log_path.read_text(encoding='utf-8')
+        result = run_watchdog(['once'], local_port, auth_port, state)
+        assert result.returncode != 0, result.stdout
+        appended = log_path.read_text(encoding='utf-8')[len(before):]
+        assert '残っていたロック' in appended, appended
+        assert '前回の処理が実行中のためスキップ' not in appended, appended
+        assert 'Web/認証サーバーを再起動します' in appended, appended
+        assert not lock.exists(), 'cycle の後にロックを解放する'
+
 finally:
     stop_stub(local)
     stop_stub(auth)

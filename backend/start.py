@@ -14,7 +14,7 @@
 
 使い方:
   python backend/start.py          起動 (macOS/Linux は ./backend/start.sh でも同じ)
-  python backend/start.py --setup  初回セットアップ (.venv 作成 + pip install + npm install + .env 作成)
+  python backend/start.py --setup  初回セットアップ (.venv 作成 + pip install + npm ci + 画面ビルド + .env 作成)
   python backend/start.py --help   このヘルプ
 
 環境変数:
@@ -22,6 +22,11 @@
   PHP_BIN               PHP の実行ファイル (未指定は .php/ → PATH から php)
   TUNEDROP_PORT         Webサーバーの第一候補ポート (既定 8888)
   TUNEDROP_PHP_WORKERS  PHPビルトインサーバーのワーカー数 (POSIX のみ有効。既定 16)
+  TUNEDROP_SUPERVISOR_INTERVAL       子プロセスの点検間隔秒 (既定 2)
+  TUNEDROP_SUPERVISOR_RETRY_BASE     再起動を待つ初回の秒数 (既定 1)
+  TUNEDROP_SUPERVISOR_RETRY_MAX      再起動待ちの上限秒数 (既定 30)
+  TUNEDROP_SUPERVISOR_MAX_RESTARTS   連続失敗で諦める回数 (既定 6)
+  TUNEDROP_SUPERVISOR_STABLE_AFTER   この秒数動いたらバックオフを戻す (既定 120)
   TUNEDROP_ALLOW_VULNERABLE_PHP  1 で未修正 PHP でも起動する (ローカル検証専用)
   TUNEDROP_PIP_PROXY    --setup の pip に渡すプロキシ (http://user:pass@host:port)
   TUNEDROP_PIP_INDEX_URL / TUNEDROP_PIP_EXTRA_ARGS   pip の index-url / 追加引数
@@ -39,6 +44,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -52,10 +58,20 @@ ROOT = BACKEND_DIR.parent
 FRONTEND_DIR = ROOT / 'frontend'
 DIST_DIR = FRONTEND_DIR / 'dist'
 IS_WINDOWS = os.name == 'nt'
-# 画面のビルド元 (start.sh と同じ監視対象)
+
+# supervisor.py は同じ backend/ にある。`python backend/start.py` 以外
+# (テストが importlib で読み込む場合など) でも解決できるよう、このフォルダを足す。
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+from supervisor import (  # noqa: E402 (上の sys.path 設定後に読み込む)
+    Service,
+    Supervisor,
+    supervisor_settings_from_env,
+)
 FRONTEND_SOURCES = (
-    'frontend/index.html', 'frontend/main.js', 'frontend/app.js',
-    'frontend/config.js', 'frontend/style.css',
+    'index.html', 'main.js', 'app.js', 'config.js', 'style.css', 'mobile.css',
+    'favicon.svg', 'favicon-card.png', 'ogp-card.png',
+    'vite.config.mjs', 'package.json', 'package-lock.json',
 )
 
 # 2026-10-21 の PHP セキュリティアドバイザリで修正されたバージョン。
@@ -315,51 +331,6 @@ def pip_args() -> list:
     return args
 
 
-def popen_server(cmd, env) -> subprocess.Popen:
-    """サーバープロセスを子プロセスグループ (session) で起動する。
-
-    PHPビルトインサーバーは `PHP_CLI_SERVER_WORKERS` でワーカーを fork する。
-    メインプロセスだけを terminate するとワーカーが残るため、独立グループで起動し、
-    停止時はグループごと終了する (POSIX: killpg / Windows: taskkill /T)。
-    """
-    kwargs = {'cwd': str(ROOT), 'env': env}
-    if IS_WINDOWS:
-        kwargs['creationflags'] = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
-    else:
-        kwargs['start_new_session'] = True
-    return subprocess.Popen(cmd, **kwargs)
-
-
-def terminate_tree(proc) -> None:
-    """プロセスとその子 (PHP ワーカー等) をまとめて終了する。"""
-    if not proc or proc.poll() is not None:
-        return
-    if IS_WINDOWS:
-        subprocess.run(
-            ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        try:
-            proc.wait(timeout=5)
-        except Exception:
-            pass
-        return
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-    except Exception:
-        proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except Exception:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-
-
 def python_deps_ok(python: str) -> bool:
     result = subprocess.run(
         [python, '-c', 'import flask, flask_cors, jwt, dotenv'],
@@ -393,11 +364,15 @@ def needs_frontend_build() -> bool:
     index = DIST_DIR / 'index.html'
     if not index.exists() or not (DIST_DIR / 'assets').is_dir():
         return True
+    public_dir = FRONTEND_DIR / 'public'
+    public_files = [source for source in public_dir.rglob('*') if source.is_file()]
+    if any(not (DIST_DIR / source.relative_to(public_dir)).is_file()
+           for source in public_files):
+        return True
     index_mtime = index.stat().st_mtime
-    return any(
-        (ROOT / rel).exists() and (ROOT / rel).stat().st_mtime > index_mtime
-        for rel in FRONTEND_SOURCES
-    )
+    sources = [FRONTEND_DIR / name for name in FRONTEND_SOURCES]
+    return any(source.is_file() and source.stat().st_mtime > index_mtime
+               for source in sources + public_files)
 
 
 def build_frontend_if_needed() -> bool:
@@ -407,7 +382,7 @@ def build_frontend_if_needed() -> bool:
             return True
         npm = resolve_npm()
         if not npm:
-            print('npm が見つからないため画面をビルドできません (frontend/ で npm install を実行してください)。', file=sys.stderr)
+            print('npm が見つからないため画面をビルドできません。Node.js と npm が使える環境で起動してください。', file=sys.stderr)
             return False
         print('画面をビルドしています (frontend/ で npm run build)...', flush=True)
         try:
@@ -415,9 +390,10 @@ def build_frontend_if_needed() -> bool:
         except subprocess.CalledProcessError:
             return False
         return True
-    # node_modules が無い場合は同梱のビルド成果物 (frontend/dist/) を使う。
+    # 依存を置かない配信環境では、別途用意したビルド成果物を使える。
     if not (DIST_DIR / 'index.html').exists():
-        print('画面 (frontend/dist/index.html) がありません。frontend/ で npm install && npm run build を実行してください。', file=sys.stderr)
+        print('画面がありません。python backend/start.py --setup または '
+              'frontend/ で npm ci && npm run build を実行してください。', file=sys.stderr)
         return False
     return True
 
@@ -436,6 +412,32 @@ def auth_server_running() -> bool:
     except Exception:
         return False
     return payload.get('service') == 'Tune drop Auth Server'
+
+
+def php_health_ok(port: int, timeout: float = 3.0) -> bool:
+    """Webサーバー (PHP + router.php) が応答するか。ハング検知に使う。
+
+    health は DB を見ない軽量版 (?action=health) を使う。DB だけ落ちている場合は
+    PHP を再起動しても直らないため、ここでは「HTTP が返るか」だけを見る
+    (DB は watchdog.sh の deep=1 と画面側の再接続で扱う)。
+    """
+    url = f'http://127.0.0.1:{port}/tunedrop/api.php?action=health'
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        # メンテナンス中は 503 だが、プロセス自体は正常。
+        try:
+            payload = json.loads(error.read().decode('utf-8', 'replace'))
+        except Exception:
+            return False
+    except Exception:
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get('service') == 'TuneDrop PHP API'
+        and payload.get('status') in ('ok', 'maintenance')
+    )
 
 
 def _port_available(port: int) -> bool:
@@ -482,7 +484,7 @@ def pick_web_port() -> int | None:
 
 
 def setup() -> int:
-    """初回セットアップ: venv 作成 → pip 導入(必要なら) → pip install → .env 作成 → npm install。"""
+    """初回セットアップ: venv 作成 → pip install → .env 作成 → npm ci → 画面ビルド。"""
     print('== 初回セットアップ ==', flush=True)
 
     # 1) venv (既にあれば再利用)
@@ -524,12 +526,16 @@ def setup() -> int:
     ensure_env_file()
     npm = resolve_npm()
     if npm and (FRONTEND_DIR / 'package.json').exists():
-        print('-- フロントエンド依存関係をインストール (frontend/ で npm install) --', flush=True)
-        run_command([npm, 'install'], cwd=FRONTEND_DIR)
+        print('-- フロントエンド依存関係をインストール (frontend/ で npm ci) --', flush=True)
+        run_command([npm, 'ci'], cwd=FRONTEND_DIR)
+        run_command([npm, 'run', 'build'], cwd=FRONTEND_DIR)
+    elif (DIST_DIR / 'index.html').is_file():
+        print('npm が見つからないため、用意済みの frontend/dist/ を使います。')
     else:
-        print('npm が見つからないため npm install をスキップします (同梱のビルド成果物を使用)。')
+        print('画面をビルドするには Node.js と npm をインストールしてください。', file=sys.stderr)
+        return 1
 
-    print('セットアップ完了。`python start.py` で起動してください。')
+    print('セットアップ完了。`python backend/start.py` で起動してください。')
     print('音源解析を使う場合は librosa / yt-dlp / ffmpeg も別途インストールしてください。')
     return 0
 
@@ -597,34 +603,54 @@ def serve(argv) -> int:
             except Exception:
                 pass
 
-    auth_proc = None
-    php_proc = None
+    # ----------------------------------------------------------
+    # 自動復旧 (常駐監視)
+    # ----------------------------------------------------------
+    # 以前は php_proc.wait() で PHP の終了を待つだけだったため、PHP や app.py が
+    # 落ちると watchdog.sh (30秒間隔) が来るまで停止していた。ここでは
+    # supervisor.py が数秒間隔で子プロセスと health を見張り、落ちたら再起動する。
+    #   - 異常終了 → 指数バックオフで再起動 (1 → 2 → 4 … 最大30秒)
+    #   - health が3回連続で失敗 (ハング) → プロセスグループごと止めて再起動
+    #   - 連続6回失敗 → start.py 自体を終了し、watchdog.sh に全体を任せる
     try:
-        if start_auth:
-            auth_proc = popen_server([python, str(BACKEND_DIR / 'app.py')], env)
-        try:
-            (ROOT / '.web_port').write_text(f'{web_port}\n', encoding='utf-8')
-        except OSError as exc:
-            print(f'Notice: .web_port を書き込めませんでした: {exc}', file=sys.stderr)
+        (ROOT / '.web_port').write_text(f'{web_port}\n', encoding='utf-8')
+    except OSError as exc:
+        print(f'Notice: .web_port を書き込めませんでした: {exc}', file=sys.stderr)
 
-        print(f'TuneDrop: http://localhost:{web_port} (Ctrl+C で停止)', flush=True)
-        if (ROOT / 'admin' / 'admin.php').exists():
-            print('管理者ページ: admin/admin.php (ローカル専用。admin.sh から開けます)', flush=True)
-        print('開発時: 別ターミナルで npm run dev (Vite: http://localhost:5173/)', flush=True)
+    print(f'TuneDrop: http://localhost:{web_port}/tunedrop/ (Ctrl+C で停止)', flush=True)
+    if (ROOT / 'admin' / 'admin.php').exists():
+        print('管理者ページ: admin/admin.php (ローカル専用。admin.sh から開けます)', flush=True)
+    print('開発時: 別ターミナルで npm --prefix frontend run dev (Vite: http://localhost:5173/)', flush=True)
 
-        php_proc = popen_server(
-            [php, *PHP_HARDENING_FLAGS, '-S', f'127.0.0.1:{web_port}',
-             '-t', str(ROOT), str(BACKEND_DIR / 'router.php')],
-            env,
-        )
-        php_proc.wait()
-        return php_proc.returncode or 0
+    services = []
+    if start_auth:
+        services.append(Service(
+            name='auth',
+            command=[python, str(BACKEND_DIR / 'app.py')],
+            env=env,
+            cwd=str(ROOT),
+            probe=auth_server_running,
+            probe_interval=20.0,
+            startup_grace=20.0,
+        ))
+    services.append(Service(
+        name='php',
+        command=[php, *PHP_HARDENING_FLAGS, '-S', f'127.0.0.1:{web_port}',
+                 '-t', str(ROOT), str(BACKEND_DIR / 'router.php')],
+        env=env,
+        cwd=str(ROOT),
+        probe=lambda: php_health_ok(web_port),
+        probe_interval=20.0,
+        startup_grace=20.0,
+    ))
+    supervisor = Supervisor(services, **supervisor_settings_from_env())
+    try:
+        return supervisor.run()
     except KeyboardInterrupt:
         print('\n停止します...', flush=True)
         return 0
     finally:
-        terminate_tree(php_proc)
-        terminate_tree(auth_proc)
+        supervisor.stop()
 
 
 def main() -> int:

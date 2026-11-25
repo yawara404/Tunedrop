@@ -30,3 +30,24 @@ window.applyPathView = app.applyPathView;
 window.parseLocationPath = app.parseLocationPath;
 window.migrateLegacyHash = app.migrateLegacyHash;
 window.applyHashView = app.applyHashView;
+
+// ==========================================================
+// Service Worker (鯖落ち時も画面の外枠を表示する)
+// ----------------------------------------------------------
+// frontend/public/sw.js は Vite が dist/sw.js (= /sw.js) へコピーする。
+// 画面遷移はネットワーク優先で、サーバーに届かないときだけキャッシュ済みの
+// アプリシェルを返す。API は一切キャッシュしない。
+//
+// import.meta.url はバンドル後の /assets/index-<hash>.js を指すため、
+// その1つ上 (公開ルート) が sw.js になる (/tunedrop/ 配下でも同じ)。
+// 開発サーバー (npm run dev) では HMR と衝突するので登録しない。
+// ==========================================================
+if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', () => {
+        // ビルド時に解決させない (実行時のURLとして扱う)。
+        const swUrl = new URL(/* @vite-ignore */ '../sw.js', import.meta.url);
+        navigator.serviceWorker.register(swUrl).catch(() => {
+            // 登録できなくてもアプリは通常どおり動く (オフライン時の画面だけが失われる)
+        });
+    });
+}

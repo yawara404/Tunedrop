@@ -14,7 +14,7 @@
 #   ./backend/watchdog.sh uninstall   launchd から解除
 #
 # 監視対象:
-#   1. ローカルWeb (PHP + router.php) … /api.php?action=health&deep=1 (DB接続も確認)
+#   1. ローカルWeb (PHP + router.php) … /tunedrop/api.php?action=health&deep=1 (DB接続も確認)
 #   2. 認証・解析サーバー (app.py)   … /health
 #   3. 公開URL (Cloudflare Tunnel)   … https://music.wawa-app.me/tunedrop/api.php
 #   4. メモリ/スワップの逼迫        … 警告ログのみ (80%以上で30分に1回)
@@ -43,8 +43,9 @@
 # ==========================================================
 set -u
 
-# launchd から起動すると PATH が最小構成のため、Homebrew 等を先に足す。
-PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+# launchd からでも Homebrew の PHP と Volta の Node/npm を使えるようにする。
+export VOLTA_HOME="${VOLTA_HOME:-$HOME/.volta}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$VOLTA_HOME/bin:${PATH:-}"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 ROOT="$(cd "$DIR/.." && pwd)"
@@ -104,7 +105,7 @@ local_health_url() {
     if [ -n "${TUNEDROP_WATCHDOG_LOCAL_URL:-}" ]; then
         printf '%s' "$TUNEDROP_WATCHDOG_LOCAL_URL"
     else
-        printf 'http://127.0.0.1:%s/api.php?action=health&deep=1' "$(read_port "$ROOT/.web_port" 8888)"
+        printf 'http://127.0.0.1:%s/tunedrop/api.php?action=health&deep=1' "$(read_port "$ROOT/.web_port" 8888)"
     fi
 }
 
@@ -438,20 +439,33 @@ memory_warning() {
     fi
 }
 
-# 同時実行 (launchd と手動) を防ぐ。持ち主が死んでいるロックは奪い直す。
+# 同時実行 (launchd と手動) を防ぐ。持ち主が死んでいる/分からないロックは奪い直す。
+# 注意: mkdir の直後に強制終了されると、pid ファイルが無いままディレクトリだけ残る。
+# 以前はこの状態を「誰かが実行中」と誤判定し、監視が永久にスキップされていた
+# (復旧されないまま1週間止まる事故)。pid が無い場合は、作成から5秒以上経っていれば
+# 残骸とみなして引き継ぐ。
 acquire_lock() {
-    local holder
+    local holder mtime now
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         printf '%s' "$$" > "$LOCK_DIR/pid" 2>/dev/null || true
         return 0
     fi
     holder="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
-        rm -rf "$LOCK_DIR" 2>/dev/null || true
-        if mkdir "$LOCK_DIR" 2>/dev/null; then
-            printf '%s' "$$" > "$LOCK_DIR/pid" 2>/dev/null || true
-            return 0
-        fi
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+        return 1
+    fi
+    now="$(date +%s)"
+    mtime="$(stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0)"
+    case "$mtime" in ''|*[!0-9]*) mtime=0 ;; esac
+    # 作られた直後は、別プロセスが pid を書き込んでいる途中かもしれない。
+    if [ "$mtime" -gt 0 ] && [ $((now - mtime)) -lt 5 ]; then
+        return 1
+    fi
+    log "cycle: 残っていたロック (pid=${holder:-なし}) を引き継ぎます"
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        printf '%s' "$$" > "$LOCK_DIR/pid" 2>/dev/null || true
+        return 0
     fi
     return 1
 }
@@ -463,6 +477,14 @@ release_lock() {
     return 0
 }
 
+# 一時的な負荷・回線遅延で全接続を切らないよう、失敗時だけ再確認する。
+# curl の上限があるため、停止しているサービスも次のチェックで復旧へ進む。
+confirm_health() {
+    if "$1"; then return 0; fi
+    log "$1: 再起動前に再確認します ($CHECK_DETAIL)"
+    "$1"
+}
+
 cycle() {
     local rc=0 web_ok=0 auth_ok=0
     if ! acquire_lock; then
@@ -471,13 +493,13 @@ cycle() {
     fi
     rotate_log "$LOG_FILE"
 
-    if check_web; then
+    if confirm_health check_web; then
         web_ok=1
         mark_state web up
     else
         mark_state web down
     fi
-    if check_auth; then
+    if confirm_health check_auth; then
         auth_ok=1
         mark_state auth up
     else
@@ -495,11 +517,11 @@ cycle() {
     fi
 
     if [ "$SKIP_PUBLIC" != "1" ]; then
-        if check_public; then
+        if confirm_health check_public; then
             mark_state public up
         else
             mark_state public down
-            if check_web; then
+            if confirm_health check_web; then
                 # 公開URLは 8888 へのトンネルを前提としている。ローカルWebが 8888 以外で
                 # 起動しているときはトンネル側から 502 になるため、8888 を解放してスタックを再起動する。
                 local web_p

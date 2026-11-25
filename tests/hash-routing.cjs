@@ -377,7 +377,7 @@ test('デモ初期ビューはRadarの5曲を再生キューとして描画す�
     setAccountSession();
 });
 
-test('プレイリスト共有URLは/playlist配下でも正しいogp.phpを指す', () => {
+test('本番の共有URLは /tunedrop/ 配下の ogp.php を指す', () => {
     locationStub._pathname = '/tunedrop/playlist/12';
     assert.equal(run('playlistShareUrl(12)'), 'http://localhost/tunedrop/ogp.php?playlist=12');
     locationStub._pathname = '/playlist/12';

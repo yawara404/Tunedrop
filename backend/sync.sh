@@ -27,24 +27,14 @@ cd "$ROOT"
 MSG="${1:-クラウド同期 $(date '+%Y-%m-%d %H:%M')}"
 
 echo "== 画面をビルド (frontend/ -> frontend/dist/、Vite) =="
-if [[ -d frontend/node_modules ]]; then
-    ( cd frontend && npm run build )
-else
-    echo "frontend/node_modules が無いためビルドをスキップします (cd frontend && npm install を実行してください)" >&2
-fi
-
-# ビルド成果物 (frontend/dist/) に差分があれば sitemap.xml の lastmod を今日に更新する。
-# (検索エンジンに「サイトが更新された」ことを伝える。手で書き換えてもよい)
-# OGPカード画像の ?v= はビルド時に frontend/vite.config.mjs が中身のハッシュへ更新する。
-if [[ -f sitemap.xml && -n "$(git status --porcelain frontend/dist 2>/dev/null)" ]]; then
-    today="$(date +%Y-%m-%d)"
-    current="$(sed -n 's#.*<lastmod>\([^<]*\)</lastmod>.*#\1#p' sitemap.xml | head -1)"
-    if [[ "$current" != "$today" ]]; then
-        if sed --version >/dev/null 2>&1; then SED_I=(-i); else SED_I=(-i ''); fi
-        sed "${SED_I[@]}" "s#<lastmod>[^<]*</lastmod>#<lastmod>${today}</lastmod>#" sitemap.xml
-        echo "更新: sitemap.xml の lastmod を ${today} に更新"
+build_frontend() (
+    cd frontend
+    if [[ ! -f node_modules/.package-lock.json || package-lock.json -nt node_modules/.package-lock.json ]]; then
+        npm ci
     fi
-fi
+    npm run build
+)
+build_frontend
 
 echo "== fetch =="
 git fetch origin
@@ -63,6 +53,7 @@ BEHIND=$(git rev-list --count main..origin/main)
 if [[ "$BEHIND" -gt 0 ]]; then
     echo "== リモートの変更を取り込み (rebase) =="
     git pull --rebase origin main
+    build_frontend
 fi
 
 if [[ -n "$(git status --porcelain)" ]]; then

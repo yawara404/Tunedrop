@@ -4,15 +4,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Tune drop — 音楽で触れ合うブックマーク</title>
+    <title>Tune drop｜YouTubeの曲を保存・整理できる無料音楽プレイリストアプリ</title>
     <meta name="description"
-        content="YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。">
+        content="Tune drop（チューンドロップ）は、YouTubeのURLを貼るだけで曲を保存し、自分だけのプレイリストに整理できる無料Webアプリ。AI×音源解析の2D雰囲気マップ「Radar」で好みの曲を発掘し、公開リスト「Share」で音楽や人とつながれます。登録なしの5曲デモも。">
+    <meta name="keywords"
+        content="Tune drop,チューンドロップ,YouTube,プレイリスト,音楽アプリ,ブックマーク,音楽管理,Radar,Share,Lo-Fi,J-POP,ボカロ,無料">
+    <meta name="application-name" content="Tune drop">
+    <meta name="apple-mobile-web-app-title" content="Tune drop">
     <!-- ========== 検索エンジン向け (Google Search Console) ==========
          画面は History API の標準パス (/, /radar, /share など) で、どのパスでも
          同じこの index.html 1枚を配信する。正規URLはトップに集約する。
          サイトマップ: sitemap.xml / クロール方針: robots.txt -->
     <link rel="canonical" href="https://music.wawa-app.me/tunedrop/">
-    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="alternate" hreflang="ja" href="https://music.wawa-app.me/tunedrop/">
+    <link rel="alternate" hreflang="x-default" href="https://music.wawa-app.me/tunedrop/">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <!-- Google Search Console の所有権確認タグ。
          プロパティ: URLプレフィックス https://music.wawa-app.me/tunedrop/
          プロパティを作り直したときだけ、Search Console が表示する新しい値へ差し替える。
@@ -23,9 +29,9 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://music.wawa-app.me/tunedrop/">
     <meta property="og:locale" content="ja_JP">
-    <meta property="og:title" content="Tune drop — 音楽で触れ合うブックマーク">
+    <meta property="og:title" content="Tune drop｜YouTubeの曲を保存・整理できる無料音楽プレイリストアプリ">
     <meta property="og:description"
-        content="YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。">
+        content="Tune drop（チューンドロップ）は、YouTubeのURLを貼るだけで曲を保存し、自分だけのプレイリストに整理できる無料Webアプリ。AI×音源解析の2D雰囲気マップ「Radar」で好みの曲を発掘し、公開リスト「Share」で音楽や人とつながれます。">
     <!-- SNS/検索結果のプレビュー画像は 1200x630 の専用OGPカード。
          画像は frontend/ogp-card.png (?v= は vite.config.mjs がビルド時に
          中身のハッシュへ更新する)。 -->
@@ -34,31 +40,126 @@
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Tune drop — 音楽で触れ合うブックマーク（Manager・Radar・Shareの使い方）">
+    <meta property="og:image:alt" content="Tune drop（チューンドロップ）— YouTubeの曲を保存・整理できる音楽プレイリストアプリ（Manager・Radar・Shareの使い方）">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Tune drop — 音楽で触れ合うブックマーク">
+    <meta name="twitter:title" content="Tune drop｜YouTubeの曲を保存・整理できる無料音楽プレイリストアプリ">
     <meta name="twitter:description"
-        content="YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。">
+        content="Tune drop（チューンドロップ）は、YouTubeのURLを貼るだけで曲を保存し、自分だけのプレイリストに整理できる無料Webアプリ。AI×音源解析の2D雰囲気マップ「Radar」で好みの曲を発掘し、公開リスト「Share」で音楽や人とつながれます。">
     <meta name="twitter:image" content="https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4">
-    <meta name="twitter:image:alt" content="Tune drop — 音楽で触れ合うブックマーク（Manager・Radar・Shareの使い方）">
-    <!-- 構造化データ (検索結果でのアプリ情報。WebApplication は SoftwareApplication の一種) -->
+    <meta name="twitter:image:alt" content="Tune drop（チューンドロップ）— YouTubeの曲を保存・整理できる音楽プレイリストアプリ（Manager・Radar・Shareの使い方）">
+    <!-- 構造化データ (検索結果でのサイト名・アプリ情報・FAQリッチリザルト)。
+         Google は WebSite / Organization からサイト名を、FAQPage から
+         「よくある質問」のリッチリザルトを生成する。 -->
     <script type="application/ld+json">
         {
             "@context": "https://schema.org",
-            "@type": "WebApplication",
-            "name": "Tune drop",
-            "url": "https://music.wawa-app.me/tunedrop/",
-            "description": "YouTubeの曲をURLで保存してプレイリストに整理。雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。",
-            "applicationCategory": "MultimediaApplication",
-            "operatingSystem": "Web",
-            "inLanguage": "ja",
-            "isAccessibleForFree": true,
-            "image": "https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4",
-            "offers": {
-                "@type": "Offer",
-                "price": "0",
-                "priceCurrency": "JPY"
-            }
+            "@graph": [
+                {
+                    "@type": "WebSite",
+                    "@id": "https://music.wawa-app.me/tunedrop/#website",
+                    "url": "https://music.wawa-app.me/tunedrop/",
+                    "name": "Tune drop",
+                    "alternateName": ["チューンドロップ", "Tune drop 音楽アプリ"],
+                    "description": "YouTubeの曲をURLで保存してプレイリストに整理し、2D雰囲気マップ「Radar」と公開リスト「Share」で音楽を発掘・共有できる無料Webアプリ。",
+                    "inLanguage": "ja",
+                    "publisher": { "@id": "https://music.wawa-app.me/tunedrop/#organization" }
+                },
+                {
+                    "@type": ["WebApplication", "SoftwareApplication"],
+                    "@id": "https://music.wawa-app.me/tunedrop/#app",
+                    "name": "Tune drop",
+                    "alternateName": "チューンドロップ",
+                    "url": "https://music.wawa-app.me/tunedrop/",
+                    "description": "YouTubeの曲をURLで保存してプレイリストに整理。AI×音源解析の2D雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有で、音楽や人と出会うWebアプリ。",
+                    "applicationCategory": "MultimediaApplication",
+                    "applicationSubCategory": "音楽プレイリスト管理・音楽発掘",
+                    "operatingSystem": "Web",
+                    "browserRequirements": "JavaScript を有効にした最新の Chrome / Edge / Safari / Firefox",
+                    "inLanguage": "ja",
+                    "isAccessibleForFree": true,
+                    "image": "https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4",
+                    "screenshot": "https://music.wawa-app.me/tunedrop/frontend/ogp-card.png?v=82e0a55ad4",
+                    "featureList": [
+                        "YouTubeのURLから曲を保存してプレイリストに整理",
+                        "ドラッグ＆ドロップでの曲順・リスト順の並び替え",
+                        "AI×音源解析による2D雰囲気マップ（Radar）での発掘と連続再生",
+                        "公開プレイリスト（Share）の共有・お気に入り・フォロー",
+                        "ログインなしで試せる5曲のデモプレイヤー"
+                    ],
+                    "offers": {
+                        "@type": "Offer",
+                        "price": "0",
+                        "priceCurrency": "JPY"
+                    },
+                    "publisher": { "@id": "https://music.wawa-app.me/tunedrop/#organization" }
+                },
+                {
+                    "@type": "Organization",
+                    "@id": "https://music.wawa-app.me/tunedrop/#organization",
+                    "name": "Tune drop",
+                    "url": "https://music.wawa-app.me/tunedrop/",
+                    "logo": {
+                        "@type": "ImageObject",
+                        "url": "https://music.wawa-app.me/tunedrop/frontend/favicon-card.png"
+                    },
+                    "sameAs": ["https://github.com/yawara404/Tunedrop"]
+                },
+                {
+                    "@type": "FAQPage",
+                    "@id": "https://music.wawa-app.me/tunedrop/#faq",
+                    "inLanguage": "ja",
+                    "mainEntity": [
+                        {
+                            "@type": "Question",
+                            "name": "Tune drop は無料で使えますか？",
+                            "acceptedAnswer": {
+                                "@type": "Answer",
+                                "text": "はい。ログインIDとパスワード、またはGoogleアカウントで登録でき、利用料金は無料です。"
+                            }
+                        },
+                        {
+                            "@type": "Question",
+                            "name": "YouTubeの曲を保存するにはどうすればいいですか？",
+                            "acceptedAnswer": {
+                                "@type": "Answer",
+                                "text": "Managerの入力欄にYouTubeのURL（youtube.com/watch?v=…、youtu.be/…、YouTube Music、Shorts）を貼り付けて「追加」を押すだけです。曲名・チャンネル・サムネイルは自動で取得されます。"
+                            }
+                        },
+                        {
+                            "@type": "Question",
+                            "name": "ログインしなくても試せますか？",
+                            "acceptedAnswer": {
+                                "@type": "Answer",
+                                "text": "はい。トップページの「ログインなしで5曲試聴」から、公開リストの曲をその場で再生できます。"
+                            }
+                        },
+                        {
+                            "@type": "Question",
+                            "name": "Radar（雰囲気マップ）とは何ですか？",
+                            "acceptedAnswer": {
+                                "@type": "Answer",
+                                "text": "BPMやエネルギーなど音の特徴から曲を2Dマップに配置し、近い雰囲気の曲をたどって連続再生できる発掘機能です。"
+                            }
+                        },
+                        {
+                            "@type": "Question",
+                            "name": "プレイリストは他の人と共有できますか？",
+                            "acceptedAnswer": {
+                                "@type": "Answer",
+                                "text": "プレイリストの「編集・公開」でShareに公開すると、OGPカード付きの共有URLで他の人に紹介できます。"
+                            }
+                        },
+                        {
+                            "@type": "Question",
+                            "name": "スマートフォンでも使えますか？",
+                            "acceptedAnswer": {
+                                "@type": "Answer",
+                                "text": "はい。スマートフォンのブラウザで利用できます。再生はYouTubeの規約に沿った埋め込みプレイヤーで行います。"
+                            }
+                        }
+                    ]
+                }
+            ]
         }
     </script>
     <!-- ファビコン。タブ用は軽いSVG、スマホのホーム画面 (apple-touch-icon) は
@@ -118,6 +219,15 @@
         <span>新しいバージョンがあります。</span>
         <button type="button" id="update-reload">再読み込み</button>
     </div>
+    <!-- サーバーとの通信が切れたときの細いバナー。
+         画面全体を覆わないので、再生中の曲や入力は止まらない。
+         health を指数バックオフで確認し、復旧すると自動で消える。 -->
+    <div class="connection-banner" id="connection-banner" hidden role="status" aria-live="polite">
+        <span class="connection-dot" aria-hidden="true"></span>
+        <span class="connection-text" id="connection-text">サーバーに接続できません。自動で再接続しています…</span>
+        <button type="button" class="connection-retry" id="connection-retry"
+            onclick="retryConnection()">再試行</button>
+    </div>
     <header class="top-nav">
         <div class="nav-left" style="display: flex; align-items: center;">
             <button id="menu-toggle-btn" class="menu-toggle-btn" aria-expanded="false" aria-label="メニューを開く"
@@ -172,7 +282,7 @@
                 <header class="demo-intro">
                     <div class="demo-intro-copy">
                         <p class="welcome-eyebrow"><span class="welcome-dot"></span>音楽で触れ合うブックマーク</p>
-                        <h1>好きな曲を残して、<br><span class="demo-accent">音楽と人に出会う。</span></h1>
+                        <h1>YouTubeの好きな曲を保存して、<br><span class="demo-accent">音楽と人に出会う。</span></h1>
                         <p class="welcome-lead">
                             YouTubeで見つけた曲をURLひとつで保存し、自分らしいプレイリストに整理。
                             AI×音源解析の2D雰囲気マップ（Radar）や公開リスト（Share）を通して、
@@ -494,10 +604,54 @@
                     </div>
                 </section>
 
+                <section class="demo-faq" aria-labelledby="demo-faq-title">
+                    <header class="demo-section-head">
+                        <div>
+                            <p class="demo-kicker">FAQ / よくある質問</p>
+                            <h2 id="demo-faq-title">Tune drop について</h2>
+                        </div>
+                    </header>
+                    <div class="demo-faq-grid">
+                        <details class="demo-faq-item">
+                            <summary>Tune drop は無料で使えますか？</summary>
+                            <p>はい。ログインIDとパスワード、またはGoogleアカウントで登録でき、利用料金は無料です。</p>
+                        </details>
+                        <details class="demo-faq-item">
+                            <summary>YouTubeの曲を保存するには？</summary>
+                            <p>Managerの入力欄にYouTubeのURL（youtube.com/watch?v=…、youtu.be/…、YouTube Music、Shorts）を貼り付けて「追加」を押すだけです。曲名・チャンネル・サムネイルは自動で取得されます。</p>
+                        </details>
+                        <details class="demo-faq-item">
+                            <summary>ログインしなくても試せますか？</summary>
+                            <p>はい。トップページの「ログインなしで5曲試聴」から、公開リストの曲をその場で再生できます。</p>
+                        </details>
+                        <details class="demo-faq-item">
+                            <summary>Radar（雰囲気マップ）とは？</summary>
+                            <p>BPMやエネルギーなど音の特徴から曲を2Dマップに配置し、近い雰囲気の曲をたどって連続再生できる発掘機能です。</p>
+                        </details>
+                        <details class="demo-faq-item">
+                            <summary>プレイリストは共有できますか？</summary>
+                            <p>プレイリストの「編集・公開」でShareに公開すると、OGPカード付きの共有URLで他の人に紹介できます。</p>
+                        </details>
+                        <details class="demo-faq-item">
+                            <summary>スマートフォンでも使えますか？</summary>
+                            <p>はい。スマートフォンのブラウザで利用できます。再生はYouTubeの規約に沿った埋め込みプレイヤーで行います。</p>
+                        </details>
+                    </div>
+                    <p class="demo-faq-more"><a class="welcome-help-link" href="./help">使い方ガイドで詳しく見る</a></p>
+                </section>
+
                 <footer class="welcome-footnote">
                     <span>TUNE DROP — 音楽で触れ合うブックマーク</span>
-                    <button type="button" class="welcome-help-link"
-                        onclick="navigateView('help')">詳しい使い方・ショートカット一覧を見る</button>
+                    <!-- ナビは button + onclick のため、検索エンジンがたどれる内部リンクを
+                         ここに置く (回遊とクロールのため。SPA の History API パスに対応)。 -->
+                    <nav class="welcome-footnote-links" aria-label="サイト内リンク">
+                        <a class="welcome-help-link" href="./">ホーム</a>
+                        <a class="welcome-help-link" href="./help">使い方</a>
+                        <a class="welcome-help-link" href="./share">公開リスト</a>
+                        <a class="welcome-help-link" href="./radar">雰囲気マップ</a>
+                        <a class="welcome-help-link" href="https://github.com/yawara404/Tunedrop"
+                            target="_blank" rel="noopener noreferrer">GitHub</a>
+                    </nav>
                 </footer>
             </div>
         </div>
@@ -1640,7 +1794,14 @@
         </div>
     </div>
 
-    <noscript><div class="noscript-notice">Tune dropを使うには、ブラウザのJavaScriptを有効にしてください。</div></noscript>
+    <noscript>
+        <div class="noscript-notice">
+            <p><strong>Tune drop（チューンドロップ）</strong>は、YouTubeの曲をURLで保存してプレイリストに整理し、
+                AI×音源解析の2D雰囲気マップ「Radar」で新しい曲を発掘、公開リスト「Share」で音楽や人とつながれる無料のWebアプリです。</p>
+            <p>このページの機能を使うにはブラウザのJavaScriptを有効にしてください。概要は
+                <a href="./help">使い方ガイド</a>でもご覧いただけます。</p>
+        </div>
+    </noscript>
 
     <!-- 画面のビルドは Vite が行う (frontend/main.js から config.js / app.js / style.css を
          取り込む)。プロジェクト直下の index.html はこのファイルを元にしたビルド成果物で、

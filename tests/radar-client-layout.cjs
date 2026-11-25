@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync('frontend/app.js', 'utf8');
 const start = source.indexOf('export function spreadLegacyRadarMap');
-const end = source.indexOf('export async function loadRadarData', start);
+const end = source.indexOf('let radarLoadGeneration', start);
 const ctx = vm.createContext({});
 vm.runInContext(source.slice(start, end).replace('export ', ''), ctx);
 const spread = ctx.spreadLegacyRadarMap;

@@ -26,6 +26,9 @@ import secrets
 import hashlib
 import hmac
 import random
+import subprocess
+import sys
+import tempfile
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -1068,6 +1071,9 @@ _EMBED_LOCK = threading.Lock()
 # コールド時の再計算は 1.6 秒かかるので、既定を 60 秒から 300 秒へ延ばして
 # 踏む頻度を下げる (TUNEDROP_MAP_CACHE_TTL で変更可)。
 _MAP_CACHE = {'key': None, 'payload': None, 'at': 0.0}
+_MAP_BUILD_LOCK = threading.Lock()
+# PHP のプロキシ上限 (30秒) 内に PCA へ切り替える。
+UMAP_TIMEOUT = float(os.environ.get('TUNEDROP_UMAP_TIMEOUT', '12') or '12')
 MAP_CACHE_TTL = float(os.environ.get('TUNEDROP_MAP_CACHE_TTL', '300') or '300')
 # 解析バッチ中は内容が数秒ごとに変わるため、変更直後でも最低この秒数は作り直さない
 # (古いキャッシュを返してでもUMAPの連続再計算を防ぐ = 負荷対策)。
@@ -1131,9 +1137,33 @@ def _dedup_bookmarks(items):
     return cleaned
 
 
+# タイトル等は保存せず、入力ベクトルのハッシュと座標だけを保存する。
+EMBED_CACHE_PATH = os.path.join(PROJECT_ROOT, '.radar_embedding.json')
+
+
+def _embedding_key(features, n_neighbors=15, min_dist=0.1, random_state=42):
+    return hashlib.sha256(json.dumps(
+        [3, features, n_neighbors, min_dist, random_state],
+        separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+
+def _save_embedding(key, coords, method):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=os.path.dirname(EMBED_CACHE_PATH),
+                                         delete=False) as stream:
+            temporary = stream.name
+            json.dump({'key': key, 'coords': coords, 'method': method}, stream, allow_nan=False)
+        os.replace(temporary, EMBED_CACHE_PATH)
+    except (OSError, ValueError):
+        pass  # 保存不可でもマップ表示は継続する。
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
     """(coords, method) を返す。coords は各曲の [x, y] ([0,1])。"""
-    import numpy as np
     feats = []
     for f in features:
         f = list(f or [])
@@ -1147,6 +1177,20 @@ def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
     if n == 2:
         return [[0.0, 0.0], [1.0, 1.0]], "none"
 
+    cache_key = _embedding_key(feats, n_neighbors, min_dist, random_state)
+    try:
+        import math
+        with open(EMBED_CACHE_PATH) as stream:
+            cached = json.load(stream)
+        coords = cached['coords']
+        if (cached['key'] == cache_key and len(coords) == n
+                and cached['method'] in ('umap', 'pca')
+                and all(len(p) == 2 and all(math.isfinite(v) and 0 <= v <= 1 for v in p) for p in coords)):
+            return coords, cached['method']
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+
+    import numpy as np
     X = np.asarray(feats, dtype="float64")
     std = X.std(axis=0)
     keep = std > 1e-12
@@ -1166,15 +1210,24 @@ def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
     try:
         # 同時実行でプロセスが落ちるため、埋め込み計算は直列化する
         with _EMBED_LOCK:
-            import umap  # noqa: F401
-            reducer = umap.UMAP(
-                n_components=2, n_neighbors=nn, min_dist=min_dist,
-                metric="euclidean", random_state=random_state, n_epochs=200,
+            # numba の abort / segfault は except で捕捉できないため別プロセスへ隔離。
+            # 音源解析の numba ともランタイムを共有しない。
+            worker_env = dict(os.environ)
+            for name in ('NUMBA_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS',
+                         'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
+                worker_env[name] = '1'
+            result = subprocess.run(
+                [sys.executable, os.path.join(BACKEND_DIR, 'radar_embed_worker.py')],
+                input=json.dumps({'vectors': Z.tolist(), 'n_neighbors': nn,
+                                  'min_dist': min_dist, 'random_state': random_state}),
+                text=True, capture_output=True, check=True,
+                timeout=UMAP_TIMEOUT, env=worker_env,
             )
-            emb = reducer.fit_transform(Z)
-        if np.asarray(emb).shape[0] != n:
+            emb = json.loads(result.stdout)
+        if np.asarray(emb).shape != (n, 2) or not np.isfinite(emb).all():
             raise RuntimeError("bad embedding shape")
-    except Exception:
+    except Exception as exc:
+        app.logger.warning("Radar UMAP unavailable (%s); using PCA", type(exc).__name__)
         method = "pca"
         emb = _pca2d(Z)
 
@@ -1183,6 +1236,7 @@ def embed(features, n_neighbors=15, min_dist=0.1, random_state=42):
     if len(coords) != n:   # 最終保険
         coords = [[0.5, 0.5] for _ in range(n)]
         method = "none"
+    _save_embedding(cache_key, coords, method)
     return coords, method
 
 
@@ -1197,14 +1251,27 @@ def radar_map():
     public_only = request.args.get('public') == '1'
     user_id = _num(request.args.get('user_id'), 0)
 
-    # 同じ内容ならキャッシュを返す (UIは解析中に何度も呼ぶため、毎回UMAPを回さない)。
-    # 内容が変わっていても MAP_MIN_INTERVAL 秒は古いキャッシュを返し、解析バッチ中の連続再計算を防ぐ。
-    cache_key = _map_cache_key(public_only, user_id)
-    if _MAP_CACHE['payload'] is not None:
-        age = time.time() - _MAP_CACHE['at']
-        if (_MAP_CACHE['key'] == cache_key and age < MAP_CACHE_TTL) or age < MAP_MIN_INTERVAL:
-            return jsonify(_MAP_CACHE['payload']), 200
+    scope = (bool(public_only), int(user_id))
+    # 再計算中は同じ公開範囲の直前のマップを返し、閲覧を止めない。
+    if not _MAP_BUILD_LOCK.acquire(blocking=False):
+        cached = dict(_MAP_CACHE)
+        if cached['payload'] is not None and cached['key'][:2] == scope:
+            return jsonify(cached['payload']), 200
+        if not _MAP_BUILD_LOCK.acquire(timeout=UMAP_TIMEOUT + 2):
+            return jsonify(success=False, error='マップを準備中です。もう一度開いてください。'), 503
+    try:
+        # ロック取得後に再確認し、待機していた要求で同じ計算を繰り返さない。
+        cache_key = _map_cache_key(public_only, user_id)
+        if _MAP_CACHE['payload'] is not None and _MAP_CACHE['key'][:2] == scope:
+            age = time.monotonic() - _MAP_CACHE['at']
+            if (_MAP_CACHE['key'] == cache_key and age < MAP_CACHE_TTL) or age < MAP_MIN_INTERVAL:
+                return jsonify(_MAP_CACHE['payload']), 200
+        return _build_radar_map(public_only, user_id, cache_key)
+    finally:
+        _MAP_BUILD_LOCK.release()
 
+
+def _build_radar_map(public_only, user_id, cache_key):
     items = _db_bookmarks()
     if user_id:
         items = [i for i in items if i.get("user_id") == int(user_id)]
@@ -1262,7 +1329,7 @@ def radar_map():
         "pending": pending,
         "points": points,
     }
-    _MAP_CACHE.update({'key': cache_key, 'payload': payload, 'at': time.time()})
+    _MAP_CACHE.update({'key': cache_key, 'payload': payload, 'at': time.monotonic()})
     return jsonify(payload), 200
 
 

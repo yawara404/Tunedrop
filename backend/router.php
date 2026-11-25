@@ -5,14 +5,15 @@
 // 検索エンジン向けファイルだけ。
 //
 // このファイルは backend/ にあり、docroot (-t) はプロジェクト直下。
-// 公開URLは整理前と同じで、実ファイルの置き場だけが backend/ と frontend/dist/ に
+// 公開URLは正規化後も同じで、実ファイルの置き場だけが backend/ と frontend/dist/ に
 // 分かれている (下の $static_map / $entry_points が対応表)。
 //
-// 公開 (Cloudflare Tunnel) では https://<host>/tunedrop/ 配下で配信される。
-// Apache は /tunedrop の Alias が処理するが、PHPビルトインサーバーは
-// REQUEST_URI のままのパス (<docroot>/tunedrop/api.php) を探してしまうため、
-// 先頭の /tunedrop を外して許可判定し、プレフィックス付きの要求は
-// このルーターが実ファイルを返す / エントリポイントを実行する (Alias 相当)。
+// 正規URLは https://<host>/tunedrop/ (小文字)。
+// ホスト直下 / と大文字 /Tunedrop/ は 301 で /tunedrop/ へ寄せる。
+// ただし robots.txt / sitemap.xml / Google の HTML 確認ファイルはホスト直下に残す
+// (robots.txt はホスト直下でしか読まれないため)。
+// これで canonical / OGP / sitemap がすべて /tunedrop/ に揃い、
+// QuadTecho など別プロジェクトのパスとは独立する。
 $requestPath = rawurldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/');
 
 // floppy.io は同じ公開 PHP サーバーから配信する別アプリ。実体は
@@ -22,19 +23,59 @@ if (preg_match('#^/floppy\.io(?:/|$)#', $requestPath)) {
     return false;
 }
 
-$prefix = '';
-if (preg_match('#^/[Tt]unedrop(?=/|$)#', $requestPath, $matched)) {
-    $prefix = $matched[0];
-    $path = substr($requestPath, strlen($prefix));
-    if ($path === '') {
-        // /tunedrop (末尾スラッシュなし) は Apache の mod_dir と同じく /tunedrop/ へ寄せる。
-        // 寄せないと相対URL (assets/... など) が / 直下を指してしまう。
-        $query = (string)parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY);
-        header('Location: ' . $prefix . '/' . ($query !== '' ? '?' . $query : ''), true, 301);
-        exit;
+// SNSクローラーは 301 を追わない実装があるため、公開リストの直URLは
+// リダイレクトせず OGP カードを返す (後段の分岐で処理する)。
+$social_crawler = preg_match(
+    '/facebookexternalhit|twitterbot|slackbot|discordbot|linkedinbot|pinterestbot|telegrambot|whatsapp|line\/|embedly/i',
+    (string)($_SERVER['HTTP_USER_AGENT'] ?? '')
+) === 1;
+
+// 正規パスへ恒久リダイレクトする。GET/HEAD は 301、POST などは 308。
+// Location は必ず単一スラッシュ始まりにして、//host 形式の外部リダイレクトを作らない。
+$redirect_to = static function (string $target): void {
+    $target = '/' . ltrim($target, '/');
+    $query = (string)parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY);
+    if ($query !== '') {
+        $target .= '?' . $query;
+    }
+    $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    header('Location: ' . $target, true, ($method === 'GET' || $method === 'HEAD') ? 301 : 308);
+    exit;
+};
+
+// 旧 QuadTecho トップは TuneDrop の正規化より先に移転先へ送る。
+if (preg_match('#^/quadtecho(?:/index\.html|/)?$#i', $requestPath)) {
+    $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if ($method !== 'GET' && $method !== 'HEAD') {
+        http_response_code(404);
+        return true;
+    }
+    header('Location: https://plan.wawa-app.me/QuadTecho/', true, 301);
+    return true;
+}
+
+$canonical_prefix = '/tunedrop';
+if (preg_match('#^/tunedrop(?=/|$)#i', $requestPath, $matched)) {
+    $path = preg_replace('#/{2,}#', '/', substr($requestPath, strlen($matched[0]))) ?: '/';
+    if ($path === '/' || $path === '/index.html') {
+        if ($requestPath !== $canonical_prefix . '/') {
+            $redirect_to($canonical_prefix . '/');
+        }
+        $path = '/';
+    }
+    $crawler_card = $social_crawler && preg_match('#^/playlist/[0-9]+/?$#', $path) === 1;
+    if ($matched[0] !== $canonical_prefix && !$crawler_card) {
+        $redirect_to($canonical_prefix . $path);
     }
 } else {
     $path = $requestPath;
+    $root_file = in_array($path, ['/robots.txt', '/sitemap.xml'], true)
+        || preg_match('#^/google[a-z0-9]+\.html$#i', $path) === 1;
+    $crawler_card = $social_crawler && preg_match('#^/playlist/[0-9]+/?$#', $path) === 1;
+    if (!$root_file && !$crawler_card) {
+        // ホスト直下 (旧URL) は /tunedrop/ へ寄せる。ルートは /tunedrop/ にする。
+        $redirect_to($canonical_prefix . ($path === '/index.html' ? '/' : $path));
+    }
 }
 if ($path === '') {
     $path = '/';
@@ -48,21 +89,22 @@ foreach (['/playlist/assets/', '/user/assets/'] as $deep_asset_prefix) {
     }
 }
 // このルーターは backend/ にあり、docroot (-t) はプロジェクト直下 (その親)。
-// ソースは backend/ と frontend/ に分かれているが、公開URLは変えない:
-//   公開URL                     → 実ファイル
-//   /                           → frontend/dist/index.html (Vite のビルド成果物)
-//   /index.html                 → frontend/dist/index.html
-//   /assets/<hash>.<ext>        → frontend/dist/assets/<hash>.<ext>
-//   /api.php, /ogp.php          → backend/api.php, backend/ogp.php (実行)
-//   /robots.txt, /sitemap.xml   → プロジェクト直下
-//   /frontend/favicon-card.png  → frontend/favicon-card.png (apple-touch-icon)
-//   /frontend/ogp-card.png      → frontend/ogp-card.png (SNS共有カード 1200x630)
-//   /admin/admin.{js,css}       → admin/ (ローカル専用)
+// ソースは backend/ と frontend/ に分かれている。公開URL (正規) は /tunedrop/ 配下:
+//   公開URL                          → 実ファイル
+//   /tunedrop/                       → frontend/dist/index.html (Vite のビルド成果物)
+//   /tunedrop/index.html             → /tunedrop/ へリダイレクト
+//   /tunedrop/assets/<hash>.<ext>    → frontend/dist/assets/<hash>.<ext>
+//   /tunedrop/api.php, /ogp.php      → backend/api.php, backend/ogp.php (実行)
+//   /tunedrop/robots.txt, sitemap.xml→ プロジェクト直下 (ホスト直下でも配信)
+//   /tunedrop/frontend/*.png         → frontend/ (アイコン / SNS共有カード)
+//   /tunedrop/admin/admin.{js,css}   → admin/ (ローカル専用)
 $projectRoot = dirname(__DIR__);
 $static_map = [
     '/' => $projectRoot . '/frontend/dist/index.html',
-    '/index.html' => $projectRoot . '/frontend/dist/index.html',
     '/maintenance.html' => $projectRoot . '/frontend/dist/maintenance.html',
+    // Service Worker (frontend/public/sw.js を Vite が dist/ へコピーする)。
+    // サーバーが落ちている間も画面の外枠をキャッシュから開くために必要。
+    '/sw.js' => $projectRoot . '/frontend/dist/sw.js',
     '/robots.txt' => $projectRoot . '/robots.txt',
     '/sitemap.xml' => $projectRoot . '/sitemap.xml',
     '/frontend/favicon-card.png' => $projectRoot . '/frontend/favicon-card.png',
@@ -103,6 +145,7 @@ $maintenance_message = $maintenance ? trim((string)@file_get_contents($maintenan
 if ($maintenance
     && !preg_match('#^/admin(?:/|$)#', $path)
     && $path !== '/maintenance.html'
+    && $path !== '/sw.js'
     && !preg_match($asset_pattern, $path)) {
     if ($path === '/api.php') {
         http_response_code(503);
@@ -166,13 +209,9 @@ if (!preg_match($asset_pattern, $path)
 // SNSクローラーが公開リストの直URL (/playlist/12) を開いた場合も、
 // ogp.php?playlist=12 と同じ OGP カードを返す。人間のブラウザには
 // これまで通り SPA (index.html) を返す。
-$social_crawler = preg_match(
-    '/facebookexternalhit|twitterbot|slackbot|discordbot|linkedinbot|pinterestbot|telegrambot|whatsapp|line\/|embedly/i',
-    (string)($_SERVER['HTTP_USER_AGENT'] ?? '')
-) === 1;
 if ($social_crawler && preg_match('#^/playlist/([0-9]+)/?$#', $path, $crawler_match)) {
     $_GET['playlist'] = (int)$crawler_match[1];
-    $_SERVER['SCRIPT_NAME'] = $prefix . '/ogp.php';
+    $_SERVER['SCRIPT_NAME'] = '/tunedrop/ogp.php';
     $_SERVER['PHP_SELF'] = $_SERVER['SCRIPT_NAME'];
     $_SERVER['SCRIPT_FILENAME'] = __DIR__ . '/ogp.php';
     require __DIR__ . '/ogp.php';
@@ -212,6 +251,10 @@ header('Content-Type: ' . tunedrop_asset_mime($file));
 // .htaccess と同じキャッシュ方針 (assets/ はファイル名が内容に紐づくので長く持たせる)。
 if (str_starts_with($path, '/assets/')) {
     header('Cache-Control: public, max-age=31536000, immutable');
+} elseif ($path === '/sw.js') {
+    // Service Worker は更新をすぐ拾わせたいので毎回再検証させる
+    // (長くキャッシュすると、復旧用の修正が届かない)。
+    header('Cache-Control: no-cache, must-revalidate');
 } elseif ($path === '/' || str_ends_with($path, '.html') || preg_match($spa_route_pattern, $path)) {
     // HTML は URL が固定で、ビルドのたびに中身と参照する assets が変わる。
     // ブラウザには毎回 ETag で再検証させ (変わっていなければ 304 で本文ゼロ)、

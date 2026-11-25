@@ -126,7 +126,7 @@ show_status() {
     local_port="$(tr -dc '0-9' < "$DIR/../.web_port" 2>/dev/null)"
     [ -n "$local_port" ] || local_port=8888
     echo -n "ローカル: "
-    curl -s -m 3 "http://127.0.0.1:${local_port}/api.php?action=health" || echo -n "PHP(${local_port}) に接続できません（./start.sh で起動してください）"
+    curl -s -m 3 "http://127.0.0.1:${local_port}/tunedrop/api.php?action=health" || echo -n "PHP(${local_port}) に接続できません（./start.sh で起動してください）"
     echo
     echo -n "公開URL : "
     curl -s -m 8 -o /dev/null -w '%{http_code}' "$HEALTH_URL" 2>/dev/null || echo -n "（未接続）"

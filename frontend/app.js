@@ -3,8 +3,11 @@
 let tunedropApiPromise;
 let tunedropGuestPromise;
 let tunedropGuestRefreshAt = 0;
+// API 接続先の解決に一度でも成功したか。起動後の一時的な切断は画面全体を
+// 覆わず、細いバナーだけで自動復帰させる (showConnectionBanner)。
+let tunedropBooted = false;
 
-export async function resolveTunedropApi() {
+export async function resolveTunedropApi(recoverable = false) {
     const config = window.TUNEDROP_CONFIG || {};
     // 画面を静的配信 (VS Code Live Server 等) から開くと、同じoriginにはPHPが無い
     // (Live Server はPHPを実行できない)。./start.sh の Webサーバーは 8888 が使用中だと
@@ -36,6 +39,7 @@ export async function resolveTunedropApi() {
             const supportsGuestAuth = Array.isArray(data.features) && data.features.includes('auth_guest');
             if (data.service === 'TuneDrop PHP API' && data.status === 'ok' && supportsGuestAuth) {
                 url.search = '';
+                tunedropBooted = true;
                 return url;
             }
         } catch (_) {
@@ -45,14 +49,48 @@ export async function resolveTunedropApi() {
         }
     }
     // サーバー停止中・メンテナンス中は画面全体で案内する
-    // (各画面のトーストだけだと、何が起きたのか分かりにくい)
-    showMaintenanceScreen();
+    // (各画面のトーストだけだと、何が起きたのか分かりにくい)。
+    // 起動後に落ちた場合は reportConnectionLoss がバナーへ切り替える。
+    if (!recoverable) reportConnectionLoss();
     throw new Error('APIに接続できません。./start.sh (PHPビルトインサーバー) を実行し、接続先 (既定: http://localhost:8888/api.php) と公開フォルダを確認してください。');
 }
 
+// 一時的な失敗 (回線瞬断 / Cloudflare の 502・504 / MySQL 再起動中など) は
+// ユーザーにエラーを見せず、短い間隔で自動再試行する。二重実行の事故を避けるため
+// 再試行するのは GET / HEAD だけ (POST は作成系があるため呼び出し側の判断に任せる)。
+const RETRYABLE_STATUSES = new Set([502, 504, 521, 522, 523, 524]);
+const DEFAULT_RETRY_DELAYS = [400, 1200, 2500];
+
+function retryDelays() {
+    const config = window.TUNEDROP_CONFIG || {};
+    return Array.isArray(config.retryDelays) ? config.retryDelays : DEFAULT_RETRY_DELAYS;
+}
+
+function retryWait(ms) {
+    return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function isAbortError(error) {
+    return Boolean(error && (error.name === 'AbortError' || error.code === 20));
+}
+
+function canRetryRequest(fetchOptions) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    if (fetchOptions.signal && fetchOptions.signal.aborted) return false;
+    return true;
+}
+
+// 起動に失敗したとき (画面が組み立てられない) は全面の案内、
+// 起動後に失敗したときは再生や入力を止めない細いバナーにする。
+function reportConnectionLoss(message) {
+    if (tunedropBooted) showConnectionBanner(message);
+    else showMaintenanceScreen(message);
+}
+
 export async function tunedropFetch(path, options) {
+    const { recoverable = false, retry = null, ...fetchOptions } = options || {};
     if (!tunedropApiPromise) {
-        tunedropApiPromise = resolveTunedropApi().catch(error => {
+        tunedropApiPromise = resolveTunedropApi(recoverable).catch(error => {
             tunedropApiPromise = null;
             throw error;
         });
@@ -63,17 +101,46 @@ export async function tunedropFetch(path, options) {
     const headers = new Headers(options && options.headers ? options.headers : undefined);
     const accountToken = localStorage.getItem('tunedrop_token');
     const isAuthRequest = new URL(path, window.location.href).searchParams.get('action') === 'auth';
-    const token = accountToken || (isAuthRequest ? null : await ensureTunedropGuest(url));
+    let token = accountToken || null;
+    if (!token && !isAuthRequest) {
+        try {
+            token = await ensureTunedropGuest(url);
+        } catch (error) {
+            // 認証サーバーだけ落ちている/回線が切れている場合も同じ案内にする
+            // (ここで抜けると、画面には何も出ず操作だけ失敗して見える)。
+            if (!recoverable) reportConnectionLoss();
+            throw error;
+        }
+    }
     if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
+    const method = String(fetchOptions.method || 'GET').toUpperCase();
+    const safeMethod = method === 'GET' || method === 'HEAD';
+    const retryLimit = safeMethod ? Math.max(0, retry === null ? 2 : Number(retry) || 0) : 0;
+    const delays = retryDelays();
     let response;
-    try {
-        response = await fetch(url, Object.assign({}, options, { headers }));
-    } catch (error) {
-        showMaintenanceScreen();
-        throw error;
+    for (let attempt = 0; ; attempt++) {
+        try {
+            response = await fetch(url, Object.assign({}, fetchOptions, { headers }));
+        } catch (error) {
+            if (attempt < retryLimit && !isAbortError(error) && canRetryRequest(fetchOptions)) {
+                await retryWait(delays[Math.min(attempt, delays.length - 1)]);
+                continue;
+            }
+            if (!recoverable) reportConnectionLoss();
+            throw error;
+        }
+        // サーバーには届いている (503 のメンテナンス等) ので、バナーは解除しておく。
+        if (reconnectBannerShown) hideConnectionBanner(connectionNoticeWanted());
+        if (response.status === 503) break;   // メンテナンス判定は下で行う (再試行しない)
+        if (attempt < retryLimit && RETRYABLE_STATUSES.has(response.status) && canRetryRequest(fetchOptions)) {
+            await retryWait(delays[Math.min(attempt, delays.length - 1)]);
+            continue;
+        }
+        break;
     }
     if (!response.headers.get('content-type')?.includes('application/json')) {
         tunedropApiPromise = null;
+        if (!recoverable) reportConnectionLoss('サーバーの応答が不正です。再接続しています…');
         throw new Error('APIからJSONが返りません。PHPサーバー (./start.sh) の状態と config.js を確認してください。');
     }
     // メンテナンス中は API が 503 + { maintenance: true } を返す。
@@ -102,6 +169,8 @@ let maintenanceChecking = false;
 
 export function showMaintenanceScreen(message) {
     if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+    // 全面の案内を出すときはバナーは不要 (二重表示を防ぐ)。
+    if (reconnectBannerShown) hideConnectionBanner(false);
     const overlay = document.getElementById('maintenance-overlay');
     if (!overlay) return;
     const alreadyVisible = !overlay.hidden;
@@ -169,6 +238,168 @@ export async function retryMaintenance() {
         // 停止中
     }
     if (note) note.textContent = 'まだ接続できません。時間をおいてもう一度お試しください。';
+}
+
+// ==========================================================
+// 接続断バナー / 自動再接続
+// ----------------------------------------------------------
+// 起動自体に失敗したときは画面全体の案内 (showMaintenanceScreen) を出すが、
+// アプリが動き出した後の通信失敗で画面を覆うと、再生中の曲や入力が止まって
+// しまう。その場合は上部の細いバナーだけを出し、指数バックオフ (2→4→8→15→30秒)
+// で health を確認して、復旧したら再読み込みせずに元の画面へ戻す。
+// オフライン復帰 (online イベント) では即座に確認する。
+// ==========================================================
+const RECONNECT_DELAYS = [2000, 4000, 8000, 15000, 30000];
+const RECONNECT_NOTICE_AFTER_MS = 3000;
+let reconnectTimer = null;
+let reconnectAttempt = 0;
+let reconnectChecking = false;
+let reconnectBannerShown = false;
+let reconnectShownAt = 0;
+
+function connectionBannerElements() {
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return null;
+    const banner = document.getElementById('connection-banner');
+    if (!banner) return null;
+    return { banner, text: document.getElementById('connection-text') };
+}
+
+// バナーがしばらく出ていた場合だけ「再接続しました」を通知する
+// (一瞬の瞬断でトーストが連発しないようにする)。
+function connectionNoticeWanted() {
+    return reconnectShownAt > 0 && Date.now() - reconnectShownAt >= RECONNECT_NOTICE_AFTER_MS;
+}
+
+export function showConnectionBanner(message) {
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+    const elements = connectionBannerElements();
+    if (!elements) return;
+    if (!reconnectBannerShown) reconnectShownAt = Date.now();
+    reconnectBannerShown = true;
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (elements.text) {
+        elements.text.textContent = message || (offline
+            ? 'オフラインです。接続が戻ると自動で復帰します。'
+            : 'サーバーに接続できません。自動で再接続しています…');
+    }
+    elements.banner.hidden = false;
+    elements.banner.classList.add('is-reconnecting');
+    if (document.body && document.body.classList) document.body.classList.add('connection-lost');
+    scheduleReconnectCheck(offline ? RECONNECT_DELAYS[0] : undefined);
+}
+
+export function hideConnectionBanner(notice = false) {
+    if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+        const elements = connectionBannerElements();
+        if (elements) {
+            elements.banner.hidden = true;
+            elements.banner.classList.remove('is-reconnecting');
+        }
+        if (document.body && document.body.classList) document.body.classList.remove('connection-lost');
+    }
+    reconnectBannerShown = false;
+    reconnectAttempt = 0;
+    reconnectShownAt = 0;
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    if (notice) {
+        showToast('再接続しました。', 'success');
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function'
+            && typeof CustomEvent === 'function') {
+            // 画面側で必要なデータだけ取り直せるようにする (再生は止めない)。
+            window.dispatchEvent(new CustomEvent('tunedrop:reconnected'));
+        }
+    }
+}
+
+function scheduleReconnectCheck(delay) {
+    if (reconnectTimer || typeof setTimeout !== 'function') return;
+    const wait = delay != null
+        ? delay
+        : RECONNECT_DELAYS[Math.min(reconnectAttempt, RECONNECT_DELAYS.length - 1)];
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        checkConnectionRecovery();
+    }, wait);
+}
+
+async function checkConnectionRecovery() {
+    if (reconnectChecking) {
+        scheduleReconnectCheck(RECONNECT_DELAYS[0]);
+        return;
+    }
+    reconnectChecking = true;
+    const elements = connectionBannerElements();
+    if (elements && elements.text && reconnectBannerShown) {
+        elements.text.textContent = 'サーバーに接続できません。再接続を試しています…';
+        elements.banner.classList.add('is-reconnecting');
+    }
+    let recovered = false;
+    let inMaintenance = false;
+    let maintenanceMessage = '';
+    try {
+        // サーバー再起動でポートが変わった場合にも追従する (接続先を再探索)。
+        tunedropApiPromise = null;
+        const api = await resolveTunedropApi(true);
+        const response = await fetch(new URL('api.php?action=health', api.href), { cache: 'no-store' });
+        if (response.ok) {
+            const data = await response.json();
+            recovered = Boolean(data && data.status === 'ok');
+        } else if (response.status === 503) {
+            // 復旧したがメンテナンス中: 全面の案内 (再読み込み付き) に切り替える。
+            const data = await response.json().catch(() => null);
+            if (data && data.maintenance === true) {
+                inMaintenance = true;
+                maintenanceMessage = data.message || data.error || '';
+            }
+        }
+    } catch (_) {
+        recovered = false;
+    } finally {
+        reconnectChecking = false;
+    }
+    if (inMaintenance) {
+        hideConnectionBanner(false);
+        showMaintenanceScreen(maintenanceMessage);
+        return;
+    }
+    if (recovered) {
+        hideConnectionBanner(connectionNoticeWanted());
+        return;
+    }
+    reconnectAttempt += 1;
+    scheduleReconnectCheck();
+}
+
+// 再試行ボタン (index.html の onclick)。待たずに今すぐ確認する。
+export async function retryConnection() {
+    const elements = connectionBannerElements();
+    if (elements && elements.text) elements.text.textContent = '接続を確認しています…';
+    reconnectAttempt = 0;
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    await checkConnectionRecovery();
+}
+
+// 起動時に1回だけ呼ぶ (DOMContentLoaded)。オンライン復帰を即座に拾う。
+export function initConnectionRecovery() {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+    window.addEventListener('online', () => {
+        if (!reconnectBannerShown) return;
+        reconnectAttempt = 0;
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+        checkConnectionRecovery();
+    });
+    window.addEventListener('offline', () => {
+        showConnectionBanner('オフラインです。接続が戻ると自動で復帰します。');
+    });
 }
 
 // セッション切れの案内は1回だけ出す (並行リクエストで連続表示しない)
@@ -1399,7 +1630,9 @@ export function goToHome() {
 //   /help         … ヘルプ
 //   /playlist/12  … プレイリスト詳細
 //   /user/12      … ユーザープロフィール
-// 本番は /tunedrop/ 配下で配信されるため、そのプレフィックスは basePath として保持する。
+// 正規URLはホスト直下 (/)。旧 /tunedrop/ 配下の URL はサーバー (router.php) が
+// 301 でルートへ移動する。ここでは旧URLを解釈できるようにしておき、
+// キャッシュされた古い画面からでも壊れないようにする。
 // 旧ハッシュ (#manager / #/manager) は起動時にパスへ移行する。
 // ==========================================================
 const ROUTE_VIEW = {
@@ -1419,7 +1652,9 @@ export function parseLocationPath() {
     const rawPath = String((window.location && window.location.pathname) || '/');
     const cleanPath = rawPath.replace(/\/index\.html?$/i, '/');
     const baseMatch = cleanPath.match(SITE_BASE_PATTERN);
-    const basePath = baseMatch ? '/' + baseMatch[1] + '/' : '/';
+    // 正規URLは /tunedrop/ (小文字)。大文字 (/Tunedrop/) で開かれても
+    // 内部リンク・共有URL・pushState は正規の小文字パスへ揃える。
+    const basePath = baseMatch ? '/tunedrop/' : '/';
     const rest = baseMatch ? cleanPath.slice(baseMatch[0].length) : cleanPath.replace(/^\//, '');
     const segments = rest.split('/').filter(Boolean);
     const route = segments[0] && ROUTE_VIEW[segments[0]] ? segments[0] : 'manager';
@@ -5434,7 +5669,7 @@ export function radarTooltipHtml(track) {
 // バックエンドは 12時間キャッシュしているため、通常は即座に返る。
 export async function fetchRadarRecommend() {
     try {
-        const res = await tunedropFetch('api.php?action=radar_recommend');
+        const res = await tunedropFetch('api.php?action=radar_recommend', { recoverable: true });
         const rec = await res.json();
         if (rec && rec.success && Array.isArray(rec.order)) {
             return { order: rec.order, taste: rec.taste || '' };
@@ -5477,6 +5712,27 @@ export function spreadLegacyRadarMap(data) {
 
 let radarLoadGeneration = 0;
 
+// 一時的な切断・プロキシエラーは1回だけ再試行。古い要求は再試行しない。
+export async function fetchRadarMapData(generation) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 25000);
+        try {
+            const response = await tunedropFetch('api.php?action=radar_map', {
+                recoverable: true, signal: controller.signal,
+            });
+            const data = await response.json();
+            if (![502, 503, 504].includes(response.status) || data.maintenance || attempt) return data;
+        } catch (error) {
+            if (attempt || generation !== radarLoadGeneration) throw error;
+        } finally {
+            clearTimeout(timer);
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (generation !== radarLoadGeneration || !hasAccountSession()) return null;
+    }
+}
+
 export async function loadRadarData() {
     // 未ログイン (デモ表示) ではAPIを呼ばない
     if (!hasAccountSession()) return;
@@ -5487,10 +5743,11 @@ export async function loadRadarData() {
     if (hud && !vibeMapData.length) hud.textContent = '楽曲マップを読み込み中…';
     try {
         // マップをおすすめと並列に取得する (おすすめは12時間キャッシュで即返る)。
-        const mapPromise = tunedropFetch('api.php?action=radar_map').then(r => r.json());
+        const mapPromise = fetchRadarMapData(generation);
         const recPromise = fetchRadarRecommend();
-        const data = spreadLegacyRadarMap(await mapPromise);
-        if (generation !== radarLoadGeneration) return;
+        const rawData = await mapPromise;
+        if (generation !== radarLoadGeneration || !rawData) return;
+        const data = spreadLegacyRadarMap(rawData);
         if (!data.success && data.error) {
             if (hud) hud.textContent = data.error;
             return;
@@ -7333,7 +7590,7 @@ export function renderDetailMeta(trackCount, listData) {
 export function playlistShareUrl(playlistId) {
     try {
         // /playlist/12 から相対解決すると /playlist/ogp.php になってしまうため、
-        // サイトの basePath (/tunedrop/ など) を基準にする。
+        // 正規の公開パス (/Tunedrop/、開発時は /) を基準にする。
         const { basePath } = parseLocationPath();
         const url = new URL('ogp.php', window.location.origin + basePath);
         url.searchParams.set('playlist', playlistId);
@@ -8932,6 +9189,7 @@ export async function loadSharePlaylists() {
     const grid = document.getElementById('share-playlists-grid');
     if (!grid) return;
     grid.innerHTML = '<div class="share-loading"><span class="share-spinner"></span>みんなのプレイリストを探しています…</div>';
+    let loadFailed = false;
     try {
         const fetches = [
             tunedropFetch('api.php?action=get_public_playlists'),
@@ -8971,6 +9229,9 @@ export async function loadSharePlaylists() {
             allBookmarks = Array.isArray(myBookmarks) ? myBookmarks : [];
         } catch (_) { allBookmarks = []; }
     } catch (err) {
+        // 再試行ボタンを出した直後に renderSharePlaylists が空表示で上書きしないよう、
+        // 失敗したことを覚えておく (読み込めていないのに「リストがありません」に見える事故)。
+        loadFailed = true;
         grid.innerHTML = '<div class="ui-load-error" role="status"><strong>公開リストを読み込めませんでした</strong><p>接続を確認して、もう一度お試しください。</p><button type="button" class="btn ytm-retry-btn" onclick="loadSharePlaylists()"><span class="material-symbols-rounded">refresh</span> 再試行</button></div>';
         console.error('loadSharePlaylists error:', err);
     }
@@ -8981,7 +9242,10 @@ export async function loadSharePlaylists() {
     try { renderYTMReplayShelf(); } catch (e) { console.warn('renderYTMReplayShelf error:', e); }
     try { renderYTMWeekend(); } catch (e) { console.warn('renderYTMWeekend error:', e); }
     try { renderShareMixes(); } catch (e) { console.warn('renderShareMixes error:', e); }
-    try { renderSharePlaylists(); } catch (e) { console.error('renderSharePlaylists error:', e); }
+    if (!loadFailed) {
+        // 取得に失敗したときは、上で出した再試行ボタンを残す。
+        try { renderSharePlaylists(); } catch (e) { console.error('renderSharePlaylists error:', e); }
+    }
 }
 if (typeof window !== 'undefined') window.loadSharePlaylists = loadSharePlaylists;
 
@@ -9576,6 +9840,8 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener("DOMContentLoaded", () => {
     const reload = document.getElementById('update-reload');
     if (reload) reload.addEventListener('click', () => window.location.reload());
+    // 通信断からの自動復帰 (オンライン復帰の即時検知 + バナーの再試行ボタン)
+    initConnectionRecovery();
     // 開きっぱなしのタブでも気づけるよう、起動から少し待って1回確認する
     setTimeout(scheduleUpdateCheck, 30000);
     // head 内のスタブ経由で先行発火した外部スクリプトをここで回収する

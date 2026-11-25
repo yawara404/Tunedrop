@@ -7296,6 +7296,92 @@ body.maintenance-open {
 }
 
 /* ==========================================================
+   接続断バナー (画面全体は覆わない)
+   ----------------------------------------------------------
+   起動後の一時的な通信断で使う。細い帯を上部に出し、復旧したら
+   app.js が自動で消す。再生中の曲や入力は止めない。
+   ========================================================== */
+.connection-banner {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9998;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100vw - 24px);
+    padding: 9px 14px;
+    border: 1px solid rgba(212, 225, 87, 0.35);
+    border-radius: 999px;
+    background: rgba(24, 24, 20, 0.96);
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+}
+
+.connection-banner[hidden] {
+    display: none;
+}
+
+.connection-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff7a59;
+}
+
+.connection-banner.is-reconnecting .connection-dot {
+    animation: connection-pulse 1.2s ease-in-out infinite;
+}
+
+.connection-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.connection-retry {
+    flex: 0 0 auto;
+    padding: 5px 12px;
+    border: none;
+    border-radius: 999px;
+    background: var(--accent-color);
+    color: #14160a;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.connection-retry:active {
+    transform: scale(0.98);
+}
+
+@keyframes connection-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.8); }
+}
+
+@media (max-width: 600px) {
+    .connection-banner {
+        top: auto;
+        bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+        font-size: 11px;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+
+    .connection-text {
+        white-space: normal;
+    }
+}
+
+/* ==========================================================
    ログイン専用 / 未ログインの初期ビュー (デモ)
    ----------------------------------------------------------
    未ログインのときは #view-welcome だけを表示する。
@@ -9933,6 +10019,73 @@ button:disabled { cursor: not-allowed; }
 
 .demo-page .welcome-footnote {
     margin-top: 22px;
+}
+
+/* FAQ (トップページのよくある質問)
+   details/summary なので JavaScript 無効でも開閉でき、本文はHTMLに含まれる
+   (検索エンジンが FAQPage 構造化データと本文の両方を読める)。 */
+.demo-faq {
+    margin-top: 30px;
+}
+
+.demo-faq-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.demo-faq-item {
+    padding: 14px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.demo-faq-item summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+    list-style: none;
+}
+
+.demo-faq-item summary::-webkit-details-marker {
+    display: none;
+}
+
+.demo-faq-item summary::after {
+    content: '+';
+    float: right;
+    margin-left: 10px;
+    color: var(--text-sub);
+}
+
+.demo-faq-item[open] summary::after {
+    content: '−';
+}
+
+.demo-faq-item p {
+    margin: 10px 0 0;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text-sub);
+}
+
+.demo-faq-more {
+    margin: 12px 0 0;
+}
+
+.welcome-footnote-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+}
+
+@media (max-width: 720px) {
+    .demo-faq-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .tone-other {

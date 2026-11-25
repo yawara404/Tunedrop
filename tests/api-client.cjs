@@ -10,6 +10,7 @@ const appStart = bundled.indexOf('let player;');
 const source = bundled.slice(apiStart, appStart);
 
 // 接続先候補とその応答を模した実行環境を作る (scenario と異常系テストで共用)。
+// reply.status で HTTP ステータス、配列で「1回目は失敗、2回目は成功」を表せる。
 function makeContext(page, replies, options = {}) {
     const calls = [];
     const saved = new Map();
@@ -19,9 +20,19 @@ function makeContext(page, replies, options = {}) {
         localStorage: { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value) },
         fetch: async (url, init) => {
             calls.push({ url: url.href, init });
-            const reply = replies[url.href];
-            if (!reply) throw new Error(`Unexpected request: ${url}`);
-            return { ok: true, headers: { get: () => reply.type || 'application/json' }, json: async () => reply.data };
+            let reply = replies[url.href];
+            if (!reply) throw new TypeError(`Failed to fetch: ${url}`);
+            if (Array.isArray(reply)) reply = reply.length > 1 ? reply.shift() : reply[0];
+            const status = reply.status || 200;
+            const type = reply.type || 'application/json';
+            const response = {
+                ok: status >= 200 && status < 300,
+                status,
+                headers: { get: name => (String(name).toLowerCase() === 'content-type' ? type : null) },
+                json: async () => reply.data,
+                clone() { return { ...response, clone: response.clone }; },
+            };
+            return response;
         }
     });
     vm.runInContext(source, context);
@@ -80,5 +91,55 @@ const staleHealth = { data: { status: 'ok', service: 'TuneDrop PHP API' } };
         await assert.rejects(vm.runInContext('resolveTunedropApi()', context), /APIに接続できません/);
         assert.equal(calls.filter(call => call.url.includes('endpoint=guest')).length, 0);
     }
-    console.log('PASS: PHP source fallback, custom URL, POST forwarding, cached discovery, alternate port discovery, stale API rejection');
+    // Radarの一時的な通信失敗は画面全体を覆わず、通常のAPIエラー表示は維持する。
+    {
+        const { calls, saved, context } = makeContext('http://localhost:8888/', {
+            'http://localhost:8888/api.php?action=health': health,
+        }, { retryDelays: [1, 1] });
+        saved.set('tunedrop_token','account-jwt');
+        let maintenance=0, banners=0;
+        context.showMaintenanceScreen=()=>{maintenance++;};
+        context.showConnectionBanner=()=>{banners++;};
+        await assert.rejects(vm.runInContext("tunedropFetch('api.php?action=radar_map', {recoverable:true})",context));
+        assert.equal(maintenance,0);
+        assert.equal(banners,0);
+        assert.equal('recoverable' in calls.at(-1).init,false);
+        // 起動後 (health 解決済み) の切断は再生を止めないバナーだけを出す
+        await assert.rejects(vm.runInContext("tunedropFetch('api.php?action=radar_map')",context));
+        assert.equal(maintenance,0);
+        assert.equal(banners,1);
+        // GET は 2回まで自動再試行する (1回の呼び出しで最大3回)
+        assert.equal(calls.filter(call => call.url.includes('action=radar_map')).length, 6);
+    }
+    // 一時的な 502 は GET だけ自動で再試行する (POST は二重作成を避けて再試行しない)。
+    {
+        const { calls, saved, context } = makeContext('http://localhost:8888/', {
+            'http://localhost:8888/api.php?action=health': health,
+            'http://localhost:8888/api.php?action=radar_map': [
+                { status: 502, data: { status: 'error' } },
+                { status: 502, data: { status: 'error' } },
+                { status: 200, data: { success: true } }
+            ]
+        }, { retryDelays: [1, 1] });
+        saved.set('tunedrop_token','account-jwt');
+        const response = await vm.runInContext("tunedropFetch('api.php?action=radar_map')",context);
+        assert.equal((await response.json()).success, true);
+        assert.equal(response.status, 200);
+        assert.equal(calls.filter(call => call.url.includes('action=radar_map')).length, 3);
+    }
+    {
+        const { calls, saved, context } = makeContext('http://localhost:8888/', {
+            'http://localhost:8888/api.php?action=health': health,
+            'http://localhost:8888/api.php?action=create_playlist': [
+                { status: 502, data: { status: 'error' } },
+                { status: 200, data: { success: true } }
+            ]
+        }, { retryDelays: [1, 1] });
+        saved.set('tunedrop_token','account-jwt');
+        const response = await vm.runInContext(
+            "tunedropFetch('api.php?action=create_playlist', {method: 'POST', body: '{}'})", context);
+        assert.equal(response.status, 502);
+        assert.equal(calls.filter(call => call.url.includes('action=create_playlist')).length, 1);
+    }
+    console.log('PASS: PHP source fallback, custom URL, POST forwarding, cached discovery, alternate port discovery, stale API rejection, retry/reconnect policy');
 })().catch(error => { console.error(error); process.exitCode = 1; });

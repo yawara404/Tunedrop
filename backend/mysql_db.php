@@ -35,10 +35,27 @@ function tunedrop_mysql_db(): PDO {
         throw new RuntimeException('MySQL host, database and user must be configured.');
     }
     $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
-    return new PDO($dsn, $user, getenv('TUNEDROP_MYSQL_PASSWORD') ?: '', [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => true,
-        PDO::ATTR_TIMEOUT => 5,
-    ]);
+    // MySQL の再起動・瞬断で1回失敗しただけで API を 500 にしないよう、短い間隔で
+    // 接続をやり直す。待ち時間は 1回目 150ms、2回目 300ms ... (既定 3回試行)。
+    //   TUNEDROP_MYSQL_CONNECT_RETRIES     試行回数 (既定 3)
+    //   TUNEDROP_MYSQL_CONNECT_RETRY_DELAY_MS  初回の待ち時間ミリ秒 (既定 150)
+    $attempts = (int)(getenv('TUNEDROP_MYSQL_CONNECT_RETRIES') ?: 3);
+    if ($attempts < 1) $attempts = 1;
+    $delay_ms = max(0, (int)(getenv('TUNEDROP_MYSQL_CONNECT_RETRY_DELAY_MS') ?: 150));
+    $last = null;
+    for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        try {
+            return new PDO($dsn, $user, getenv('TUNEDROP_MYSQL_PASSWORD') ?: '', [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => true,
+                PDO::ATTR_TIMEOUT => 5,
+            ]);
+        } catch (PDOException $error) {
+            $last = $error;
+            if ($attempt >= $attempts) break;
+            if ($delay_ms > 0) usleep($delay_ms * 1000 * $attempt);
+        }
+    }
+    throw $last ?: new RuntimeException('MySQL connection failed.');
 }

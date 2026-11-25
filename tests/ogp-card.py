@@ -62,8 +62,8 @@ with tempfile.TemporaryDirectory() as directory:
 
     # IDなし (トップページ共有) もサイト共通カードを返す
     top = render(None)
-    assert '<meta property="og:title" content="Tune drop — 音楽で触れ合うブックマーク">' in top
-    assert '雰囲気マップ（Radar）での発掘や公開リスト（Share）の共有' in top
+    assert '<meta property="og:title" content="Tune drop｜YouTubeの曲を保存・整理できる無料音楽プレイリストアプリ">' in top
+    assert 'AI×音源解析の2D雰囲気マップ「Radar」で好みの曲を発掘' in top
     assert '<meta property="og:image:width" content="1200">' in top
     assert '<meta property="og:image:height" content="630">' in top
     assert '<meta property="og:image:secure_url" content="https://example.test/tunedrop/frontend/ogp-card.png?v=' in top
